@@ -26,7 +26,7 @@ from typing import AsyncGenerator, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 
 import db as db_module
 import mqtt_bridge
@@ -34,6 +34,7 @@ import cv_watcher
 import oee as oee_module
 import progress as progress_module
 import score as score_module
+import shift_report as shift_report_module
 from db import DB_PATH, init_db
 
 log = logging.getLogger("main")
@@ -237,6 +238,13 @@ def get_job_progress(job_name: str):
 def get_daily_score():
     conn = _get_conn()
     return vars(score_module.get_daily_score(conn))
+
+
+@app.get("/report/shift", response_class=HTMLResponse)
+def get_shift_report(date: Optional[str] = None):
+    conn   = _get_conn()
+    report = shift_report_module.build(conn, date)
+    return shift_report_module.render_html(report)
 
 
 @app.get("/oee")

@@ -150,13 +150,21 @@ export default function App() {
           </div>
         )}
 
-        <button onClick={toggleDemo} style={{
-          background: demoRef.current ? "#7f1d1d" : "#1f2937",
-          border: "1px solid #374151", color: "#f9fafb",
-          padding: "7px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
-        }}>
-          {demoRef.current ? "■ Stop Demo" : "▶ Demo Mode"}
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => window.open("/api/report/shift", "_blank")} style={{
+            background: "#1f2937", border: "1px solid #374151", color: "#f9fafb",
+            padding: "7px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
+          }}>
+            ⬇ Shift Report
+          </button>
+          <button onClick={toggleDemo} style={{
+            background: demoRef.current ? "#7f1d1d" : "#1f2937",
+            border: "1px solid #374151", color: "#f9fafb",
+            padding: "7px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
+          }}>
+            {demoRef.current ? "■ Stop Demo" : "▶ Demo Mode"}
+          </button>
+        </div>
       </div>
 
       {/* ── Daily Score ── */}
