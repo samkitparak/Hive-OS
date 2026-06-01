@@ -1,0 +1,22 @@
+# Ideal cycle time per machine in SECONDS per part.
+# Leave as 0 until you've timed real cycles on-site.
+# Used for: job ETA calculation and OEE Performance metric.
+#
+# How to measure: time 10 consecutive parts on each machine,
+# take the median. Exclude first part (warmup).
+
+cycle_times:
+  gabbiani_pt80:    0   # Beam Saw — varies by sheet size
+  nova_si400:       0   # Panel Saw
+  morbidelli_cx100: 0   # CNC Driller — varies by program
+  morbidelli_n100:  0   # Flat Bed Router
+  stefani_kd:       0   # Edge Bander
+  sergiani_gs120:   0   # Hot Press
+  varie_osama:      0   # Glueing Line
+  dmc60_rcs135:     0   # Calibration Sander
+  dmc90_xrt135:     0   # Finishing Sander
+  superfici:        0   # Paint Line
+
+# Shift config
+shift_hours: 9          # HAEEV runs 9-hour days
+shift_start: "09:00"    # local time — update if shift varies

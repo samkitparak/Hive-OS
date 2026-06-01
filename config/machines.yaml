@@ -1,0 +1,122 @@
+# HIVE OS — machine configuration
+# Fill in real values when on-site in India.
+# energy_meter section covers compressors + dust collectors (current clamp → Modbus energy meter)
+
+mqtt:
+  broker_host: "127.0.0.1"   # replace with central broker IP on factory LAN
+  broker_port: 1883
+  keepalive: 60
+  topic_prefix: "hive/machines"
+
+# Thresholds for current-clamp state detection.
+# on_threshold_w:   above this = machine is ON and loaded
+# idle_threshold_w: above this but below on = machine is running unloaded
+# Below idle = OFF
+energy_defaults:
+  on_threshold_w: 2000
+  idle_threshold_w: 300
+  poll_interval_s: 5
+
+energy_meters:
+  - machine_key: elgi_1
+    label: "Elgi Compressor 1"
+    modbus_host: "192.168.1.51"   # replace with real IP
+    modbus_port: 502
+    unit_id: 1
+    on_threshold_w: 5000
+    idle_threshold_w: 500
+
+  - machine_key: elgi_2
+    label: "Elgi Compressor 2"
+    modbus_host: "192.168.1.52"
+    modbus_port: 502
+    unit_id: 1
+    on_threshold_w: 5000
+    idle_threshold_w: 500
+
+  - machine_key: aarco_1
+    label: "Aarco Dust Collector 1"
+    modbus_host: "192.168.1.53"
+    modbus_port: 502
+    unit_id: 1
+    on_threshold_w: 2000
+    idle_threshold_w: 300
+
+  - machine_key: aarco_2
+    label: "Aarco Dust Collector 2"
+    modbus_host: "192.168.1.54"
+    modbus_port: 502
+    unit_id: 1
+    on_threshold_w: 2000
+    idle_threshold_w: 300
+
+# ── INDIA TODO ──────────────────────────────────────────────────────────────
+# For each machine below:
+#   log_folder:  real path on that machine's Windows PC (e.g. C:\SCM\Maestro\Logs)
+#   cnc_folder:  folder Maestro reads .xcs files from (Morbidelli only)
+#   host:        IP of that machine PC on factory LAN
+# See INDIA_CHECKLIST.md → "Maestro Log Watcher" section
+# ─────────────────────────────────────────────────────────────────────────────
+maestro_agents:
+  - machine_key: stefani_kd
+    label: "Stefani KD Edge Bander"
+    host: "192.168.1.101"       # TODO: replace with real IP
+    log_folder: "C:\\SCM\\Maestro\\Logs"   # TODO: verify on-site
+    cnc_folder: null
+
+  - machine_key: action_e
+    label: "Action E Boxing"
+    host: "192.168.1.102"
+    log_folder: "C:\\SCM\\Maestro\\Logs"
+    cnc_folder: null
+
+  - machine_key: gabbiani_pt80
+    label: "Gabbiani PT 80 Beam Saw"
+    host: "192.168.1.103"
+    log_folder: "C:\\SCM\\Maestro\\Logs"
+    cnc_folder: null
+
+  - machine_key: morbidelli_cx100
+    label: "Morbidelli CX100 CNC Driller"
+    host: "192.168.1.104"
+    log_folder: "C:\\SCM\\Maestro\\Logs"
+    cnc_folder: "C:\\SCM\\Maestro\\CncPrograms"  # TODO: verify — .xcs files live here
+
+  - machine_key: morbidelli_n100
+    label: "Morbidelli N100 Flat Bed Router"
+    host: "192.168.1.105"
+    log_folder: "C:\\SCM\\Maestro\\Logs"
+    cnc_folder: "C:\\SCM\\Maestro\\CncPrograms"
+
+  - machine_key: nova_si400
+    label: "Nova SI 400 Panel Saw"
+    host: "192.168.1.106"
+    log_folder: "C:\\SCM\\Maestro\\Logs"
+    cnc_folder: null
+
+  - machine_key: dmc60_rcs135
+    label: "DMC60 RCS 135 Calibration Sander"
+    host: "192.168.1.107"
+    log_folder: "C:\\SCM\\Maestro\\Logs"
+    cnc_folder: null
+
+  - machine_key: dmc90_xrt135
+    label: "DMC90 XRT 135 Finishing Sander"
+    host: "192.168.1.108"
+    log_folder: "C:\\SCM\\Maestro\\Logs"
+    cnc_folder: null
+
+  - machine_key: superfici
+    label: "Superfici Paint Line"
+    host: "192.168.1.109"
+    log_folder: "C:\\SCM\\Maestro\\Logs"
+    cnc_folder: null
+
+  - machine_key: varie_osama
+    label: "Varie Osama Glueing Line"
+    host: "192.168.1.110"
+    log_folder: "C:\\SCM\\Maestro\\Logs"
+    cnc_folder: null
+
+# Cabinet Vision export folder (office PC)
+cv_watch_folder: "C:\\CabinetVision\\Export"   # TODO: verify on-site
