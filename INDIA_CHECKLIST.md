@@ -68,9 +68,12 @@ File to edit: `src/maestro_agent.py` → `MAESTRO_LOG_PATTERN` and `_parse_log_l
 
 File to edit: `config/machines.yaml` → `cv_watch_folder`
 
-- [ ] Find the Cabinet Vision export folder on the office PC — where it drops new CSVs when a job is sent
-- [ ] Update `cv_watch_folder` path in config
-- [ ] Confirm the office PC IP is reachable from broker PC, or run CV connector on the same machine
+- [ ] Find the Cabinet Vision export folder on the office PC — where it drops new CSVs when a job is sent. Usually something like `C:\CabinetVision\Export` or wherever the operator clicks "Export" to.
+- [ ] Update `cv_watch_folder` in `config/machines.yaml` with the real path
+- [ ] Confirm the office PC is reachable from the broker PC on the factory LAN (or run the backend on the same machine as CV)
+- [ ] Restart the backend — the watcher starts automatically and new jobs will appear in the dashboard within seconds of being exported from CV. No manual ingest needed from this point on.
+
+> The auto-watcher (`src/cv_watcher.py`) debounces rapid file writes so even if CV drops multiple files at once, only one ingest runs. Already-ingested jobs are skipped so re-exporting the same job is safe.
 
 ---
 
@@ -98,5 +101,5 @@ File to edit: `config/machines.yaml` → `cv_watch_folder`
 
 ---
 
-*Last updated: 2026-05-31*
+*Last updated: 2026-06-01*
 *Update this file whenever a new component is built.*
