@@ -30,6 +30,7 @@ from fastapi.responses import StreamingResponse
 
 import db as db_module
 import mqtt_bridge
+import cv_watcher
 import oee as oee_module
 import progress as progress_module
 import score as score_module
@@ -45,19 +46,24 @@ CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 
 _mqtt_client = None
 _conn        = None
+_cv_observer = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _mqtt_client, _conn
+    global _mqtt_client, _conn, _cv_observer
     _conn = init_db(DB_PATH, check_same_thread=False)
     try:
         _mqtt_client = mqtt_bridge.start(_conn, CONFIG_PATH)
         log.info("MQTT bridge started")
     except Exception as e:
         log.warning("MQTT bridge failed to start (no broker?): %s", e)
+    _cv_observer = cv_watcher.start(_conn, CONFIG_PATH)
     asyncio.create_task(_watch_events())
     yield
+    if _cv_observer:
+        _cv_observer.stop()
+        _cv_observer.join()
     if _mqtt_client:
         _mqtt_client.loop_stop()
         _mqtt_client.disconnect()

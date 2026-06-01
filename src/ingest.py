@@ -13,8 +13,9 @@ from cv_parser import ingest_cv_csv
 from beamsaw_parser import parse_beamsaw_txt, update_job_from_beamsaw
 
 
-def ingest_folder(root: Path, db_path=DB_PATH):
-    conn = init_db(db_path)
+def ingest_folder(root: Path, db_path=DB_PATH, conn=None):
+    if conn is None:
+        conn = init_db(db_path)
 
     # Walk all BEAMSAW/BEAM SAW directories
     beamsaw_dirs = [p for p in root.rglob("*") if p.is_dir() and "BEAMSAW" in p.name.upper().replace(" ", "")]
