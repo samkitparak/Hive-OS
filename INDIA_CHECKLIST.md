@@ -39,6 +39,7 @@ File to edit: `src/maestro_agent.py` → `MAESTRO_LOG_PATTERN` and `_parse_log_l
 - [ ] Open the most recent `.log` file, copy 20-30 lines, note the format
 - [ ] Update `_parse_log_line()` in `src/maestro_agent.py` with real regex matching actual log line format
 - [ ] Update `MAESTRO_EVENTS` dict with real event keyword strings from the log
+- [ ] **Ottimo barcode scan:** scan one finished part at packing while the log file is open — note the exact log line that appears (likely `PART_COMPLETE`, `SCAN_OUT`, `QC_OK` or similar). Add that event to `MAESTRO_EVENTS` as `part_complete` — this is what powers the finished goods count in the shift report.
 - [ ] For each machine PC, note the actual log folder path and CNC program folder path
 - [ ] Update `config/machines.yaml` → `maestro_agents` section with real paths and IPs for:
   - [ ] Stefani KD (Edge Bander)
