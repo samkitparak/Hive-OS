@@ -78,6 +78,42 @@ File to edit: `config/machines.yaml` → `cv_watch_folder`
 
 ---
 
+## Cycle Time Calibration (Tier 2 — do after system is stable)
+
+File to edit: `config/cycle_times.yaml`
+
+**Takes ~1 hour per machine. Do this after the system has been running for a few days.**
+
+For each machine, time 20 parts with a stopwatch — vary the sizes and operation types.
+Record in a spreadsheet: `length_mm, width_mm, eb1/2/3/4, cnc_file_back, cnc_file_front, actual_seconds`
+
+Then send the table to Claude and run:
+```
+POST /cycle-times/calibrate?machine_key=gabbiani_pt80
+Body: [list of timed parts]
+```
+Paste the returned coefficients into `config/cycle_times.yaml` for that machine.
+Once calibrated, job ETAs, the sequencer, and bottleneck detection all get real numbers.
+
+**Priority order for calibration** (most impact first):
+- [ ] `morbidelli_cx100` — CNC Driller (most variable, grooves vs no grooves)
+- [ ] `stefani_kd` — Edge Bander (4-edge parts take 4× as long as 1-edge)
+- [ ] `gabbiani_pt80` — Beam Saw (length is the main driver)
+- [ ] `dmc60_rcs135` — Calibration Sander
+- [ ] `dmc90_xrt135` — Finishing Sander
+- [ ] `superfici` — Paint Line
+- [ ] `sergiani_gs120` — Hot Press
+- [ ] `morbidelli_n100` — Flat Bed Router
+- [ ] `nova_si400` — Panel Saw
+- [ ] `varie_osama` — Glueing Line
+
+**What to note per machine:**
+- Does panel size obviously affect cycle time? (yes → length/area coefficients matter)
+- Do grooved parts take noticeably longer on CNC? (yes → groove_coeff matters)
+- Does flipping for front face add significant time? (yes → face_coeff matters)
+
+---
+
 ## Database
 
 - [ ] Decide: keep SQLite or migrate to Postgres (Postgres recommended if >1 user hitting the dashboard)
@@ -102,5 +138,5 @@ File to edit: `config/machines.yaml` → `cv_watch_folder`
 
 ---
 
-*Last updated: 2026-06-01*
+*Last updated: 2026-06-04*
 *Update this file whenever a new component is built.*

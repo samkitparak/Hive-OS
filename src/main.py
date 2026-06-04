@@ -36,6 +36,7 @@ import progress as progress_module
 import score as score_module
 import shift_report as shift_report_module
 import cycle_time as cycle_time_module
+import sequencer as sequencer_module
 from db import DB_PATH, init_db
 
 log = logging.getLogger("main")
@@ -248,6 +249,24 @@ def get_job_cycle_times(job_name: str):
     if not result:
         raise HTTPException(404, f"Job '{job_name}' not found")
     return result
+
+
+@app.get("/sequence")
+def get_sequence(jobs: Optional[str] = None):
+    """
+    Returns optimal job sequence.
+    ?jobs=JOB1,JOB2,JOB3 to sequence specific jobs, omit for all jobs.
+    """
+    conn      = _get_conn()
+    job_list  = [j.strip() for j in jobs.split(",")] if jobs else None
+    plan      = sequencer_module.sequence(conn, job_list)
+    return {
+        "generated_at": plan.generated_at,
+        "total_jobs":   plan.total_jobs,
+        "uncalibrated": plan.uncalibrated,
+        "shift_hours":  plan.shift_hours,
+        "jobs": [vars(j) for j in plan.jobs],
+    }
 
 
 @app.post("/cycle-times/calibrate")

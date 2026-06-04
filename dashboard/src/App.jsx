@@ -1,9 +1,10 @@
 import { useState, useCallback, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, simulateEvent } from "./api";
+import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, simulateEvent } from "./api";
 import { MachineCard } from "./MachineCard";
 import { MachineDetail } from "./MachineDetail";
 import { JobProgress } from "./JobProgress";
+import { JobQueue } from "./JobQueue";
 import { DailyScore } from "./DailyScore";
 import { useSSE } from "./useSSE";
 
@@ -46,6 +47,9 @@ export default function App() {
   });
   const { data: dailyScore = null } = useQuery({
     queryKey: ["dailyScore"], queryFn: fetchDailyScore, refetchInterval: 60000,
+  });
+  const { data: sequence = null } = useQuery({
+    queryKey: ["sequence"], queryFn: fetchSequence, refetchInterval: 120000,
   });
 
   const onEvent = useCallback((ev) => {
@@ -173,6 +177,22 @@ export default function App() {
         <div style={{ fontSize: 11, fontWeight: 700, color: "#4b5563",
                       letterSpacing: 1, marginBottom: 12 }}>TODAY'S SCORE</div>
         <DailyScore data={dailyScore} />
+      </div>
+
+      {/* ── Job Queue ── */}
+      <div style={{ background: "#111827", border: "1px solid #1f2937",
+                    borderRadius: 10, padding: "14px 20px", marginBottom: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between",
+                      alignItems: "center", marginBottom: 12 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#4b5563",
+                        letterSpacing: 1 }}>PRODUCTION QUEUE</div>
+          {sequence?.generated_at && (
+            <div style={{ fontSize: 10, color: "#374151" }}>
+              auto-sequenced · {new Date(sequence.generated_at).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}
+            </div>
+          )}
+        </div>
+        <JobQueue plan={sequence} />
       </div>
 
       {/* ── Machine grid ── */}

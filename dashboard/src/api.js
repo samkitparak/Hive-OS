@@ -18,6 +18,9 @@ export const fetchJobParts = (jobName) =>
 export const fetchActiveJobs = () =>
   fetch(`${BASE}/jobs/active`).then(r => r.json());
 
+export const fetchSequence = () =>
+  fetch(`${BASE}/sequence`).then(r => r.json());
+
 export const fetchDailyScore = () =>
   fetch(`${BASE}/score/daily`).then(r => r.json());
 
