@@ -35,6 +35,7 @@ import oee as oee_module
 import progress as progress_module
 import score as score_module
 import shift_report as shift_report_module
+import cycle_time as cycle_time_module
 from db import DB_PATH, init_db
 
 log = logging.getLogger("main")
@@ -238,6 +239,26 @@ def get_job_progress(job_name: str):
 def get_daily_score():
     conn = _get_conn()
     return vars(score_module.get_daily_score(conn))
+
+
+@app.get("/jobs/{job_name}/cycle-times")
+def get_job_cycle_times(job_name: str):
+    conn = _get_conn()
+    result = cycle_time_module.estimate_job(conn, job_name)
+    if not result:
+        raise HTTPException(404, f"Job '{job_name}' not found")
+    return result
+
+
+@app.post("/cycle-times/calibrate")
+def calibrate_machine(machine_key: str, records: list[dict]):
+    """
+    Fit cycle time coefficients from timing data.
+    Body: list of part dicts with actual_seconds field added.
+    Returns fitted coefficients — paste into config/cycle_times.yaml.
+    """
+    result = cycle_time_module.calibrate(records, machine_key)
+    return result
 
 
 @app.get("/report/shift", response_class=HTMLResponse)

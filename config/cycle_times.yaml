@@ -1,22 +1,88 @@
-# Ideal cycle time per machine in SECONDS per part.
-# Leave as 0 until you've timed real cycles on-site.
-# Used for: job ETA calculation and OEE Performance metric.
+# ── Cycle time model coefficients ────────────────────────────────────────────
 #
-# How to measure: time 10 consecutive parts on each machine,
-# take the median. Exclude first part (warmup).
+# Each machine has a formula:
+#   estimated_seconds = base + (area_m2 * area_coeff) + (per_operation * op_count)
+#
+# HOW TO CALIBRATE ON-SITE (takes ~1 hour per machine):
+#   1. Pick 20 parts that vary in size and operation type
+#   2. Time each one with a stopwatch from load to unload
+#   3. Record: length_mm, width_mm, has_groove, num_cnc_faces, num_eb_edges, actual_seconds
+#   4. Send the table to Claude — coefficients will be fitted automatically
+#
+# Until calibrated, all coefficients are 0 and estimates return None.
+# The system works fine without them — ETAs just show "set cycle times".
+# ─────────────────────────────────────────────────────────────────────────────
 
-cycle_times:
-  gabbiani_pt80:    0   # Beam Saw — varies by sheet size
-  nova_si400:       0   # Panel Saw
-  morbidelli_cx100: 0   # CNC Driller — varies by program
-  morbidelli_n100:  0   # Flat Bed Router
-  stefani_kd:       0   # Edge Bander
-  sergiani_gs120:   0   # Hot Press
-  varie_osama:      0   # Glueing Line
-  dmc60_rcs135:     0   # Calibration Sander
-  dmc90_xrt135:     0   # Finishing Sander
-  superfici:        0   # Paint Line
+shift_hours: 9
+shift_start: "09:00"   # local time
 
-# Shift config
-shift_hours: 9          # HAEEV runs 9-hour days
-shift_start: "09:00"    # local time — update if shift varies
+machines:
+
+  # ── Beam Saw (Gabbiani PT 80) ─────────────────────────────────────────────
+  # Cycle = loading sheet + travel distance + unloading
+  # Main driver: panel length (longer cut = more travel)
+  gabbiani_pt80:
+    base_s: 0           # seconds to load/position/unload regardless of size
+    area_coeff: 0       # seconds per m² of panel area
+    length_coeff: 0     # seconds per mm of panel length (travel time driver)
+    width_coeff: 0      # seconds per mm of panel width
+
+  # ── Panel Saw (Nova SI 400) ───────────────────────────────────────────────
+  nova_si400:
+    base_s: 0
+    area_coeff: 0
+    length_coeff: 0
+    width_coeff: 0
+
+  # ── CNC Driller (Morbidelli CX100) ───────────────────────────────────────
+  # Cycle = tool change + drilling/routing travel across part
+  # Drivers: panel area (travel distance), num faces (1 or 2 passes), grooves
+  morbidelli_cx100:
+    base_s: 0           # load + clamp + home
+    area_coeff: 0       # seconds per m² (spindle travel scales with panel size)
+    face_coeff: 0       # extra seconds for second face (flip + re-clamp + re-run)
+    groove_coeff: 0     # extra seconds when grooves detected in CNC filename
+
+  # ── Flat Bed Router (Morbidelli N100) ────────────────────────────────────
+  morbidelli_n100:
+    base_s: 0
+    area_coeff: 0
+    face_coeff: 0
+    groove_coeff: 0
+
+  # ── Edge Bander (Stefani KD) ─────────────────────────────────────────────
+  # Thrufeed machine — part goes through once per edge
+  # Cycle = feed_length / feed_speed, repeated per edge
+  # Main driver: panel length × number of edges banded
+  stefani_kd:
+    base_s: 0           # load + align per pass
+    length_coeff: 0     # seconds per mm of edge length (feed rate driver)
+    edge_coeff: 0       # extra seconds per additional edge (return + reload)
+
+  # ── Hot Press (Sergiani GS 120) ───────────────────────────────────────────
+  # Press cycle is mostly fixed by press time setting (temperature/glue cure)
+  # Area matters for larger panels needing longer cure
+  sergiani_gs120:
+    base_s: 0
+    area_coeff: 0
+
+  # ── Glueing Line (Varie Osama) ────────────────────────────────────────────
+  varie_osama:
+    base_s: 0
+    area_coeff: 0
+
+  # ── Calibration Sander (DMC60 RCS 135) ───────────────────────────────────
+  # Thrufeed — cycle time scales with panel length / feed speed
+  dmc60_rcs135:
+    base_s: 0
+    length_coeff: 0
+
+  # ── Finishing Sander (DMC90 XRT 135) ─────────────────────────────────────
+  dmc90_xrt135:
+    base_s: 0
+    length_coeff: 0
+
+  # ── Paint Line (Superfici) ────────────────────────────────────────────────
+  superfici:
+    base_s: 0
+    length_coeff: 0
