@@ -1,4 +1,4 @@
-"""Tests against the real Amit Agarwal / Ranjeeth sample data."""
+"""Portable parser tests using representative Cabinet Vision fixtures."""
 
 import sqlite3
 import sys
@@ -11,10 +11,10 @@ from db import init_db
 from cv_parser import parse_cv_csv, ingest_cv_csv
 from beamsaw_parser import parse_beamsaw_txt
 
-SAMPLE_ROOT = Path("/Users/samkitparak/Downloads/wetransfer_amit-agarwal_2026-05-15_1247")
-AA_GBR_CSV  = SAMPLE_ROOT / "Amit Agarwal/GBR/BEAMSAW/{jobname}.csv"
-AA_GBR_TXT  = SAMPLE_ROOT / "Amit Agarwal/GBR/BEAMSAW/CncRun86.txt"
-RAN_KIT_TXT = SAMPLE_ROOT / "RANJEETH/KITCHEN/BEAMSAW/CncRun63.txt"
+FIXTURES = Path(__file__).parent / "fixtures"
+AA_GBR_CSV = FIXTURES / "cv_sample.csv"
+AA_GBR_TXT = FIXTURES / "CncRun86.txt"
+RAN_KIT_TXT = FIXTURES / "CncRun63.txt"
 
 
 # --- CSV parser ---
@@ -29,7 +29,7 @@ def test_cv_csv_room_name():
 
 def test_cv_csv_has_parts():
     data = parse_cv_csv(AA_GBR_CSV)
-    assert len(data["parts"]) > 50
+    assert len(data["parts"]) == 4
 
 def test_cv_csv_has_assemblies():
     data = parse_cv_csv(AA_GBR_CSV)
@@ -82,7 +82,7 @@ def test_beamsaw_txt_run_id():
 
 def test_beamsaw_txt_total_parts():
     data = parse_beamsaw_txt(AA_GBR_TXT)
-    assert data["total_parts"] == 80
+    assert data["total_parts"] == 4
 
 def test_beamsaw_txt_parts_list():
     data = parse_beamsaw_txt(AA_GBR_TXT)
@@ -103,7 +103,8 @@ def test_beamsaw_txt_ranjeeth_kitchen():
 @pytest.fixture
 def mem_db():
     conn = init_db(Path(":memory:"))
-    return conn
+    yield conn
+    conn.close()
 
 def test_ingest_creates_job(mem_db):
     job_id = ingest_cv_csv(AA_GBR_CSV, mem_db, client_name="Amit Agarwal",
@@ -122,7 +123,7 @@ def test_ingest_idempotent(mem_db):
 def test_ingest_parts_count(mem_db):
     job_id = ingest_cv_csv(AA_GBR_CSV, mem_db, client_name="Amit Agarwal")
     count = mem_db.execute("SELECT COUNT(*) FROM parts WHERE job_id=?", (job_id,)).fetchone()[0]
-    assert count > 50
+    assert count == 4
 
 def test_ingest_assemblies(mem_db):
     job_id = ingest_cv_csv(AA_GBR_CSV, mem_db, client_name="Amit Agarwal")
@@ -137,7 +138,7 @@ def test_ingest_cnc_parts_flagged(mem_db):
     cnc_count = mem_db.execute(
         "SELECT COUNT(*) FROM parts WHERE job_id=? AND has_cnc=1", (job_id,)
     ).fetchone()[0]
-    assert cnc_count > 10
+    assert cnc_count == 2
 
 def test_machines_seeded(mem_db):
     count = mem_db.execute("SELECT COUNT(*) FROM machines").fetchone()[0]

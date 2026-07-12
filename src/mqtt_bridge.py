@@ -21,12 +21,37 @@ log = logging.getLogger("mqtt_bridge")
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 
-# Global broadcast queue — API layer reads from this for SSE
-_event_queue: queue.Queue = queue.Queue(maxsize=500)
+# Each consumer gets its own queue so state tracking and all SSE clients receive
+# every event instead of racing to drain one shared queue.
+_subscribers: set[queue.Queue] = set()
+_subscribers_lock = threading.Lock()
 
 
-def get_event_queue() -> queue.Queue:
-    return _event_queue
+def subscribe_events(maxsize: int = 500) -> queue.Queue:
+    subscriber = queue.Queue(maxsize=maxsize)
+    with _subscribers_lock:
+        _subscribers.add(subscriber)
+    return subscriber
+
+
+def unsubscribe_events(subscriber: queue.Queue) -> None:
+    with _subscribers_lock:
+        _subscribers.discard(subscriber)
+
+
+def publish_event(event: dict) -> None:
+    with _subscribers_lock:
+        subscribers = list(_subscribers)
+
+    for subscriber in subscribers:
+        try:
+            subscriber.put_nowait(event)
+        except queue.Full:
+            try:
+                subscriber.get_nowait()
+            except queue.Empty:
+                pass
+            subscriber.put_nowait(event)
 
 
 def _machine_id_map(conn: sqlite3.Connection) -> dict[str, int]:
@@ -84,11 +109,8 @@ def _on_message(conn: sqlite3.Connection, machine_map: dict[str, int],
     event_id = _write_event(conn, machine_id, payload, part_id)
 
     broadcast = {**payload, "event_id": event_id, "part_id": part_id}
-    try:
-        _event_queue.put_nowait(broadcast)
-    except queue.Full:
-        _event_queue.get_nowait()  # drop oldest, make room
-        _event_queue.put_nowait(broadcast)
+    if payload.get("event_type") != "heartbeat":
+        publish_event(broadcast)
 
     log.info("← %s  %s", machine_key, payload.get("event_type"))
 

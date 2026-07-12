@@ -169,3 +169,14 @@ def test_run_unknown_machine_raises():
             mqtt_client=CaptureMQTT(),
             log_lines_iter=iter([]),
             max_lines=0)
+
+
+def test_idle_live_agent_publishes_heartbeat(monkeypatch):
+    mqtt = CaptureMQTT()
+    ticks = iter([60.0])
+    monkeypatch.setattr("maestro_agent.time.monotonic", lambda: next(ticks))
+    run("morbidelli_cx100", CONFIG_PATH,
+        mqtt_client=mqtt,
+        log_lines_iter=iter([None]),
+        max_lines=1)
+    assert mqtt.messages[0]["payload"]["event_type"] == "heartbeat"

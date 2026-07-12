@@ -1,8 +1,12 @@
 # HIVE OS
 
-Agentic manufacturing OS for HAEEV, a custom woodworking factory in India.
+[![CI](https://github.com/samkitparak/Hive-OS/actions/workflows/ci.yml/badge.svg)](https://github.com/samkitparak/Hive-OS/actions/workflows/ci.yml)
 
-Tier 1 (this repo): read-only observation layer. Machines don't know HIVE OS exists — it watches, measures, and displays. No control, no changes to existing workflows.
+Manufacturing operations OS for HAEEV, a custom woodworking factory in India.
+
+HIVE OS is observation-first: local agents read machine logs and telemetry, but
+the system does not write commands to PLCs or machine controllers. Its write
+operations are limited to the HIVE database and site configuration.
 
 ---
 
@@ -12,6 +16,8 @@ Tier 1 (this repo): read-only observation layer. Machines don't know HIVE OS exi
 - **Job progress** — pulls cut lists from Cabinet Vision exports, tracks parts completed per job via Maestro cycle events. Shows done/total, progress bar, ETA, on-time status.
 - **OEE** — Availability × Performance × Quality per machine, updated every shift.
 - **Daily score + streak** — gamified production score (0–100) combining OEE and on-time job completion. Streak tracks consecutive days beating the 7-day rolling average.
+- **Current constraint detector** — ranks bottlenecks using utilisation, machine-specific queue depth, downstream starvation, alarms, and telemetry confidence.
+- **Phase 1 operations layer** — placeholder-ready downtime, maintenance, quality/rework, barcode, Cabinet Vision SQL, and Ottimo workflows that can be replaced with real formats later.
 - **Live event stream** — SSE feed of all machine events (cycle start/end, alarms, power changes) in real time.
 
 ---
@@ -27,10 +33,11 @@ Machine floor
   └── Energy meters (Modbus TCP) → src/energy_agent.py → MQTT
 
 MQTT broker
-  └── src/mqtt_bridge.py → SQLite DB + SSE queue
+  └── src/mqtt_bridge.py → SQLite DB + per-client event broadcast
 
 FastAPI backend (src/main.py)
-  └── REST + SSE → React dashboard (dashboard/)
+  ├── REST + SSE under /api
+  └── serves the built React dashboard (dashboard/dist)
 ```
 
 ---
@@ -43,7 +50,7 @@ FastAPI backend (src/main.py)
 | Backend | Python 3.12, FastAPI, paho-mqtt, pymodbus |
 | Machine agents | paho-mqtt, pymodbus, PyYAML, watchdog |
 | Dashboard | React, Vite, TanStack Query |
-| Tests | pytest (87 tests) |
+| Tests | pytest |
 
 ---
 
@@ -62,13 +69,21 @@ hive-os/
 │   ├── ingest.py             # batch ingest walker
 │   ├── energy_agent.py       # Modbus TCP energy meter poller
 │   ├── maestro_agent.py      # Maestro log file watcher
-│   ├── mqtt_bridge.py        # MQTT subscriber → DB + SSE queue
+│   ├── mqtt_bridge.py        # MQTT subscriber → DB + event broadcast
 │   ├── oee.py                # OEE calculator
 │   ├── progress.py           # job progress tracker
 │   ├── score.py              # daily score + streak
+│   ├── bottleneck.py         # current factory constraint detector
+│   ├── operations.py         # downtime, maintenance, quality/rework, barcode
+│   ├── cv_sql_connector.py   # Cabinet Vision SQL placeholder adapter
+│   ├── ottimo_connector.py   # Ottimo placeholder barcode adapter
 │   └── main.py               # FastAPI app (REST + SSE)
 ├── dashboard/                # React + Vite frontend
+├── deploy/windows/           # one-click central and machine-agent installers
 ├── tests/                    # pytest suite
+├── DEPLOYMENT.md             # Windows installation and diagnostics guide
+├── INTEGRATIONS.md           # integration roadmap
+├── PHASE1_PLACEHOLDERS.md    # placeholder contracts and replacement points
 └── INDIA_CHECKLIST.md        # on-site configuration checklist
 ```
 
@@ -79,7 +94,7 @@ hive-os/
 **Backend:**
 ```bash
 cd hive-os
-pip install fastapi uvicorn paho-mqtt pymodbus pyyaml
+pip install -r requirements.txt
 PYTHONPATH=src uvicorn src.main:app --port 8000 --reload
 ```
 
@@ -91,6 +106,14 @@ npm run dev
 # → http://localhost:5173
 ```
 
+For a production-style local run, build the dashboard first and then start only
+FastAPI. The combined app is available at `http://localhost:8000`:
+
+```bash
+cd dashboard && npm ci && npm run build && cd ..
+PYTHONPATH=src uvicorn src.main:app --port 8000
+```
+
 **Ingest sample data:**
 ```bash
 cd hive-os
@@ -100,7 +123,7 @@ PYTHONPATH=src python src/ingest.py data/
 **Tests:**
 ```bash
 cd hive-os
-PYTHONPATH=src python -m pytest tests/ -v
+python -m pytest -v
 ```
 
 **Demo mode:** hit the **▶ Demo Mode** button in the dashboard to fire simulated machine events without any real hardware.
@@ -123,6 +146,10 @@ All TODOs are in two files:
 - All set to `0` until timed on-site
 
 See `INDIA_CHECKLIST.md` for the full on-site setup sequence.
+See `DEPLOYMENT.md` for Windows one-click installation and diagnostics.
+
+The Windows installer limits dashboard/API and MQTT firewall rules to the local
+subnet. Remote setup probes are also restricted to private LAN addresses.
 
 ---
 
@@ -152,8 +179,12 @@ python src/maestro_agent.py --machine morbidelli_cx100
 
 ## API endpoints
 
+The dashboard uses the `/api` prefix (for example `/api/machines`). Direct
+unprefixed routes remain available for compatibility and local tooling.
+
 | Method | Path | Description |
 |---|---|---|
+| GET | `/health` | Lightweight service health check |
 | GET | `/machines` | All machines + current state |
 | GET | `/machines/{key}` | Single machine + last 20 events |
 | GET | `/jobs` | All jobs (most recent first) |
@@ -163,6 +194,33 @@ python src/maestro_agent.py --machine morbidelli_cx100
 | GET | `/oee` | OEE for all machines (last 8h) |
 | GET | `/oee/{machine_key}` | OEE for one machine |
 | GET | `/score/daily` | Today's score, streak, 7-day average |
+| GET | `/sequence` | Priority-ranked production queue |
+| GET | `/bottlenecks` | Current constraint ranking and recommendation |
+| GET | `/diagnostics` | Service and machine-agent connection health |
+| GET | `/deployment` | Windows install package readiness and commands |
+| GET | `/config` | Current editable site setup configuration |
+| PUT | `/config` | Save editable site setup configuration with backup |
+| GET | `/remote-setup/plan/{machine_key}` | Dry-run remote agent deployment plan |
+| POST | `/remote-setup/test-connection` | Probe an SSH TCP port without authentication |
+| POST | `/remote-setup/detect-folders` | Preview remote Maestro folder discovery |
+| POST | `/remote-setup/install-agent` | Preview a remote machine-agent install |
+| POST | `/remote-setup/restart-agent` | Preview a remote agent restart |
+| POST | `/remote-setup/fetch-log` | Preview retrieval of the remote agent log |
+| GET | `/operations/summary` | Downtime, work-order, rework, defect, and scan summary |
+| GET | `/downtime` | Downtime events, optionally filtered by status |
+| POST | `/downtime` | Create a downtime event |
+| POST | `/downtime/{id}/close` | Close a downtime event |
+| GET | `/maintenance/work-orders` | Maintenance work orders, optionally filtered by status |
+| POST | `/maintenance/work-orders` | Create a maintenance work order |
+| GET | `/quality/checks` | Recent quality checks |
+| POST | `/quality/checks` | Create a quality check; failures create rework |
+| GET | `/rework` | Rework tasks, optionally filtered by status |
+| POST | `/rework/{id}/close` | Close a rework task |
+| GET | `/barcode/events` | Recent barcode events |
+| POST | `/barcode/events` | Create a normalized barcode event |
+| POST | `/connectors/ottimo/placeholder` | Demo Ottimo barcode payload adapter |
+| POST | `/connectors/cabinet-vision-sql/placeholder` | Demo Cabinet Vision SQL row adapter |
+| GET | `/report/shift` | Printable shift report |
 | GET | `/events/stream` | SSE live event stream |
 | POST | `/events/simulate` | Inject a fake event (demo/dev) |
 
@@ -171,8 +229,8 @@ python src/maestro_agent.py --machine morbidelli_cx100
 ## Tier 2 (after India data collection)
 
 Once weeks of real OEE data exist:
-- Bottleneck detection across machines
 - Real Performance OEE (requires cycle times from `cycle_times.yaml`)
-- Job resequencing based on machine state
+- Validate bottleneck scoring weights against real queues and operator observations
+- Dynamic job resequencing based on live machine state
 - AMR routing
 - ERP integration

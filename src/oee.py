@@ -13,12 +13,14 @@ Snapshots are written to oee_snapshots table every time calculate() is called.
 """
 
 import sqlite3
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 
 PLANNED_SHIFT_HOURS = 8  # assume one 8-hour shift; tune per factory
+_calculation_lock = threading.RLock()
 
 
 @dataclass
@@ -126,9 +128,9 @@ def _parts_in_window(conn: sqlite3.Connection, machine_id: int,
     return row[0] if row else 0
 
 
-def calculate(conn: sqlite3.Connection, machine_id: int,
-              window_hours: int = PLANNED_SHIFT_HOURS,
-              now: Optional[datetime] = None) -> OEEResult:
+def _calculate_unlocked(conn: sqlite3.Connection, machine_id: int,
+                        window_hours: int = PLANNED_SHIFT_HOURS,
+                        now: Optional[datetime] = None) -> OEEResult:
     """Calculate OEE for machine_id over the last window_hours."""
 
     if now is None:
@@ -200,11 +202,19 @@ def calculate(conn: sqlite3.Connection, machine_id: int,
     return result
 
 
+def calculate(conn: sqlite3.Connection, machine_id: int,
+              window_hours: int = PLANNED_SHIFT_HOURS,
+              now: Optional[datetime] = None) -> OEEResult:
+    with _calculation_lock:
+        return _calculate_unlocked(conn, machine_id, window_hours, now)
+
+
 def calculate_all(conn: sqlite3.Connection,
                   window_hours: int = PLANNED_SHIFT_HOURS) -> list[OEEResult]:
     """Calculate OEE for every active machine."""
-    machines = conn.execute(
-        "SELECT id FROM machines WHERE active=1"
-    ).fetchall()
-    now = datetime.now(timezone.utc)
-    return [calculate(conn, r["id"], window_hours, now) for r in machines]
+    with _calculation_lock:
+        machines = conn.execute(
+            "SELECT id FROM machines WHERE active=1"
+        ).fetchall()
+        now = datetime.now(timezone.utc)
+        return [_calculate_unlocked(conn, r["id"], window_hours, now) for r in machines]

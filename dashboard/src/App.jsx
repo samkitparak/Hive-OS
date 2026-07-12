@@ -1,11 +1,15 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, simulateEvent } from "./api";
+import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchRework, fetchBarcodeEvents, postJson, simulateEvent } from "./api";
 import { MachineCard } from "./MachineCard";
 import { MachineDetail } from "./MachineDetail";
 import { JobProgress } from "./JobProgress";
 import { JobQueue } from "./JobQueue";
 import { DailyScore } from "./DailyScore";
+import { BottleneckPanel } from "./BottleneckPanel";
+import { DiagnosticsPanel } from "./DiagnosticsPanel";
+import { OperationsPanel } from "./OperationsPanel";
+import { SetupPanel } from "./SetupPanel";
 import { useSSE } from "./useSSE";
 
 const GROUPS = [
@@ -31,6 +35,10 @@ export default function App() {
   const [selectedKey, setSelectedKey]     = useState(null);
   const [liveLog, setLiveLog]             = useState([]);
   const [machineStates, setMachineStates] = useState({});
+  const [demoRunning, setDemoRunning]     = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [showOperations, setShowOperations] = useState(false);
+  const [showSetup, setShowSetup] = useState(false);
   const demoRef = useRef(null);
 
   const { data: machines = [] } = useQuery({
@@ -51,6 +59,33 @@ export default function App() {
   const { data: sequence = null } = useQuery({
     queryKey: ["sequence"], queryFn: fetchSequence, refetchInterval: 120000,
   });
+  const { data: bottlenecks = null } = useQuery({
+    queryKey: ["bottlenecks"], queryFn: fetchBottlenecks, refetchInterval: 30000,
+  });
+  const { data: diagnostics = null } = useQuery({
+    queryKey: ["diagnostics"], queryFn: fetchDiagnostics, refetchInterval: 30000,
+  });
+  const { data: deployment = null } = useQuery({
+    queryKey: ["deployment"], queryFn: fetchDeployment, refetchInterval: 60000,
+  });
+  const { data: siteConfig = null } = useQuery({
+    queryKey: ["siteConfig"], queryFn: fetchConfig, refetchInterval: 60000,
+  });
+  const { data: operationsSummary = null } = useQuery({
+    queryKey: ["operationsSummary"], queryFn: fetchOperationsSummary, refetchInterval: 15000,
+  });
+  const { data: downtime = [] } = useQuery({
+    queryKey: ["downtime"], queryFn: fetchDowntime, refetchInterval: 15000,
+  });
+  const { data: workOrders = [] } = useQuery({
+    queryKey: ["workOrders"], queryFn: fetchWorkOrders, refetchInterval: 30000,
+  });
+  const { data: rework = [] } = useQuery({
+    queryKey: ["rework"], queryFn: fetchRework, refetchInterval: 15000,
+  });
+  const { data: barcodeEvents = [] } = useQuery({
+    queryKey: ["barcodeEvents"], queryFn: fetchBarcodeEvents, refetchInterval: 15000,
+  });
 
   const onEvent = useCallback((ev) => {
     if (ev._type === "snapshot") {
@@ -60,13 +95,17 @@ export default function App() {
     setMachineStates(prev => ({ ...prev, [ev.machine_key]: ev }));
     setLiveLog(prev => [ev, ...prev].slice(0, 40));
     if (ev.event_type === "cycle_end") {
-      qc.invalidateQueries(["oee"]);
-      qc.invalidateQueries(["activeJobs"]);
-      qc.invalidateQueries(["dailyScore"]);
+      qc.invalidateQueries({ queryKey: ["oee"] });
+      qc.invalidateQueries({ queryKey: ["activeJobs"] });
+      qc.invalidateQueries({ queryKey: ["dailyScore"] });
     }
   }, [qc]);
 
   useSSE(onEvent);
+
+  useEffect(() => () => {
+    if (demoRef.current) clearInterval(demoRef.current);
+  }, []);
 
   const enriched = machines.map(m => {
     const live = machineStates[m.machine_key];
@@ -94,6 +133,7 @@ export default function App() {
     if (demoRef.current) {
       clearInterval(demoRef.current);
       demoRef.current = null;
+      setDemoRunning(false);
       return;
     }
     const seq = [
@@ -111,9 +151,88 @@ export default function App() {
     let i = 0;
     demoRef.current = setInterval(() => {
       const [mk, et, extras] = seq[i % seq.length];
-      simulateEvent(mk, et, extras).then(() => qc.invalidateQueries(["machines"]));
+      simulateEvent(mk, et, extras).then(() => {
+        qc.invalidateQueries({ queryKey: ["machines"] });
+      });
       i++;
     }, 1200);
+    setDemoRunning(true);
+  };
+
+  const refreshOperations = () => {
+    ["operationsSummary", "downtime", "workOrders", "rework", "barcodeEvents", "jobs"].forEach(key => {
+      qc.invalidateQueries({ queryKey: [key] });
+    });
+  };
+
+  const runOperationsDemo = async (kind) => {
+    if (kind === "downtime") {
+      await postJson("/downtime", {
+        machine_key: "stefani_kd",
+        reason_code: "setup",
+        notes: "Placeholder setup/changeover event",
+      });
+    } else if (kind === "quality") {
+      await postJson("/quality/checks", {
+        result: "fail",
+        defect_code: "edge_band",
+        assigned_area: "edge_banding",
+        notes: "Placeholder QC defect",
+      });
+    } else if (kind === "ottimo") {
+      await postJson("/connectors/ottimo/placeholder", {
+        barcode: "AA-GBR|Fixed Shelf",
+        event: "QC_OK",
+        station: "packing",
+        operator: "demo",
+      });
+    } else if (kind === "cvsql") {
+      await postJson("/connectors/cabinet-vision-sql/placeholder", [{
+        job_name: "PLACEHOLDER_SQL_JOB",
+        client_name: "Demo Client",
+        part_name: `Demo Part ${Date.now()}`,
+        material: "HDHMR_18mm",
+        length_mm: 1000,
+        width_mm: 500,
+        thickness_mm: 18,
+      }]);
+    }
+    refreshOperations();
+  };
+
+  const runOperationsAction = async (kind, payload) => {
+    if (kind === "downtime") {
+      await postJson("/downtime", payload);
+    } else if (kind === "closeDowntime") {
+      await postJson(`/downtime/${payload.id}/close`, { notes: payload.notes });
+    } else if (kind === "quality") {
+      await postJson("/quality/checks", payload);
+    } else if (kind === "closeRework") {
+      await postJson(`/rework/${payload.id}/close`, { notes: payload.notes });
+    } else if (kind === "workOrder") {
+      await postJson("/maintenance/work-orders", payload);
+    }
+    refreshOperations();
+  };
+
+  const runConfigSave = async (payload) => {
+    const result = await saveConfig(payload);
+    ["siteConfig", "diagnostics", "deployment"].forEach(key => {
+      qc.invalidateQueries({ queryKey: [key] });
+    });
+    return result;
+  };
+
+  const runRemoteSetupAction = async (kind, payload) => {
+    if (kind === "plan") return fetchRemoteSetupPlan(payload.machine_key);
+    const paths = {
+      test: "/remote-setup/test-connection",
+      folders: "/remote-setup/detect-folders",
+      install: "/remote-setup/install-agent",
+      restart: "/remote-setup/restart-agent",
+      log: "/remote-setup/fetch-log",
+    };
+    return postJson(paths[kind], payload);
   };
 
   return (
@@ -122,7 +241,7 @@ export default function App() {
 
       {/* ── Header ── */}
       <div style={{ display: "flex", justifyContent: "space-between",
-                    alignItems: "center", marginBottom: 24 }}>
+                    alignItems: "center", marginBottom: 24, gap: 16, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: -0.5 }}>
             HIVE OS{" "}
@@ -154,7 +273,25 @@ export default function App() {
           </div>
         )}
 
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={() => setShowSetup(true)} style={{
+            background: "#1f2937", border: "1px solid #374151", color: "#f9fafb",
+            padding: "7px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
+          }}>
+            Setup
+          </button>
+          <button onClick={() => setShowOperations(true)} style={{
+            background: "#1f2937", border: "1px solid #374151", color: "#f9fafb",
+            padding: "7px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
+          }}>
+            Operations
+          </button>
+          <button onClick={() => setShowDiagnostics(true)} style={{
+            background: "#1f2937", border: "1px solid #374151", color: "#f9fafb",
+            padding: "7px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
+          }}>
+            Diagnostics
+          </button>
           <button onClick={() => window.open("/api/report/shift", "_blank")} style={{
             background: "#1f2937", border: "1px solid #374151", color: "#f9fafb",
             padding: "7px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
@@ -162,11 +299,11 @@ export default function App() {
             ⬇ Shift Report
           </button>
           <button onClick={toggleDemo} style={{
-            background: demoRef.current ? "#7f1d1d" : "#1f2937",
+            background: demoRunning ? "#7f1d1d" : "#1f2937",
             border: "1px solid #374151", color: "#f9fafb",
             padding: "7px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
           }}>
-            {demoRef.current ? "■ Stop Demo" : "▶ Demo Mode"}
+            {demoRunning ? "■ Stop Demo" : "▶ Demo Mode"}
           </button>
         </div>
       </div>
@@ -177,6 +314,15 @@ export default function App() {
         <div style={{ fontSize: 11, fontWeight: 700, color: "#4b5563",
                       letterSpacing: 1, marginBottom: 12 }}>TODAY'S SCORE</div>
         <DailyScore data={dailyScore} />
+      </div>
+
+      {/* ── Job Queue ── */}
+      <div style={{ background: "#111827", border: "1px solid #1f2937",
+                    borderLeft: "3px solid #ef4444", borderRadius: 8,
+                    padding: "14px 20px", marginBottom: 20 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#4b5563",
+                      letterSpacing: 1, marginBottom: 12 }}>CURRENT CONSTRAINT</div>
+        <BottleneckPanel report={bottlenecks} />
       </div>
 
       {/* ── Job Queue ── */}
@@ -220,7 +366,7 @@ export default function App() {
       </div>
 
       {/* ── Bottom strip ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+      <div className="bottom-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
 
         {/* Active job progress */}
         <div style={{ background: "#111827", border: "1px solid #1f2937",
@@ -292,12 +438,38 @@ export default function App() {
       {selectedKey && (
         <MachineDetail machineKey={selectedKey} onClose={() => setSelectedKey(null)} />
       )}
+      {showDiagnostics && diagnostics && (
+        <DiagnosticsPanel data={diagnostics} deployment={deployment} onClose={() => setShowDiagnostics(false)} />
+      )}
+      {showSetup && siteConfig && (
+        <SetupPanel
+          config={siteConfig}
+          onClose={() => setShowSetup(false)}
+          onSave={runConfigSave}
+          onRemoteAction={runRemoteSetupAction}
+        />
+      )}
+      {showOperations && (
+        <OperationsPanel
+          data={{ summary: operationsSummary, downtime, workOrders, rework, barcodeEvents }}
+          machines={enriched}
+          jobs={jobs}
+          onClose={() => setShowOperations(false)}
+          onAction={runOperationsAction}
+          onDemo={runOperationsDemo}
+        />
+      )}
 
       <style>{`
         * { box-sizing: border-box; margin: 0; padding: 0; }
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: #0d1117; }
         ::-webkit-scrollbar-thumb { background: #374151; border-radius: 2px; }
+        @media (max-width: 760px) {
+          .bottom-grid { grid-template-columns: 1fr !important; }
+          .constraint-grid { grid-template-columns: 1fr 1fr !important; }
+          .constraint-recommendation { grid-column: 1 / -1; }
+        }
       `}</style>
     </div>
   );

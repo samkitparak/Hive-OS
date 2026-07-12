@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+import yaml
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -102,3 +103,30 @@ def test_get_job_progress_known_job(conn):
     assert result.parts_done == 3
     assert result.parts_left == 3
     assert abs(result.pct_done - 0.5) < 0.01
+
+
+def test_job_progress_uses_coefficient_cycle_time_eta(conn, tmp_path):
+    cfg = {
+        "shift_hours": 24,
+        "shift_start": "00:00",
+        "machines": {
+            "gabbiani_pt80": {
+                "base_s": 10, "length_coeff": 0, "width_coeff": 0, "area_coeff": 0,
+            },
+        },
+    }
+    cfg_path = tmp_path / "cycle_times.yaml"
+    cfg_path.write_text(yaml.dump(cfg))
+
+    job_id = _seed(conn, "DELTA", total_parts=4)
+    conn.execute(
+        "UPDATE parts SET length_mm=1000, width_mm=500 WHERE job_id=?",
+        (job_id,)
+    )
+    parts = conn.execute("SELECT id FROM parts WHERE job_id=?", (job_id,)).fetchall()
+    for part in parts[:2]:
+        _add_event(conn, "gabbiani_pt80", "cycle_end", part_id=part["id"])
+
+    result = p.get_job_progress(conn, "DELTA", cfg_path)
+    assert result.eta_seconds == 20
+    assert result.on_time == "on_time"

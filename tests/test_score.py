@@ -66,3 +66,26 @@ def test_jobs_completed_today_none(conn):
     done, on_time = s._jobs_completed_today(conn)
     assert done == 0
     assert on_time == 0
+
+
+def test_jobs_completed_today_uses_india_shift_end(conn):
+    conn.execute("INSERT INTO jobs (job_name, total_parts) VALUES ('SHIFT_JOB', 1)")
+    job_id = conn.execute("SELECT id FROM jobs WHERE job_name='SHIFT_JOB'").fetchone()["id"]
+    conn.execute("INSERT INTO parts (job_id, part_name) VALUES (?, 'Side')", (job_id,))
+    part_id = conn.execute("SELECT id FROM parts WHERE job_id=?", (job_id,)).fetchone()["id"]
+    now = datetime(2026, 7, 12, 12, 0, tzinfo=timezone.utc)
+
+    conn.execute(
+        """INSERT INTO machine_events (machine_id, event_type, part_id, ts)
+           VALUES (1, 'cycle_end', ?, '2026-07-12T11:00:00+00:00')""",
+        (part_id,),
+    )
+    conn.commit()
+    assert s._jobs_completed_today(conn, now=now) == (1, 1)
+
+    conn.execute(
+        "UPDATE machine_events SET ts='2026-07-12T13:00:00+00:00' WHERE part_id=?",
+        (part_id,),
+    )
+    conn.commit()
+    assert s._jobs_completed_today(conn, now=now) == (1, 0)

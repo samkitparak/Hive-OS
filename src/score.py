@@ -13,14 +13,18 @@ by window_start = today's date). If no data exists yet, returns zeroed result.
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
+from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import oee as oee_module
+import yaml
 
 
 # Utility machines excluded from production score
 UTILITY_KEYS = {"elgi_1", "elgi_2", "aarco_1", "aarco_2"}
+CYCLE_CONFIG_PATH = Path(__file__).parent.parent / "config" / "cycle_times.yaml"
 
 
 @dataclass
@@ -46,21 +50,36 @@ def _today_oee(conn: sqlite3.Connection) -> float:
     return sum(r.oee for r in prod) / len(prod)
 
 
-def _jobs_completed_today(conn: sqlite3.Connection) -> tuple[int, int]:
+def _shift_context(cfg_path: Path, now: datetime) -> tuple[datetime, datetime, datetime]:
+    cfg = yaml.safe_load(cfg_path.read_text()) or {}
+    local_tz = ZoneInfo(cfg.get("timezone", "UTC"))
+    local_now = now.astimezone(local_tz)
+    shift_start = time.fromisoformat(str(cfg.get("shift_start", "09:00")))
+    start = datetime.combine(local_now.date(), shift_start, tzinfo=local_tz)
+    if cfg.get("shift_end"):
+        end = datetime.combine(
+            local_now.date(), time.fromisoformat(str(cfg["shift_end"])), tzinfo=local_tz
+        )
+    else:
+        end = start + timedelta(hours=float(cfg.get("shift_hours", 9)))
+    return local_now, start, end
+
+
+def _jobs_completed_today(conn: sqlite3.Connection,
+                          now: Optional[datetime] = None,
+                          cfg_path: Path = CYCLE_CONFIG_PATH) -> tuple[int, int]:
     """
     Returns (total_completed, on_time_count).
 
     A job is "completed today" if all its parts have a cycle_end event
     and the last cycle_end was today.
 
-    On-time = job finished before shift end (approximated: all parts done
-    by 18:00 local — we store UTC so we use a generous 20:00 UTC cutoff
-    until timezone is configured properly).
-
-    TODO: replace cutoff with actual shift_end from cycle_times.yaml once
-    we know the factory's UTC offset.
+    On-time = job finished before the configured local shift end.
     """
-    today = datetime.now(timezone.utc).date().isoformat()
+    now = now or datetime.now(timezone.utc)
+    local_now, _shift_start, shift_end = _shift_context(cfg_path, now)
+    local_day_start = datetime.combine(local_now.date(), time.min, tzinfo=local_now.tzinfo)
+    local_day_end = local_day_start + timedelta(days=1)
 
     # Jobs where total parts == parts with cycle_end events
     rows = conn.execute(
@@ -71,9 +90,10 @@ def _jobs_completed_today(conn: sqlite3.Connection) -> tuple[int, int]:
            JOIN parts p ON p.job_id = j.id
            JOIN machine_events me ON me.part_id = p.id
            WHERE me.event_type = 'cycle_end'
-             AND me.ts >= ?
+             AND me.ts >= ? AND me.ts < ?
            GROUP BY j.id""",
-        (today,)
+        (local_day_start.astimezone(timezone.utc).isoformat(),
+         local_day_end.astimezone(timezone.utc).isoformat())
     ).fetchall()
 
     total_done = 0
@@ -81,12 +101,13 @@ def _jobs_completed_today(conn: sqlite3.Connection) -> tuple[int, int]:
     for row in rows:
         if row["done_count"] >= (row["total_parts"] or 0) > 0:
             total_done += 1
-            # "on time" = finished before end of planned shift (20:00 UTC placeholder)
             try:
                 last_ts = datetime.fromisoformat(row["last_event_ts"].replace("Z", "+00:00"))
-                if last_ts.hour < 20:
+                if last_ts.tzinfo is None:
+                    last_ts = last_ts.replace(tzinfo=timezone.utc)
+                if last_ts.astimezone(shift_end.tzinfo) <= shift_end:
                     on_time += 1
-            except Exception:
+            except (TypeError, ValueError):
                 pass
 
     return total_done, on_time

@@ -20,7 +20,7 @@ from typing import Optional
 
 import yaml
 from watchdog.events import FileSystemEventHandler
-from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver
 
 from db import DB_PATH, init_db
 from ingest import ingest_folder
@@ -73,7 +73,7 @@ def _get_watch_folder(cfg_path: Path = CONFIG_PATH) -> Optional[Path]:
 
 
 def start(conn: Optional[sqlite3.Connection] = None,
-          cfg_path: Path = CONFIG_PATH) -> Optional[Observer]:
+          cfg_path: Path = CONFIG_PATH) -> Optional[PollingObserver]:
     """
     Start the watcher in a background thread. Returns the Observer (call
     observer.stop() + observer.join() to shut down), or None if the watch
@@ -92,7 +92,9 @@ def start(conn: Optional[sqlite3.Connection] = None,
         conn = init_db(DB_PATH, check_same_thread=False)
 
     handler  = _CVHandler(watch_dir, conn)
-    observer = Observer()
+    # Polling is reliable on macOS development machines and Windows/network
+    # shares where native filesystem event streams may be unavailable.
+    observer = PollingObserver(timeout=0.2)
     observer.schedule(handler, str(watch_dir), recursive=True)
     observer.daemon = True
     observer.start()

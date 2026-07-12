@@ -1,32 +1,69 @@
 const BASE = import.meta.env.VITE_API_URL || "/api";
 
-export const fetchMachines = () =>
-  fetch(`${BASE}/machines`).then(r => r.json());
+async function request(path, options) {
+  const response = await fetch(`${BASE}${path}`, options);
+  const contentType = response.headers.get("content-type") || "";
+  const data = contentType.includes("application/json")
+    ? await response.json()
+    : await response.text();
+
+  if (!response.ok) {
+    const detail = typeof data === "object" ? data?.detail : data;
+    throw new Error(detail || `Request failed: ${response.status}`);
+  }
+  return data;
+}
+
+export const fetchMachines = () => request("/machines");
 
 export const fetchMachine = (key) =>
-  fetch(`${BASE}/machines/${key}`).then(r => r.json());
+  request(`/machines/${encodeURIComponent(key)}`);
 
-export const fetchOee = (windowHours = 8) =>
-  fetch(`${BASE}/oee?window_hours=${windowHours}`).then(r => r.json());
+export const fetchOee = (windowHours = 8) => {
+  const hours = typeof windowHours === "number" ? windowHours : 8;
+  return request(`/oee?window_hours=${hours}`);
+};
 
-export const fetchJobs = () =>
-  fetch(`${BASE}/jobs?limit=20`).then(r => r.json());
+export const fetchJobs = () => request("/jobs?limit=20");
 
 export const fetchJobParts = (jobName) =>
-  fetch(`${BASE}/jobs/${encodeURIComponent(jobName)}/parts`).then(r => r.json());
+  request(`/jobs/${encodeURIComponent(jobName)}/parts`);
 
-export const fetchActiveJobs = () =>
-  fetch(`${BASE}/jobs/active`).then(r => r.json());
+export const fetchActiveJobs = () => request("/jobs/active");
+export const fetchSequence = () => request("/sequence");
+export const fetchBottlenecks = () => request("/bottlenecks");
+export const fetchDiagnostics = () => request("/diagnostics");
+export const fetchDeployment = () => request("/deployment");
+export const fetchConfig = () => request("/config");
 
-export const fetchSequence = () =>
-  fetch(`${BASE}/sequence`).then(r => r.json());
+export const saveConfig = (payload) =>
+  request("/config", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
 
-export const fetchDailyScore = () =>
-  fetch(`${BASE}/score/daily`).then(r => r.json());
+export const fetchRemoteSetupPlan = (machineKey) =>
+  request(`/remote-setup/plan/${encodeURIComponent(machineKey)}`);
+
+export const fetchOperationsSummary = () => request("/operations/summary");
+export const fetchDowntime = () => request("/downtime?status=open");
+export const fetchWorkOrders = () => request("/maintenance/work-orders");
+export const fetchRework = () => request("/rework?status=open");
+export const fetchBarcodeEvents = () => request("/barcode/events?limit=8");
+
+export const postJson = (path, payload) =>
+  request(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+export const fetchDailyScore = () => request("/score/daily");
 
 export const simulateEvent = (machineKey, eventType, extras = {}) => {
   const params = new URLSearchParams({ machine_key: machineKey, event_type: eventType, ...extras });
-  return fetch(`${BASE}/events/simulate?${params}`, { method: "POST" }).then(r => r.json());
+  return request(`/events/simulate?${params}`, { method: "POST" });
 };
 
 export const SSE_URL = `${BASE}/events/stream`;

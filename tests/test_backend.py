@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 # Patch DB and MQTT before importing main
 import db as db_module
 from db import init_db
+import mqtt_bridge
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -58,6 +59,13 @@ def test_get_machines_returns_list(client):
     data = r.json()
     assert isinstance(data, list)
     assert len(data) == 15
+
+
+def test_api_prefix_routes_to_backend(client):
+    response = client.get("/api/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "service": "hive-os", "version": "0.2.0"}
+    assert client.get("/api/machines").status_code == 200
 
 def test_machines_have_required_fields(client):
     data = client.get("/machines").json()
@@ -202,6 +210,19 @@ def test_simulate_unknown_machine_404(client):
                     params={"machine_key": "fake_machine",
                             "event_type": "power_on"})
     assert r.status_code == 404
+
+
+def test_event_broadcast_reaches_all_subscribers():
+    first = mqtt_bridge.subscribe_events()
+    second = mqtt_bridge.subscribe_events()
+    event = {"machine_key": "gabbiani_pt80", "event_type": "cycle_start"}
+    try:
+        mqtt_bridge.publish_event(event)
+        assert first.get_nowait() == event
+        assert second.get_nowait() == event
+    finally:
+        mqtt_bridge.unsubscribe_events(first)
+        mqtt_bridge.unsubscribe_events(second)
 
 
 # ── OEE calculator unit tests ────────────────────────────────────────────────

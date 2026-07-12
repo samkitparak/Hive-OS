@@ -1,0 +1,4 @@
+^ Job: RANJEETH
+^ Date: 2026-03-16
+^ Parts: 1
+r63b0001.xcs,Kitchen Side(KS),580,2200,18,HDHMR,201,x,x,B

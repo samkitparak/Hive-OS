@@ -227,13 +227,28 @@ def run(machine_key: str,
         def _live_iter():
             while True:
                 yield from tailer.lines()
+                yield None
                 time.sleep(1)
 
         log_lines_iter = _live_iter()
 
     lines_processed = 0
+    last_heartbeat = 0.0
     try:
         for line in log_lines_iter:
+            now = time.monotonic()
+            if line is None:
+                if now - last_heartbeat >= 60:
+                    _publish(mqtt_client, topic_prefix, machine_key, {
+                        "machine_key": machine_key,
+                        "event_type": "heartbeat",
+                        "cnc_file": None,
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                        "source": "maestro_log",
+                    })
+                    last_heartbeat = now
+                continue
+
             parsed = _parse_log_line(line)
             if parsed:
                 cnc_file = _extract_cnc_file(parsed)

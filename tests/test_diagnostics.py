@@ -1,0 +1,116 @@
+"""Tests for deployment and connection diagnostics."""
+
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+import diagnostics
+import deployment
+import config_editor
+from db import init_db
+
+
+CFG = Path(__file__).parent.parent / "config" / "machines.yaml"
+
+
+@pytest.fixture
+def conn():
+    connection = init_db(":memory:", check_same_thread=False)
+    yield connection
+    connection.close()
+
+
+def test_diagnostics_reports_services_and_machines(conn):
+    result = diagnostics.build(conn, CFG, mqtt_connected=False, cv_watcher_running=False)
+    assert len(result["services"]) == 3
+    assert result["summary"]["total_machines"] == 15
+    assert len(result["machines"]) == 15
+
+
+def test_recent_machine_event_marks_agent_online(conn):
+    machine_id = conn.execute(
+        "SELECT id FROM machines WHERE machine_key='morbidelli_cx100'"
+    ).fetchone()["id"]
+    conn.execute(
+        "INSERT INTO machine_events (machine_id,event_type,ts) VALUES (?,?,?)",
+        (machine_id, "heartbeat", datetime.now(timezone.utc).isoformat()),
+    )
+    conn.commit()
+    result = diagnostics.build(conn, CFG, mqtt_connected=True, cv_watcher_running=False)
+    machine = next(item for item in result["machines"] if item["machine_key"] == "morbidelli_cx100")
+    assert machine["status"] == "online"
+
+
+def test_diagnostics_endpoint(conn):
+    from fastapi.testclient import TestClient
+    import main
+
+    main.set_conn(conn)
+    with TestClient(main.app) as client:
+        main.set_conn(conn)
+        response = client.get("/diagnostics")
+        assert response.status_code == 200
+        assert "summary" in response.json()
+
+
+def test_deployment_readiness_lists_windows_assets():
+    result = deployment.build(CFG)
+    assert result["install_dir"] == r"C:\HIVE-OS"
+    keys = {asset["key"] for asset in result["assets"]}
+    assert "central_installer" in keys
+    assert "machine_agent_installer" in keys
+    assert "install_tester" in keys
+
+
+def test_deployment_endpoint(conn):
+    from fastapi.testclient import TestClient
+    import main
+
+    main.set_conn(conn)
+    with TestClient(main.app) as client:
+        main.set_conn(conn)
+        response = client.get("/deployment")
+        assert response.status_code == 200
+        assert "checklist" in response.json()
+
+
+def test_config_editor_saves_backup(tmp_path):
+    cfg_path = tmp_path / "machines.yaml"
+    cfg_path.write_text(CFG.read_text(), encoding="utf-8")
+    result = config_editor.save(cfg_path, {
+        "mqtt": {"broker_host": "10.0.0.5", "broker_port": 1883},
+        "cv_watch_folder": r"D:\CV\Exports",
+    })
+    assert result["mqtt"]["broker_host"] == "10.0.0.5"
+    assert result["cv_watch_folder"] == r"D:\CV\Exports"
+    backup_path = Path(result["backup_path"])
+    assert backup_path.exists()
+    assert backup_path.parent.name == "backups"
+    assert not cfg_path.with_suffix(".yaml.tmp").exists()
+
+
+def test_config_endpoint(conn):
+    from fastapi.testclient import TestClient
+    import main
+
+    main.set_conn(conn)
+    with TestClient(main.app) as client:
+        main.set_conn(conn)
+        response = client.get("/config")
+        assert response.status_code == 200
+        assert "maestro_agents" in response.json()
+
+
+def test_config_endpoint_rejects_incomplete_payload(conn):
+    from fastapi.testclient import TestClient
+    import main
+
+    main.set_conn(conn)
+    with TestClient(main.app) as client:
+        main.set_conn(conn)
+        response = client.put("/config", json={"mqtt": {"broker_host": "localhost"}})
+        assert response.status_code == 422

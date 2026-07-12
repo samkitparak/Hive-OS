@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { fetchMachine, fetchJobParts } from "./api";
+import { fetchMachine } from "./api";
 
 const EVENT_COLOR = {
   power_on:    "#22c55e",

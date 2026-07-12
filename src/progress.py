@@ -14,27 +14,10 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
+import cycle_time
 
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "cycle_times.yaml"
-
-_cycle_times: Optional[dict] = None
-
-
-def _load_cycle_times(cfg_path: Path = CONFIG_PATH) -> dict:
-    global _cycle_times
-    if _cycle_times is None:
-        with open(cfg_path) as f:
-            raw = yaml.safe_load(f)
-        _cycle_times = raw.get("cycle_times", {})
-    return _cycle_times
-
-
-def reload_cycle_times(cfg_path: Path = CONFIG_PATH):
-    global _cycle_times
-    _cycle_times = None
-    return _load_cycle_times(cfg_path)
-
 
 @dataclass
 class JobProgress:
@@ -48,6 +31,38 @@ class JobProgress:
     on_time:       Optional[str]   # "on_time" | "at_risk" | "late" | None
 
 
+def _eta_for_job(conn: sqlite3.Connection, job_name: str, total: int,
+                 left: int, cfg_path: Path) -> Optional[int]:
+    if total <= 0 or left <= 0:
+        return None
+    estimate = cycle_time.estimate_job(conn, job_name, cfg_path)
+    critical_path_s = estimate.get("critical_path_s")
+    if not critical_path_s:
+        return None
+    return round(critical_path_s * (left / total))
+
+
+def _on_time_status(eta_s: Optional[int], cfg_path: Path) -> Optional[str]:
+    if eta_s is None:
+        return None
+    with open(cfg_path) as f:
+        cfg = yaml.safe_load(f)
+    shift_hours = cfg.get("shift_hours", 9)
+    shift_start_str = cfg.get("shift_start", "09:00")
+    now = datetime.now().astimezone()
+    local_hour, local_min = map(int, shift_start_str.split(":"))
+    elapsed = ((now.hour - local_hour) * 3600
+               + (now.minute - local_min) * 60
+               + now.second)
+    secs_left_in_shift = max(0, shift_hours * 3600 - elapsed)
+
+    if eta_s <= secs_left_in_shift * 0.85:
+        return "on_time"
+    if eta_s <= secs_left_in_shift:
+        return "at_risk"
+    return "late"
+
+
 def get_active_jobs(conn: sqlite3.Connection,
                     cfg_path: Path = CONFIG_PATH) -> list[JobProgress]:
     """
@@ -55,8 +70,6 @@ def get_active_jobs(conn: sqlite3.Connection,
     but are not yet fully complete.
     """
     today = datetime.now(timezone.utc).date().isoformat()
-    cycle_times = _load_cycle_times(cfg_path)
-
     # Jobs touched today (have a cycle_start event today)
     active_job_ids = conn.execute(
         """SELECT DISTINCT p.job_id
@@ -108,35 +121,8 @@ def get_active_jobs(conn: sqlite3.Connection,
         ).fetchall()
         active_machines = [r["machine_key"] for r in active_rows]
 
-        # ETA: use slowest active machine's cycle time as the bottleneck
-        eta_s = None
-        on_time = None
-        relevant_keys = active_machines or list(cycle_times.keys())
-        known_times = [cycle_times.get(k, 0) for k in relevant_keys]
-        max_ct = max(known_times) if known_times else 0
-
-        if max_ct > 0 and left > 0:
-            eta_s = left * max_ct
-            # Shift ends at shift_hours remaining from now
-            with open(cfg_path) as f:
-                cfg = yaml.safe_load(f)
-            shift_hours = cfg.get("shift_hours", 9)
-            shift_start_str = cfg.get("shift_start", "09:00")
-            now = datetime.now(timezone.utc)
-            # Rough seconds left in shift (local time estimate)
-            import time as _time
-            local_hour, local_min = map(int, shift_start_str.split(":"))
-            shift_end_secs = shift_hours * 3600
-            # seconds elapsed since shift start (approximate)
-            elapsed = (now.hour - local_hour) * 3600 + now.minute * 60
-            secs_left_in_shift = max(0, shift_end_secs - elapsed)
-
-            if eta_s <= secs_left_in_shift * 0.85:
-                on_time = "on_time"
-            elif eta_s <= secs_left_in_shift:
-                on_time = "at_risk"
-            else:
-                on_time = "late"
+        eta_s = _eta_for_job(conn, job["job_name"], total, left, cfg_path)
+        on_time = _on_time_status(eta_s, cfg_path)
 
         results.append(JobProgress(
             job_name        = job["job_name"],
@@ -160,8 +146,6 @@ def get_job_progress(conn: sqlite3.Connection, job_name: str,
     if not job:
         return None
 
-    today = datetime.now(timezone.utc).date().isoformat()
-    cycle_times = _load_cycle_times(cfg_path)
     total = job["total_parts"] or 0
 
     done_row = conn.execute(
@@ -187,28 +171,8 @@ def get_job_progress(conn: sqlite3.Connection, job_name: str,
     ).fetchall()
     active_machines = [r["machine_key"] for r in active_rows]
 
-    eta_s = None
-    on_time = None
-    known_times = [cycle_times.get(k, 0) for k in (active_machines or list(cycle_times.keys()))]
-    max_ct = max(known_times) if known_times else 0
-
-    if max_ct > 0 and left > 0:
-        eta_s = left * max_ct
-        with open(cfg_path) as f:
-            cfg = yaml.safe_load(f)
-        shift_hours = cfg.get("shift_hours", 9)
-        shift_start_str = cfg.get("shift_start", "09:00")
-        now = datetime.now(timezone.utc)
-        local_hour, local_min = map(int, shift_start_str.split(":"))
-        elapsed = (now.hour - local_hour) * 3600 + now.minute * 60
-        secs_left_in_shift = max(0, shift_hours * 3600 - elapsed)
-
-        if eta_s <= secs_left_in_shift * 0.85:
-            on_time = "on_time"
-        elif eta_s <= secs_left_in_shift:
-            on_time = "at_risk"
-        else:
-            on_time = "late"
+    eta_s = _eta_for_job(conn, job["job_name"], total, left, cfg_path)
+    on_time = _on_time_status(eta_s, cfg_path)
 
     return JobProgress(
         job_name        = job["job_name"],

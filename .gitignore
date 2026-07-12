@@ -22,6 +22,10 @@ env/
 .env.*
 !.env.example
 
+# Generated configuration backups
+config/backups/
+config/*.bak
+
 # Node
 node_modules/
 dashboard/node_modules/

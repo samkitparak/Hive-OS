@@ -91,6 +91,112 @@ CREATE TABLE IF NOT EXISTS oee_snapshots (
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Phase 1 operations layer: downtime, maintenance, quality/rework, barcode,
+-- and connector sync state. These are HIVE-native tables; external systems map
+-- into them through small adapters.
+
+CREATE TABLE IF NOT EXISTS downtime_reasons (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    code        TEXT NOT NULL UNIQUE,
+    label       TEXT NOT NULL,
+    category    TEXT NOT NULL,
+    active      INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS downtime_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    machine_id      INTEGER REFERENCES machines(id),
+    event_id        INTEGER REFERENCES machine_events(id),
+    reason_id       INTEGER REFERENCES downtime_reasons(id),
+    status          TEXT NOT NULL DEFAULT 'open', -- open | closed
+    notes           TEXT,
+    started_at      TEXT NOT NULL,
+    ended_at        TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS maintenance_work_orders (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    machine_id      INTEGER REFERENCES machines(id),
+    title           TEXT NOT NULL,
+    description     TEXT,
+    priority        TEXT NOT NULL DEFAULT 'medium', -- low | medium | high | urgent
+    status          TEXT NOT NULL DEFAULT 'open',   -- open | in_progress | done | cancelled
+    source          TEXT NOT NULL DEFAULT 'manual',
+    due_date        TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    closed_at       TEXT
+);
+
+CREATE TABLE IF NOT EXISTS defect_types (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    code        TEXT NOT NULL UNIQUE,
+    label       TEXT NOT NULL,
+    process     TEXT NOT NULL,
+    active      INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS quality_checks (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id          INTEGER REFERENCES jobs(id),
+    part_id         INTEGER REFERENCES parts(id),
+    machine_id      INTEGER REFERENCES machines(id),
+    defect_type_id  INTEGER REFERENCES defect_types(id),
+    result          TEXT NOT NULL, -- pass | fail | rework
+    inspector       TEXT,
+    notes           TEXT,
+    photo_path      TEXT,
+    source          TEXT NOT NULL DEFAULT 'manual',
+    ts              TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS rework_tasks (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    quality_check_id INTEGER REFERENCES quality_checks(id),
+    job_id          INTEGER REFERENCES jobs(id),
+    part_id         INTEGER REFERENCES parts(id),
+    assigned_area   TEXT,
+    status          TEXT NOT NULL DEFAULT 'open', -- open | in_progress | done | cancelled
+    notes           TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    closed_at       TEXT
+);
+
+CREATE TABLE IF NOT EXISTS barcode_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    barcode         TEXT NOT NULL,
+    job_id          INTEGER REFERENCES jobs(id),
+    part_id         INTEGER REFERENCES parts(id),
+    station         TEXT,
+    event_type      TEXT NOT NULL, -- part_complete | qc_pass | qc_fail | packed | dispatched | unknown
+    operator        TEXT,
+    source          TEXT NOT NULL DEFAULT 'manual',
+    raw_payload     TEXT,
+    ts              TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS connector_sync_state (
+    connector_key   TEXT PRIMARY KEY,
+    status          TEXT NOT NULL DEFAULT 'not_configured',
+    last_sync_at    TEXT,
+    last_cursor     TEXT,
+    last_error      TEXT,
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_parts_job ON parts(job_id);
+CREATE INDEX IF NOT EXISTS idx_parts_cnc_back ON parts(cnc_file_back);
+CREATE INDEX IF NOT EXISTS idx_parts_cnc_front ON parts(cnc_file_front);
+CREATE INDEX IF NOT EXISTS idx_machine_events_machine_ts ON machine_events(machine_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_machine_events_part_ts ON machine_events(part_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_machine_events_type_ts ON machine_events(event_type, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_oee_snapshots_machine_window ON oee_snapshots(machine_id, window_end DESC);
+CREATE INDEX IF NOT EXISTS idx_downtime_status_started ON downtime_events(status, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_work_orders_status_created ON maintenance_work_orders(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_quality_checks_result_ts ON quality_checks(result, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_rework_status_created ON rework_tasks(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_barcode_events_ts ON barcode_events(ts DESC);
+
 -- Seed the 14 in-scope HAEEV machines (aluminium pair excluded, compressors/dust collectors as utility)
 INSERT OR IGNORE INTO machines (name, machine_key, type, brand, model, has_maestro, has_opcua, active) VALUES
     ('Stefani KD',      'stefani_kd',       'Edge Bander Thrufeed',  'SCM', 'Stefani KD',    1, 0, 1),
@@ -108,3 +214,27 @@ INSERT OR IGNORE INTO machines (name, machine_key, type, brand, model, has_maest
     ('Elgi 2',          'elgi_2',           'Compressor',            'Elgi', NULL,            0, 0, 1),
     ('Aarco 1',         'aarco_1',          'Dust Collector',        'Aarco',NULL,            0, 0, 1),
     ('Aarco 2',         'aarco_2',          'Dust Collector',        'Aarco',NULL,            0, 0, 1);
+
+INSERT OR IGNORE INTO downtime_reasons (code, label, category) VALUES
+    ('setup',            'Setup / changeover',       'planned'),
+    ('breakdown',        'Machine breakdown',        'maintenance'),
+    ('waiting_material', 'Waiting for material',     'flow'),
+    ('tool_change',      'Tool change / sharpening', 'maintenance'),
+    ('no_operator',      'No operator available',    'labor'),
+    ('quality_issue',    'Quality issue / rework',   'quality'),
+    ('no_job',           'No job queued',            'planning'),
+    ('unknown',          'Unknown',                  'unknown');
+
+INSERT OR IGNORE INTO defect_types (code, label, process) VALUES
+    ('edge_band',        'Edge banding defect',      'edge_banding'),
+    ('drilling',         'Drilling / boring defect', 'cnc'),
+    ('cut_size',         'Wrong size / cutting',     'cutting'),
+    ('sanding',          'Sanding defect',           'sanding'),
+    ('paint',            'Paint / finishing defect', 'finishing'),
+    ('material_damage',  'Material damage',          'material'),
+    ('missing_part',     'Missing part',             'packing'),
+    ('other',            'Other defect',             'unknown');
+
+INSERT OR IGNORE INTO connector_sync_state (connector_key, status) VALUES
+    ('cabinet_vision_sql', 'not_configured'),
+    ('ottimo_barcode',    'not_configured');
