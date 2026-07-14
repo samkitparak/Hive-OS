@@ -40,8 +40,19 @@ After installation, run:
 .\deploy\windows\test-hive-install.ps1
 ```
 
-This checks the dashboard, API, connector registry, MQTT port, ODBC driver,
-install folder, logs folder, and startup task.
+This checks the dashboard, API, connector and industrial registries, MQTT port,
+ODBC driver, Modbus/OPC-UA client libraries, install folder, logs folder, and
+startup task.
+
+From the central PC on the factory OT network, run the read-only endpoint
+preflight after entering real device endpoints:
+
+```powershell
+.\deploy\windows\test-industrial-network.ps1
+```
+
+It checks TCP reachability only. Protocol reads, signal validation, and approval
+remain in **Commission > Industrial I/O**.
 
 Firewall rules are limited to `LocalSubnet`; HIVE does not expose its API or
 MQTT broker intentionally beyond the factory LAN.
@@ -98,6 +109,7 @@ package readiness:
 
 - Database, MQTT bridge, and Cabinet Vision watcher status
 - Approved and enabled factory connector counts
+- Approved, polling, and failing industrial I/O profile counts
 - Configured versus unconfigured machines
 - Online, stale, and offline agents
 - Last report age
@@ -117,6 +129,9 @@ Status thresholds:
 For Cabinet Vision SQL, Ottimo, and Maestro evidence approval, follow
 `CONNECTOR_COMMISSIONING.md`. SQL credentials are machine environment variables;
 they are never written to HIVE configuration or SQLite.
+
+For meters, PLCs, OPC-UA security, MQTT telemetry, signal maps, simulation, and
+real probe approval, follow `INDUSTRIAL_TELEMETRY.md`.
 
 ## Capturing Maestro Evidence
 

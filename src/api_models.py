@@ -259,6 +259,34 @@ class ConnectorSyncRequest(RequestModel):
     actor: str = Field(default="operator", min_length=1)
 
 
+class IndustrialProfileUpdate(RequestModel):
+    expected_version: Optional[int] = Field(default=None, ge=1)
+    protocol: Optional[Literal["modbus_tcp", "opcua", "mqtt_json"]] = None
+    endpoint: Optional[str] = Field(default=None, max_length=512)
+    credential_env: Optional[str] = Field(default=None, max_length=128)
+    poll_interval_s: Optional[float] = Field(default=None, ge=1, le=3600)
+    settings: Optional[dict[str, Any]] = None
+    enabled: Optional[bool] = None
+    actor: str = Field(default="operator", min_length=1)
+
+
+class IndustrialProbeRequest(RequestModel):
+    actor: str = Field(default="operator", min_length=1)
+
+
+class IndustrialMqttProbeRequest(RequestModel):
+    topic: str = Field(min_length=1, max_length=256)
+    payload: dict[str, Any]
+    actor: str = Field(default="operator", min_length=1)
+
+
+class IndustrialApprovalRequest(RequestModel):
+    run_id: int = Field(ge=1)
+    expected_version: int = Field(ge=1)
+    actor: str = Field(default="operator", min_length=1)
+    enable: bool = True
+
+
 class RemoteMachineRequest(RequestModel):
     machine_key: str = Field(min_length=1, pattern=r"^[a-z0-9_]+$")
     host: Optional[str] = None

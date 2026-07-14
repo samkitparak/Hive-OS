@@ -26,7 +26,7 @@ def conn():
 
 def test_diagnostics_reports_services_and_machines(conn):
     result = diagnostics.build(conn, CFG, mqtt_connected=False, cv_watcher_running=False)
-    assert len(result["services"]) == 5
+    assert len(result["services"]) == 6
     assert result["summary"]["verified_maintenance_plans"] == 0
     maintenance_service = next(item for item in result["services"]
                                if item["key"] == "maintenance")
@@ -34,6 +34,9 @@ def test_diagnostics_reports_services_and_machines(conn):
     connector_service = next(item for item in result["services"]
                              if item["key"] == "connectors")
     assert connector_service["status"] == "needs_site_value"
+    industrial_service = next(item for item in result["services"]
+                              if item["key"] == "industrial_io")
+    assert industrial_service["status"] == "needs_site_value"
     assert result["summary"]["total_machines"] == 15
     assert len(result["machines"]) == 15
 
@@ -93,6 +96,10 @@ def test_deployment_readiness_lists_windows_assets():
     assert "central_installer" in keys
     assert "machine_agent_installer" in keys
     assert "install_tester" in keys
+    assert "industrial_preflight" in keys
+
+    preflight = (CFG.parent.parent / "deploy/windows/test-industrial-network.ps1").read_text()
+    assert preflight.index('$Protocol -eq "mqtt_json"') < preflight.index("-not $Endpoint")
 
 
 def test_deployment_endpoint(conn):

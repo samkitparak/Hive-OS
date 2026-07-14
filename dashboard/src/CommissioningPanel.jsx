@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import Papa from "papaparse";
-import { Check, Database, FileUp, Play, RefreshCw, Search, X } from "lucide-react";
+import { Check, Cpu, Database, FileUp, Play, RefreshCw, Search, X } from "lucide-react";
+import { IndustrialIoPanel } from "./IndustrialIoPanel";
 
 const button = {
   border: "1px solid #374151", borderRadius: 6, padding: "8px 12px",
@@ -342,7 +343,7 @@ function DataConnectors({ profiles, onConnectorAction }) {
   </div>;
 }
 
-export function CommissioningPanel({ machines, connectors, onAnalyze, onConnectorAction, onClose }) {
+export function CommissioningPanel({ machines, connectors, industrial, onAnalyze, onConnectorAction, onIndustrialAction, onClose }) {
   const [tab, setTab] = useState("data");
   const profiles = connectors?.profiles ?? [];
   const maestroProfile = profiles.find(profile => profile.connector_key === "maestro_logs");
@@ -356,9 +357,13 @@ export function CommissioningPanel({ machines, connectors, onAnalyze, onConnecto
       </div>
       <div style={{ display: "inline-flex", background: "#0d1117", border: "1px solid #374151", borderRadius: 6, padding: 2, marginBottom: 18 }}>
         <button onClick={() => setTab("data")} style={{ ...button, minHeight: 30, border: 0, background: tab === "data" ? "#374151" : "transparent" }}><Database size={13} /> Data connectors</button>
+        <button onClick={() => setTab("industrial")} style={{ ...button, minHeight: 30, border: 0, background: tab === "industrial" ? "#374151" : "transparent" }}><Cpu size={13} /> Industrial I/O</button>
         <button onClick={() => setTab("machines")} style={{ ...button, minHeight: 30, border: 0, background: tab === "machines" ? "#374151" : "transparent" }}><FileUp size={13} /> Machine logs</button>
       </div>
-      {!profiles.length ? <div style={{ color: "#6b7280", fontSize: 11 }}>Loading connector registry…</div>
+      {tab === "industrial" ? (industrial?.profiles?.length
+          ? <IndustrialIoPanel data={industrial} onAction={onIndustrialAction} />
+          : <div style={{ color: "#6b7280", fontSize: 11 }}>Loading industrial registry…</div>)
+        : !profiles.length ? <div style={{ color: "#6b7280", fontSize: 11 }}>Loading connector registry…</div>
         : tab === "data"
           ? <DataConnectors profiles={profiles} onConnectorAction={onConnectorAction} />
           : <MachineLogs machines={machines} profile={maestroProfile} onAnalyze={onAnalyze} onConnectorAction={onConnectorAction} />}

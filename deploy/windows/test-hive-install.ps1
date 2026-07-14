@@ -48,6 +48,7 @@ $checks += Test-Http "API diagnostics" "http://$HostName`:$ApiPort/api/diagnosti
 $checks += Test-Http "API data quality" "http://$HostName`:$ApiPort/api/data-quality"
 $checks += Test-Http "API optimization" "http://$HostName`:$ApiPort/api/optimization"
 $checks += Test-Http "API connectors" "http://$HostName`:$ApiPort/api/connectors/snapshot"
+$checks += Test-Http "API industrial I/O" "http://$HostName`:$ApiPort/api/industrial/snapshot"
 $checks += Test-Port "MQTT" $HostName $MqttPort
 
 $odbc = Get-OdbcDriver -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "ODBC Driver 18 for SQL Server*" }
@@ -56,6 +57,16 @@ if ($odbc) {
     $checks += $true
 } else {
     Write-Host "[WARN] Microsoft ODBC Driver 18 not found; Cabinet Vision SQL will remain unavailable" -ForegroundColor Yellow
+}
+
+try {
+    & python -c "import pymodbus, asyncua" 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "protocol import failed" }
+    Write-Host "[OK] Modbus and OPC-UA Python clients installed" -ForegroundColor Green
+    $checks += $true
+} catch {
+    Write-Host "[FAIL] pymodbus or asyncua is unavailable" -ForegroundColor Red
+    $checks += $false
 }
 
 if (Test-Path "C:\HIVE-OS") {

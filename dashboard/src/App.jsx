@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, updateMaterialStock, updateLaborRole, updateToolPool, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, fetchConnectorSnapshot, analyzeConnector, approveConnector, importConnectorRecords, updateConnectorProfile, discoverCabinetVisionSql, syncCabinetVisionSql, postJson, simulateEvent } from "./api";
+import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, updateMaterialStock, updateLaborRole, updateToolPool, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, fetchConnectorSnapshot, analyzeConnector, approveConnector, importConnectorRecords, updateConnectorProfile, discoverCabinetVisionSql, syncCabinetVisionSql, fetchIndustrialSnapshot, updateIndustrialProfile, simulateIndustrialProfile, probeIndustrialProfile, probeIndustrialMqtt, approveIndustrialProfile, pollIndustrialProfile, browseIndustrialOpcua, postJson, simulateEvent } from "./api";
 import { MachineCard } from "./MachineCard";
 import { MachineDetail } from "./MachineDetail";
 import { JobProgress } from "./JobProgress";
@@ -136,6 +136,9 @@ export default function App() {
   });
   const { data: connectorSnapshot = null } = useQuery({
     queryKey: ["connectorSnapshot"], queryFn: fetchConnectorSnapshot, refetchInterval: 30000,
+  });
+  const { data: industrialSnapshot = null } = useQuery({
+    queryKey: ["industrialSnapshot"], queryFn: fetchIndustrialSnapshot, refetchInterval: 10000,
   });
 
   const onEvent = useCallback((ev) => {
@@ -342,6 +345,23 @@ export default function App() {
     else if (kind === "sync") result = await syncCabinetVisionSql(payload);
     qc.invalidateQueries({ queryKey: ["connectorSnapshot"] });
     if (["import", "sync"].includes(kind)) refreshOperations();
+    return result;
+  };
+
+  const runIndustrialAction = async (kind, profileKey, payload = {}) => {
+    let result;
+    if (kind === "profile") result = await updateIndustrialProfile(profileKey, payload);
+    else if (kind === "simulate") result = await simulateIndustrialProfile(profileKey, payload);
+    else if (kind === "probe") result = await probeIndustrialProfile(profileKey, payload);
+    else if (kind === "mqttProbe") result = await probeIndustrialMqtt(profileKey, payload);
+    else if (kind === "approve") result = await approveIndustrialProfile(profileKey, payload);
+    else if (kind === "poll") result = await pollIndustrialProfile(profileKey, payload);
+    else if (kind === "browse") result = await browseIndustrialOpcua(profileKey);
+    qc.invalidateQueries({ queryKey: ["industrialSnapshot"] });
+    if (["poll", "approve"].includes(kind)) {
+      qc.invalidateQueries({ queryKey: ["machines"] });
+      qc.invalidateQueries({ queryKey: ["diagnostics"] });
+    }
     return result;
   };
 
@@ -617,8 +637,10 @@ export default function App() {
       )}
       {showCommissioning && (
         <CommissioningPanel machines={enriched} connectors={connectorSnapshot}
+                            industrial={industrialSnapshot}
                             onAnalyze={runCommissioningAnalysis}
                             onConnectorAction={runConnectorAction}
+                            onIndustrialAction={runIndustrialAction}
                             onClose={() => setShowCommissioning(false)} />
       )}
       {showPlanning && (
@@ -644,6 +666,9 @@ export default function App() {
           .connector-layout { grid-template-columns: 1fr !important; }
           .connector-layout > div:first-child { border-right: 0 !important; border-bottom: 1px solid #1f2937; padding-right: 0 !important; padding-bottom: 10px; display: grid; grid-template-columns: 1fr 1fr; }
           .sql-config, .mapping-grid { grid-template-columns: 1fr !important; }
+          .industrial-layout { grid-template-columns: 1fr !important; }
+          .industrial-sidebar { border-right: 0 !important; border-bottom: 1px solid #1f2937; padding-right: 0 !important; padding-bottom: 10px; display: grid; grid-template-columns: 1fr 1fr; }
+          .industrial-config, .industrial-signal-row { grid-template-columns: 1fr !important; }
         }
       `}</style>
     </div>

@@ -60,6 +60,8 @@ import remote_setup as remote_setup_module
 import operations as operations_module
 import maintenance as maintenance_module
 import connectors as connectors_module
+import industrial_gateway as industrial_gateway_module
+import energy_intelligence as energy_intelligence_module
 import ottimo_connector
 import cv_sql_connector
 from api_models import (
@@ -71,6 +73,10 @@ from api_models import (
     ConnectorImportRequest,
     ConnectorProfileUpdate,
     ConnectorSyncRequest,
+    IndustrialApprovalRequest,
+    IndustrialMqttProbeRequest,
+    IndustrialProbeRequest,
+    IndustrialProfileUpdate,
     DigitalTwinRequest,
     ExecutionActionRequest,
     ExecutionExceptionDecision,
@@ -114,7 +120,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.8.0"
+APP_VERSION = "0.9.0"
 
 
 class ApiPrefixMiddleware:
@@ -137,13 +143,14 @@ _conn        = None
 _cv_observer = None
 _event_watch_task = None
 _learning_watch_task = None
+_industrial_watch_task = None
 _route_conn_override = None
 _route_connections = threading.local()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _mqtt_client, _conn, _cv_observer, _event_watch_task, _learning_watch_task
+    global _mqtt_client, _conn, _cv_observer, _event_watch_task, _learning_watch_task, _industrial_watch_task
     _conn = init_db(DB_PATH, check_same_thread=False)
     production_control_module.sync_all(_conn)
     resources_module.sync_defaults(_conn)
@@ -152,6 +159,7 @@ async def lifespan(app: FastAPI):
     maintenance_module.sync_defaults(_conn)
     maintenance_module.sync(_conn)
     connectors_module.sync_defaults(_conn)
+    industrial_gateway_module.sync_defaults(_conn)
     try:
         _mqtt_client = mqtt_bridge.start(_conn, CONFIG_PATH)
         log.info("MQTT bridge started")
@@ -160,7 +168,14 @@ async def lifespan(app: FastAPI):
     _cv_observer = cv_watcher.start(_conn, CONFIG_PATH)
     _event_watch_task = asyncio.create_task(_watch_events())
     _learning_watch_task = asyncio.create_task(_watch_learning())
+    _industrial_watch_task = asyncio.create_task(_watch_industrial_io())
     yield
+    if _industrial_watch_task:
+        _industrial_watch_task.cancel()
+        try:
+            await _industrial_watch_task
+        except asyncio.CancelledError:
+            pass
     if _learning_watch_task:
         _learning_watch_task.cancel()
         try:
@@ -255,6 +270,24 @@ async def _watch_learning():
             raise
         except Exception:
             log.exception("cycle learning refresh failed")
+
+
+async def _watch_industrial_io():
+    """Poll due approved industrial profiles without blocking API requests."""
+    prune_counter = 0
+    while True:
+        await asyncio.sleep(1)
+        try:
+            conn = _get_conn()
+            await asyncio.to_thread(industrial_gateway_module.poll_due_profiles, conn)
+            prune_counter += 1
+            if prune_counter >= 3600:
+                await asyncio.to_thread(industrial_gateway_module.prune_raw_telemetry, conn)
+                prune_counter = 0
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("industrial I/O poll failed")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -960,6 +993,115 @@ def post_cv_sql_sync(payload: ConnectorSyncRequest | None = None):
         )
     except (RuntimeError, ValueError) as error:
         raise HTTPException(400, str(error)) from error
+
+
+@app.get("/industrial/snapshot")
+def get_industrial_snapshot():
+    return industrial_gateway_module.snapshot(_get_conn())
+
+
+@app.get("/energy/intelligence")
+def get_energy_intelligence(hours: int = Query(default=24, ge=1, le=720)):
+    return energy_intelligence_module.build(_get_conn(), hours=hours)
+
+
+@app.put("/industrial/profiles/{profile_key}")
+def put_industrial_profile(profile_key: str, payload: IndustrialProfileUpdate):
+    try:
+        return industrial_gateway_module.update_profile(
+            _get_conn(), profile_key, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/industrial/profiles/{profile_key}/simulate")
+def post_industrial_simulation(profile_key: str, payload: IndustrialProbeRequest):
+    try:
+        return industrial_gateway_module.probe_profile(
+            _get_conn(), profile_key, simulate=True, actor=payload.actor
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/industrial/profiles/{profile_key}/probe")
+def post_industrial_probe(profile_key: str, payload: IndustrialProbeRequest):
+    try:
+        return industrial_gateway_module.probe_profile(
+            _get_conn(), profile_key, simulate=False, actor=payload.actor
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except (RuntimeError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/industrial/profiles/{profile_key}/mqtt-probe")
+def post_industrial_mqtt_probe(profile_key: str, payload: IndustrialMqttProbeRequest):
+    try:
+        return industrial_gateway_module.probe_mqtt_payload(
+            _get_conn(), profile_key, payload.topic, payload.payload,
+            actor=payload.actor,
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/industrial/profiles/{profile_key}/approve")
+def post_industrial_approval(profile_key: str, payload: IndustrialApprovalRequest):
+    try:
+        return industrial_gateway_module.approve_run(
+            _get_conn(), profile_key, payload.run_id,
+            expected_version=payload.expected_version,
+            actor=payload.actor, enable=payload.enable,
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/industrial/profiles/{profile_key}/poll")
+def post_industrial_poll(profile_key: str, payload: IndustrialProbeRequest):
+    try:
+        return industrial_gateway_module.poll_profile(
+            _get_conn(), profile_key, actor=payload.actor
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except (RuntimeError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/industrial/profiles/{profile_key}/browse")
+def post_industrial_browse(profile_key: str, limit: int = Query(default=200, ge=1, le=500)):
+    try:
+        return industrial_gateway_module.browse_opcua(
+            _get_conn(), profile_key, limit=limit
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except (RuntimeError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/industrial/profiles/{profile_key}/telemetry")
+def get_industrial_telemetry(profile_key: str,
+                             hours: int = Query(default=24, ge=1, le=8760),
+                             signal_key: str | None = None):
+    try:
+        return industrial_gateway_module.telemetry_history(
+            _get_conn(), profile_key, hours=hours, signal_key=signal_key
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
 
 
 @app.get("/diagnostics")

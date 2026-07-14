@@ -34,8 +34,8 @@ log = logging.getLogger("energy_agent")
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 
-# Modbus register addresses for a standard DIN-rail energy meter
-# (e.g. Eastron SDM120, SDM630 — common in Indian industrial panels)
+# Legacy Eastron-compatible register defaults. New installations use the
+# versioned contracts in industrial_gateway.py instead of these fixed values.
 _REG_VOLTAGE   = 0x0000   # V    float32, 2 registers
 _REG_CURRENT   = 0x0006   # A    float32
 _REG_POWER_W   = 0x000C   # W    float32  ← primary OEE signal
@@ -96,9 +96,14 @@ class RealModbusReader:
         try:
             if not client.connect():
                 return None
-            result = client.read_input_registers(
-                address=_REG_POWER_W, count=2, slave=unit_id
-            )
+            try:
+                result = client.read_input_registers(
+                    address=_REG_POWER_W, count=2, device_id=unit_id
+                )
+            except TypeError:
+                result = client.read_input_registers(
+                    address=_REG_POWER_W, count=2, slave=unit_id
+                )
             if result.isError():
                 return None
             # Two 16-bit registers → IEEE 754 float32

@@ -146,6 +146,24 @@ export const discoverCabinetVisionSql = () =>
 export const syncCabinetVisionSql = (payload = {}) =>
   postJson("/connectors/cabinet_vision_sql/sync", payload);
 
+export const fetchIndustrialSnapshot = () => request("/industrial/snapshot");
+export const updateIndustrialProfile = (key, payload) => request(
+  `/industrial/profiles/${encodeURIComponent(key)}`,
+  { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+);
+export const simulateIndustrialProfile = (key, payload = {}) =>
+  postJson(`/industrial/profiles/${encodeURIComponent(key)}/simulate`, payload);
+export const probeIndustrialProfile = (key, payload = {}) =>
+  postJson(`/industrial/profiles/${encodeURIComponent(key)}/probe`, payload);
+export const probeIndustrialMqtt = (key, payload) =>
+  postJson(`/industrial/profiles/${encodeURIComponent(key)}/mqtt-probe`, payload);
+export const approveIndustrialProfile = (key, payload) =>
+  postJson(`/industrial/profiles/${encodeURIComponent(key)}/approve`, payload);
+export const pollIndustrialProfile = (key, payload = {}) =>
+  postJson(`/industrial/profiles/${encodeURIComponent(key)}/poll`, payload);
+export const browseIndustrialOpcua = (key) =>
+  postJson(`/industrial/profiles/${encodeURIComponent(key)}/browse`, {});
+
 export const fetchDailyScore = () => request("/score/daily");
 
 export const simulateEvent = (machineKey, eventType, extras = {}) => {

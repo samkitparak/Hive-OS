@@ -16,6 +16,7 @@ import paho.mqtt.client as mqtt
 import yaml
 
 import event_pipeline
+import industrial_gateway
 
 log = logging.getLogger("mqtt_bridge")
 
@@ -59,6 +60,20 @@ def _on_message(conn: sqlite3.Connection, msg: mqtt.MQTTMessage) -> None:
         payload = json.loads(msg.payload.decode())
     except (json.JSONDecodeError, UnicodeDecodeError):
         log.warning("Bad payload on %s", msg.topic)
+        return
+
+    try:
+        telemetry_results = industrial_gateway.ingest_mqtt_payload(
+            conn, msg.topic, payload
+        )
+    except Exception:
+        telemetry_results = []
+        log.exception("Industrial MQTT ingestion failed on %s", msg.topic)
+
+    # Approved MQTT telemetry contracts own pushed sample payloads. A payload
+    # can still carry a valid machine event, in which case it continues below.
+    if telemetry_results and payload.get("event_type") in (None, "telemetry"):
+        log.info("← %s  %s telemetry profile(s)", msg.topic, len(telemetry_results))
         return
 
     machine_key = payload.get("machine_key")

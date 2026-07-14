@@ -126,6 +126,17 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
     connector_total = int(connector_counts["total"] or 0)
     connector_verified = int(connector_counts["verified"] or 0)
     connector_enabled = int(connector_counts["enabled"] or 0)
+    industrial_counts = conn.execute(
+        """SELECT COUNT(*) total,
+                  SUM(CASE WHEN verified=1 THEN 1 ELSE 0 END) verified,
+                  SUM(CASE WHEN enabled=1 THEN 1 ELSE 0 END) enabled,
+                  SUM(CASE WHEN enabled=1 AND last_error IS NOT NULL THEN 1 ELSE 0 END) failing
+           FROM industrial_profiles"""
+    ).fetchone()
+    industrial_total = int(industrial_counts["total"] or 0)
+    industrial_verified = int(industrial_counts["verified"] or 0)
+    industrial_enabled = int(industrial_counts["enabled"] or 0)
+    industrial_failing = int(industrial_counts["failing"] or 0)
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -139,6 +150,8 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "maintenance_spare_shortages": int(spare_shortages),
             "verified_connectors": connector_verified,
             "enabled_connectors": connector_enabled,
+            "verified_industrial_profiles": industrial_verified,
+            "enabled_industrial_profiles": industrial_enabled,
         },
         "services": [
             {"key": "database", "name": "Database", "status": "online",
@@ -162,6 +175,14 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
              "detail": (
                  f"{connector_verified}/{connector_total} approved; "
                  f"{connector_enabled} enabled"
+             )},
+            {"key": "industrial_io", "name": "Industrial telemetry gateway",
+             "status": "ready" if industrial_enabled and not industrial_failing else (
+                 "offline" if industrial_failing else "needs_site_value"
+             ),
+             "detail": (
+                 f"{industrial_verified}/{industrial_total} device contracts approved; "
+                 f"{industrial_enabled} polling; {industrial_failing} failing"
              )},
         ],
         "machines": machines,

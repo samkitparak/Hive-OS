@@ -950,6 +950,115 @@ CREATE TABLE IF NOT EXISTS connector_import_batches (
     UNIQUE(connector_key, source_sha256)
 );
 
+-- Read-only industrial I/O commissioning. Draft settings can be edited, but
+-- only immutable approved contracts are used by the live poller.
+CREATE TABLE IF NOT EXISTS industrial_profiles (
+    profile_key         TEXT PRIMARY KEY,
+    machine_id          INTEGER REFERENCES machines(id),
+    name                TEXT NOT NULL,
+    protocol            TEXT NOT NULL, -- modbus_tcp | opcua | mqtt_json
+    template_key        TEXT,
+    endpoint            TEXT,
+    credential_env      TEXT,
+    poll_interval_s     REAL NOT NULL DEFAULT 15,
+    settings_json       TEXT NOT NULL DEFAULT '{}',
+    enabled             INTEGER NOT NULL DEFAULT 0,
+    verified            INTEGER NOT NULL DEFAULT 0,
+    status              TEXT NOT NULL DEFAULT 'site_configuration_required',
+    active_contract_id  INTEGER,
+    version             INTEGER NOT NULL DEFAULT 1,
+    last_probe_at       TEXT,
+    last_poll_at        TEXT,
+    last_success_at     TEXT,
+    last_error          TEXT,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS industrial_contract_versions (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_key         TEXT NOT NULL REFERENCES industrial_profiles(profile_key),
+    version             INTEGER NOT NULL,
+    protocol            TEXT NOT NULL,
+    endpoint             TEXT NOT NULL,
+    signals_json        TEXT NOT NULL,
+    settings_json       TEXT NOT NULL,
+    evidence_sha256     TEXT NOT NULL,
+    approved_by         TEXT NOT NULL,
+    approved_at         TEXT NOT NULL,
+    created_at          TEXT NOT NULL,
+    UNIQUE(profile_key, version)
+);
+
+CREATE TABLE IF NOT EXISTS industrial_commissioning_runs (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_key         TEXT NOT NULL REFERENCES industrial_profiles(profile_key),
+    contract_id         INTEGER REFERENCES industrial_contract_versions(id),
+    mode                TEXT NOT NULL, -- simulate | probe | poll | mqtt
+    status              TEXT NOT NULL,
+    evidence_sha256     TEXT NOT NULL,
+    signals_seen        INTEGER NOT NULL DEFAULT 0,
+    signals_good        INTEGER NOT NULL DEFAULT 0,
+    summary_json        TEXT NOT NULL DEFAULT '{}',
+    actor               TEXT NOT NULL,
+    started_at          TEXT NOT NULL,
+    completed_at        TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS telemetry_samples (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_key         TEXT NOT NULL REFERENCES industrial_profiles(profile_key),
+    machine_id          INTEGER REFERENCES machines(id),
+    signal_key          TEXT NOT NULL,
+    value_num           REAL,
+    value_text          TEXT,
+    unit                TEXT,
+    quality             TEXT NOT NULL, -- good | uncertain | bad
+    source_ts           TEXT NOT NULL,
+    received_at         TEXT NOT NULL,
+    fingerprint         TEXT NOT NULL UNIQUE,
+    contract_id         INTEGER NOT NULL REFERENCES industrial_contract_versions(id)
+);
+
+CREATE TABLE IF NOT EXISTS telemetry_latest (
+    profile_key         TEXT NOT NULL REFERENCES industrial_profiles(profile_key),
+    signal_key          TEXT NOT NULL,
+    machine_id          INTEGER REFERENCES machines(id),
+    value_num           REAL,
+    value_text          TEXT,
+    unit                TEXT,
+    quality             TEXT NOT NULL,
+    source_ts           TEXT NOT NULL,
+    received_at         TEXT NOT NULL,
+    contract_id         INTEGER NOT NULL REFERENCES industrial_contract_versions(id),
+    PRIMARY KEY(profile_key, signal_key)
+);
+
+CREATE TABLE IF NOT EXISTS telemetry_hourly (
+    profile_key         TEXT NOT NULL REFERENCES industrial_profiles(profile_key),
+    signal_key          TEXT NOT NULL,
+    hour_ts             TEXT NOT NULL,
+    unit                TEXT,
+    sample_count        INTEGER NOT NULL,
+    good_count          INTEGER NOT NULL,
+    min_value           REAL,
+    max_value           REAL,
+    avg_value           REAL,
+    first_value         REAL,
+    last_value          REAL,
+    PRIMARY KEY(profile_key, signal_key, hour_ts)
+);
+
+CREATE TABLE IF NOT EXISTS industrial_profile_state (
+    profile_key         TEXT PRIMARY KEY REFERENCES industrial_profiles(profile_key),
+    current_state       TEXT NOT NULL DEFAULT 'unknown',
+    pending_state       TEXT,
+    pending_count       INTEGER NOT NULL DEFAULT 0,
+    last_power_w        REAL,
+    last_transition_at  TEXT,
+    updated_at          TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_parts_job ON parts(job_id);
 CREATE INDEX IF NOT EXISTS idx_production_orders_status_due ON production_orders(status, due_at, priority DESC);
 CREATE INDEX IF NOT EXISTS idx_production_order_events_order_ts ON production_order_events(production_order_id, ts DESC);
@@ -1005,6 +1114,10 @@ CREATE INDEX IF NOT EXISTS idx_label_items_unit_printed ON label_print_items(uni
 CREATE INDEX IF NOT EXISTS idx_connector_mappings_key_status ON connector_mapping_versions(connector_key, status, version DESC);
 CREATE INDEX IF NOT EXISTS idx_connector_runs_key_time ON connector_commissioning_runs(connector_key, completed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_connector_issues_run ON connector_run_issues(run_id, severity);
+CREATE INDEX IF NOT EXISTS idx_industrial_profiles_machine ON industrial_profiles(machine_id, protocol);
+CREATE INDEX IF NOT EXISTS idx_industrial_runs_profile_time ON industrial_commissioning_runs(profile_key, completed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_telemetry_profile_signal_ts ON telemetry_samples(profile_key, signal_key, source_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_telemetry_machine_ts ON telemetry_samples(machine_id, source_ts DESC);
 
 -- Seed the 14 in-scope HAEEV machines (aluminium pair excluded, compressors/dust collectors as utility)
 INSERT OR IGNORE INTO machines (name, machine_key, type, brand, model, has_maestro, has_opcua, active) VALUES

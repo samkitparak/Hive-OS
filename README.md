@@ -27,6 +27,7 @@ operations are limited to the HIVE database and site configuration.
 - **Serialized unit identity** — one auditable identity per physical part, alias-safe scanner resolution, duplicate suppression, browser labels, and native Zebra ZPL.
 - **Preventive maintenance control** — commissioned calendar/usage/condition plans, machine-specific inspections, named LOTO evidence, maintenance-aware schedules, and audited spare reservations.
 - **Factory integration boundary** — versioned mappings, read-only SQL discovery, credential references, sample fingerprints, issue audits, and idempotent import batches.
+- **Industrial telemetry gateway** — commissioned Modbus TCP, OPC-UA, and MQTT signals; read-only probes; immutable contracts; debounced machine state; raw/latest/hourly telemetry; and offsite simulation.
 - **Live event stream** — SSE feed of all machine events (cycle start/end, alarms, power changes) in real time.
 
 ---
@@ -39,7 +40,7 @@ Cabinet Vision (office PC)
 
 Machine floor
   ├── Maestro log files → src/maestro_agent.py → MQTT
-  └── Energy meters (Modbus TCP) → src/energy_agent.py → MQTT
+  └── Meters / PLCs / sensors → src/industrial_gateway.py → normalized telemetry
 
 MQTT broker
   └── src/mqtt_bridge.py → SQLite DB + per-client event broadcast
@@ -56,7 +57,7 @@ FastAPI backend (src/main.py)
 | Layer | Tech |
 |---|---|
 | Database | SQLite (WAL mode) |
-| Backend | Python 3.12, FastAPI, paho-mqtt, pymodbus |
+| Backend | Python 3.12, FastAPI, paho-mqtt, pymodbus, asyncua |
 | Machine agents | paho-mqtt, pymodbus, PyYAML, watchdog |
 | Dashboard | React, Vite, TanStack Query |
 | Tests | pytest |
@@ -77,6 +78,7 @@ hive-os/
 │   ├── beamsaw_parser.py     # Beam saw TXT parser (UTF-16 LE)
 │   ├── ingest.py             # batch ingest walker
 │   ├── energy_agent.py       # Modbus TCP energy meter poller
+│   ├── industrial_gateway.py # commissioned Modbus/OPC-UA/MQTT telemetry
 │   ├── maestro_agent.py      # Maestro log file watcher
 │   ├── mqtt_bridge.py        # MQTT subscriber → DB + event broadcast
 │   ├── oee.py                # OEE calculator
@@ -112,6 +114,7 @@ hive-os/
 ├── IDENTITY_AND_LABELS.md    # serialized units, scan resolution, print outputs
 ├── MAINTENANCE_CONTROL.md    # preventive triggers, safety boundary, spares
 ├── CONNECTOR_COMMISSIONING.md # CV SQL, Ottimo, and Maestro site workflow
+├── INDUSTRIAL_TELEMETRY.md    # industrial I/O contracts and site workflow
 └── INDIA_CHECKLIST.md        # on-site configuration checklist
 ```
 
@@ -183,14 +186,14 @@ subnet. Remote setup probes are also restricted to private LAN addresses.
 
 ## Machine agents
 
-**Energy agent** (compressors + dust collectors):
+**Industrial I/O** (meters, controllers, and sensors):
 ```bash
-# Simulate
-python src/energy_agent.py --simulate
-
-# Real hardware (after setting IPs in machines.yaml)
-python src/energy_agent.py
+# Start HIVE, then use Commission > Industrial I/O
+PYTHONPATH=src uvicorn src.main:app --port 8000
 ```
+
+The legacy `energy_agent.py` remains available for compatibility. New meter
+installations use versioned gateway profiles and do not assume a register map.
 
 **Maestro agent** (all SCM machines):
 ```bash
@@ -275,6 +278,16 @@ unprefixed routes remain available for compatibility and local tooling.
 | POST | `/connectors/{key}/import` | Import an approved row batch idempotently |
 | POST | `/connectors/cabinet_vision_sql/discover` | Read-only SQL view metadata test |
 | POST | `/connectors/cabinet_vision_sql/sync` | Import from the approved read-only SQL view |
+| GET | `/industrial/snapshot` | Industrial profiles, contracts, latest telemetry, and fleet energy summary |
+| PUT | `/industrial/profiles/{key}` | Save a read-only endpoint and draft signal map |
+| POST | `/industrial/profiles/{key}/simulate` | Exercise decoding and downstream logic without hardware |
+| POST | `/industrial/profiles/{key}/probe` | Run a real read-only Modbus or OPC-UA probe |
+| POST | `/industrial/profiles/{key}/mqtt-probe` | Validate a real MQTT topic and JSON sample |
+| POST | `/industrial/profiles/{key}/approve` | Approve one passing real probe as an immutable contract |
+| POST | `/industrial/profiles/{key}/poll` | Run one approved device poll immediately |
+| POST | `/industrial/profiles/{key}/browse` | Browse OPC-UA nodes without writing |
+| GET | `/industrial/profiles/{key}/telemetry` | Query hourly telemetry evidence |
+| GET | `/energy/intelligence` | Gap-aware energy, idle waste, load factor, cost, and power-factor analysis |
 | GET | `/diagnostics` | Service and machine-agent connection health |
 | GET | `/deployment` | Windows install package readiness and commands |
 | GET | `/config` | Current editable site setup configuration |

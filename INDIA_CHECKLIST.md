@@ -16,15 +16,17 @@ Each item has the file to edit and exactly what to do.
 
 ## Energy Meters — Compressors + Dust Collectors
 
-File to edit: `config/machines.yaml` → `energy_meters` section
+Dashboard → **Commission** → **Industrial I/O**
 
-- [ ] Install Modbus TCP energy meters (e.g. Eastron SDM120) on Elgi x2, Aarco x2 panels
-- [ ] Replace `modbus_host` for `elgi_1` with real IP
-- [ ] Replace `modbus_host` for `elgi_2` with real IP
-- [ ] Replace `modbus_host` for `aarco_1` with real IP
-- [ ] Replace `modbus_host` for `aarco_2` with real IP
-- [ ] Verify thresholds by watching live power readings: `python src/energy_agent.py --simulate` → replace with real reader and observe actual W values at idle vs loaded
-- [ ] Tune `on_threshold_w` and `idle_threshold_w` per machine based on observed readings
+- [ ] Record exact meter manufacturer, model, firmware, wiring mode, IP, port, and unit ID for Elgi x2 and Aarco x2
+- [ ] Obtain the manufacturer register list; use the seeded SDM630 map only if the installed model is confirmed SDM630
+- [ ] Run `deploy/windows/test-industrial-network.ps1` on the central HIVE PC
+- [ ] Enter each endpoint and exact zero-based signal addresses, then save
+- [ ] Run **Simulate** to verify the HIVE software path
+- [ ] Run **Probe device** and compare voltage, current, power, energy, power factor, and frequency with the meter display
+- [ ] Observe power while off, unloaded, and loaded; set idle/on thresholds between those bands
+- [ ] Approve and enable only after the real probe passes
+- [ ] Poll twice and confirm latest telemetry, a debounced state transition, and an hourly rollup
 
 ---
 
@@ -59,11 +61,14 @@ Primary workflow: dashboard → **Commission**
 
 ## Sergiani GS 120 — Hot Press
 
-- [ ] Check what the Siemens controller actually exposes: open the controller panel, look for an IP address or network settings menu
-- [ ] Try connecting with a Modbus TCP scanner (free tool: Modbus Poll) — if registers respond, note the address map
-- [ ] Try OPC-UA browser (free tool: UaExpert) — if tags are visible, note the node paths
-- [ ] Update `config/machines.yaml` with real connection details once protocol is confirmed
-- [ ] If neither works: fall back to current clamp (same as compressors)
+- [ ] Record Siemens CPU/HMI model, firmware, IP, licensed communication features, and integrator contact
+- [ ] Confirm OPC-UA server availability and endpoint with Sergiani or the controls integrator; do not assume it is enabled
+- [ ] Create a read-only OPC-UA role and trust a unique HIVE application certificate
+- [ ] Put `SignAndEncrypt` certificate/user material in a Windows machine environment variable
+- [ ] In **Commission > Industrial I/O**, save the endpoint, credential variable name, and matching security policy
+- [ ] Browse nodes and map only confirmed running, alarm, recipe/program, cycle counter, temperature, and pressure nodes
+- [ ] Probe and compare every value with the HMI before approval
+- [ ] If OPC-UA is unavailable, use documented read-only Modbus registers; if neither works, use an energy meter plus operator scans
 
 ---
 

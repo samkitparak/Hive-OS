@@ -50,5 +50,9 @@ Production formats enter through:
 | SCM Maestro | per-machine log evidence analyze/approve/replay | Normalized machine event |
 
 See `CONNECTOR_COMMISSIONING.md` for credentials, evidence, mappings, and exact on-site steps.
+Modbus TCP, OPC-UA, and MQTT telemetry use the same evidence-first pattern via
+**Commission > Industrial I/O**. HIVE now stores immutable read-only signal
+contracts, normalized samples, latest values, hourly rollups, and debounced
+machine-state transitions. See `INDUSTRIAL_TELEMETRY.md`.
 Legacy placeholder endpoints remain available for demo/test compatibility only.
 See `MAINTENANCE_CONTROL.md` for preventive trigger and evidence contracts.

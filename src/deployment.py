@@ -48,6 +48,13 @@ INSTALL_ASSETS = [
         "command": ".\\deploy\\windows\\capture-maestro-logs.ps1",
     },
     {
+        "key": "industrial_preflight",
+        "label": "Industrial network preflight",
+        "path": "deploy/windows/test-industrial-network.ps1",
+        "target": "Central HIVE PC on the factory OT network",
+        "command": ".\\deploy\\windows\\test-industrial-network.ps1",
+    },
+    {
         "key": "uninstaller",
         "label": "Startup/firewall uninstaller",
         "path": "deploy/windows/uninstall-hive.ps1",
