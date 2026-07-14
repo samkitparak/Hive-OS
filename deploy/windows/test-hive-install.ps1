@@ -45,6 +45,8 @@ $checks += Test-Http "Dashboard" "http://$HostName`:$DashboardPort"
 $checks += Test-Http "API health" "http://$HostName`:$ApiPort/api/health"
 $checks += Test-Http "API machines" "http://$HostName`:$ApiPort/api/machines"
 $checks += Test-Http "API diagnostics" "http://$HostName`:$ApiPort/api/diagnostics"
+$checks += Test-Http "API data quality" "http://$HostName`:$ApiPort/api/data-quality"
+$checks += Test-Http "API optimization" "http://$HostName`:$ApiPort/api/optimization"
 $checks += Test-Port "MQTT" $HostName $MqttPort
 
 if (Test-Path "C:\HIVE-OS") {

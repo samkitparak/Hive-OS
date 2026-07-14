@@ -64,6 +64,16 @@ It asks for:
 The agent is installed at `C:\HIVE-Agent`, starts with Windows, and emits a
 heartbeat even while the machine is idle.
 
+For repeatable installs, pass values directly. The installer auto-detects common
+Maestro log locations when `LogFolder` is omitted, verifies MQTT reachability,
+and submits the latest log sample to central HIVE for dry-run parser analysis:
+
+```powershell
+.\deploy\windows\install-machine-agent.ps1 `
+  -MachineKey morbidelli_cx100 `
+  -BrokerHost 192.168.1.20
+```
+
 ## Diagnostics
 
 Open the dashboard and click **Setup** first to fill in site-specific values:
@@ -114,6 +124,17 @@ On a machine PC, run:
 This creates `hive-maestro-sample.txt` on the desktop with the latest 300 log
 lines. Capture samples while starting a cycle, ending a cycle, causing an alarm,
 and scanning a completed part.
+
+It can also submit the evidence directly to HIVE without importing it:
+
+```powershell
+.\deploy\windows\capture-maestro-logs.ps1 `
+  -MachineKey morbidelli_cx100 `
+  -CentralHost 192.168.1.20
+```
+
+Add `-ImportValidated` only after the returned checks pass. Replaying the same
+sample twice is safe because the central ingestion gate suppresses duplicates.
 
 ## Removal
 

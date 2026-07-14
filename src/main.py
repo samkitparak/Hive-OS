@@ -41,6 +41,10 @@ import shift_report as shift_report_module
 import cycle_time as cycle_time_module
 import sequencer as sequencer_module
 import bottleneck as bottleneck_module
+import data_quality as data_quality_module
+import commissioning as commissioning_module
+import event_pipeline
+import optimization as optimization_module
 import diagnostics as diagnostics_module
 import deployment as deployment_module
 import config_editor as config_editor_module
@@ -51,6 +55,7 @@ import cv_sql_connector
 from api_models import (
     BarcodeEventCreate,
     CloseRequest,
+    CommissioningLogRequest,
     CvSqlRow,
     DowntimeCreate,
     OttimoPlaceholder,
@@ -68,7 +73,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.3.0"
 
 
 class ApiPrefixMiddleware:
@@ -342,8 +347,36 @@ def get_bottlenecks(window_hours: int = Query(8, ge=1, le=24)):
         "generated_at": report.generated_at,
         "window_hours": report.window_hours,
         "current": vars(report.current) if report.current else None,
+        "candidate": vars(report.candidate) if report.candidate else None,
         "machines": [vars(machine) for machine in report.machines],
     }
+
+
+@app.get("/data-quality")
+def get_data_quality(window_hours: int = Query(8, ge=1, le=168)):
+    return data_quality_module.build(_get_conn(), window_hours)
+
+
+@app.get("/optimization")
+def get_optimization(window_hours: int = Query(8, ge=1, le=24)):
+    return optimization_module.build(_get_conn(), window_hours)
+
+
+@app.post("/commissioning/log/analyze")
+def post_commissioning_log_analysis(payload: CommissioningLogRequest):
+    conn = _get_conn()
+    machine = conn.execute(
+        "SELECT id FROM machines WHERE machine_key=?", (payload.machine_key,)
+    ).fetchone()
+    if not machine:
+        raise HTTPException(404, f"Machine '{payload.machine_key}' not found")
+    try:
+        return commissioning_module.replay_log(
+            conn, payload.machine_key, payload.log_text,
+            persist=payload.persist, site_timezone=payload.site_timezone,
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
 
 
 @app.get("/diagnostics")
@@ -606,7 +639,7 @@ def simulate_event(machine_key: str, event_type: str,
                    cnc_file: Optional[str] = None):
     """Inject a fake event — useful for demoing the dashboard without real machines."""
     conn = _get_conn()
-    row  = conn.execute(
+    row = conn.execute(
         "SELECT id FROM machines WHERE machine_key=?", (machine_key,)
     ).fetchone()
     if not row:
@@ -622,27 +655,16 @@ def simulate_event(machine_key: str, event_type: str,
         "source":      "simulate",
     }
 
-    part_id = None
-    if cnc_file:
-        stem = cnc_file.replace(".xcs", "")
-        r    = conn.execute(
-            "SELECT id FROM parts WHERE cnc_file_back=? OR cnc_file_front=? LIMIT 1",
-            (stem, stem)
-        ).fetchone()
-        part_id = r["id"] if r else None
+    result = event_pipeline.ingest_event(conn, payload)
+    if result["status"] == "rejected":
+        raise HTTPException(422, result["reason"])
+    event = {**result["event"], "event_id": result.get("event_id"),
+             "part_id": result.get("part_id")}
+    _machine_state[machine_key] = event
+    if result["status"] == "accepted":
+        mqtt_bridge.publish_event(event)
 
-    conn.execute(
-        """INSERT INTO machine_events
-           (machine_id, event_type, part_id, cnc_file, raw_payload, ts)
-           VALUES (?,?,?,?,?,?)""",
-        (row["id"], event_type, part_id, cnc_file, json.dumps(payload), now)
-    )
-    conn.commit()
-
-    _machine_state[machine_key] = payload
-    mqtt_bridge.publish_event(payload)
-
-    return {"ok": True, "event": payload}
+    return {"ok": True, "status": result["status"], "event": event}
 
 
 if DASHBOARD_DIST.exists():

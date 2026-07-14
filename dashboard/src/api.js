@@ -32,6 +32,8 @@ export const fetchJobParts = (jobName) =>
 export const fetchActiveJobs = () => request("/jobs/active");
 export const fetchSequence = () => request("/sequence");
 export const fetchBottlenecks = () => request("/bottlenecks");
+export const fetchDataQuality = () => request("/data-quality");
+export const fetchOptimization = () => request("/optimization");
 export const fetchDiagnostics = () => request("/diagnostics");
 export const fetchDeployment = () => request("/deployment");
 export const fetchConfig = () => request("/config");
@@ -58,6 +60,9 @@ export const postJson = (path, payload) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+
+export const analyzeCommissioningLog = (payload) =>
+  postJson("/commissioning/log/analyze", payload);
 
 export const fetchDailyScore = () => request("/score/daily");
 

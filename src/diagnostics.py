@@ -35,6 +35,16 @@ def _status(age_s: Optional[int], configured: bool) -> str:
     return "waiting" if configured else "not_configured"
 
 
+def _latest_ts(*values: Optional[str]) -> Optional[str]:
+    present = [value for value in values if value]
+    if not present:
+        return None
+    def key(value: str) -> datetime:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return max(present, key=key)
+
+
 def _configured(source: str, cfg: dict) -> bool:
     host = cfg.get("host") or cfg.get("modbus_host")
     if host in PLACEHOLDER_HOSTS:
@@ -52,11 +62,21 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
     maestro = {item["machine_key"]: item for item in cfg.get("maestro_agents", [])}
     energy = {item["machine_key"]: item for item in cfg.get("energy_meters", [])}
     latest_rows = conn.execute(
-        """SELECT m.machine_key, MAX(me.ts) latest_ts
-           FROM machines m LEFT JOIN machine_events me ON me.machine_id=m.id
+        """SELECT m.machine_key,
+                  MAX(me.ts) latest_event_ts,
+                  a.last_heartbeat_at,
+                  a.last_received_at
+           FROM machines m
+           LEFT JOIN machine_events me ON me.machine_id=m.id
+           LEFT JOIN agent_status a ON a.machine_id=m.id
            GROUP BY m.id"""
     ).fetchall()
-    latest = {row["machine_key"]: row["latest_ts"] for row in latest_rows}
+    latest = {
+        row["machine_key"]: _latest_ts(
+            row["last_heartbeat_at"], row["last_received_at"], row["latest_event_ts"]
+        )
+        for row in latest_rows
+    }
     machines = []
 
     for row in conn.execute(

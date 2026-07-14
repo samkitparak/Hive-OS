@@ -61,10 +61,11 @@ def test_busy_machine_with_queue_is_current_bottleneck(conn):
            (now - timedelta(hours=1)).isoformat())
 
     report = bottleneck.detect(conn, window_hours=2, now=now)
-    assert report.current is not None
-    assert report.current.machine_key == "morbidelli_cx100"
-    assert report.current.queue_depth == 4
-    assert report.current.score > 0
+    assert report.current is None
+    assert report.candidate is not None
+    assert report.candidate.machine_key == "morbidelli_cx100"
+    assert report.candidate.queue_depth == 4
+    assert report.candidate.score > 0
 
 
 def test_alarm_increases_constraint_score(conn):

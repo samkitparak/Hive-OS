@@ -30,15 +30,17 @@ File to edit: `config/machines.yaml` → `energy_meters` section
 
 ## Maestro Log Watcher — SCM CNC Machines
 
-File to edit: `src/maestro_agent.py` → `MAESTRO_LOG_PATTERN` and `_parse_log_line()`
+Primary workflow: dashboard → **Commission**
 
 **This is the main on-site task. Takes ~30 minutes once you have log access.**
 
 - [ ] Sit at any SCM machine PC (Morbidelli CX100 or N100 is best)
 - [ ] Navigate to Maestro log folder — likely `C:\SCM\Maestro\Logs\` or `C:\Program Files\SCM Group\Maestro\Logs\`
 - [ ] Open the most recent `.log` file, copy 20-30 lines, note the format
-- [ ] Update `_parse_log_line()` in `src/maestro_agent.py` with real regex matching actual log line format
-- [ ] Update `MAESTRO_EVENTS` dict with real event keyword strings from the log
+- [ ] Select the captured file in **Commission** and run dry-run analysis
+- [ ] Confirm at least 70% recognition, three complete cycle pairs, ordered timestamps, and CNC identities where available
+- [ ] If checks fail, use the displayed unknown samples and candidate keywords to add the site-specific aliases
+- [ ] Import validated history only after all required checks pass
 - [ ] **Ottimo barcode scan:** scan one finished part at packing while the log file is open — note the exact log line that appears (likely `PART_COMPLETE`, `SCAN_OUT`, `QC_OK` or similar). Add that event to `MAESTRO_EVENTS` as `part_complete` — this is what powers the finished goods count in the shift report.
 - [ ] For each machine PC, note the actual log folder path and CNC program folder path
 - [ ] Update `config/machines.yaml` → `maestro_agents` section with real paths and IPs for:
@@ -135,6 +137,8 @@ Once calibrated, job ETAs, the sequencer, and bottleneck detection all get real 
 3. `python src/maestro_agent.py` — confirm at least one SCM machine reporting events
 4. `PYTHONPATH=src uvicorn src.main:app --port 8000` — confirm backend starts, OEE numbers appear
 5. Open dashboard — confirm all machines show live state
+6. Open **Commission** — analyze one real log and confirm telemetry confidence begins increasing
+7. Open `/api/optimization` — confirm low-confidence data is gated and no unsupported gain estimate is shown
 
 ---
 

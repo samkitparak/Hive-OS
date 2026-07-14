@@ -16,7 +16,9 @@ operations are limited to the HIVE database and site configuration.
 - **Job progress** — pulls cut lists from Cabinet Vision exports, tracks parts completed per job via Maestro cycle events. Shows done/total, progress bar, ETA, on-time status.
 - **OEE** — Availability × Performance × Quality per machine, updated every shift.
 - **Daily score + streak** — gamified production score (0–100) combining OEE and on-time job completion. Streak tracks consecutive days beating the 7-day rolling average.
-- **Current constraint detector** — ranks bottlenecks using utilisation, machine-specific queue depth, downstream starvation, alarms, and telemetry confidence.
+- **Explainable optimization engine** — ranks dynamic constraints using active periods, queue depth, inferred downstream starvation, alarms, and a separate telemetry-confidence gate.
+- **Machine commissioning** — browse for a real Maestro log, validate parser coverage and cycle integrity, then opt in to an idempotent historical replay.
+- **Data trust layer** — normalizes India-local timestamps, suppresses duplicate MQTT delivery, isolates heartbeats, audits rejected events, and scores each machine's evidence quality.
 - **Phase 1 operations layer** — placeholder-ready downtime, maintenance, quality/rework, barcode, Cabinet Vision SQL, and Ottimo workflows that can be replaced with real formats later.
 - **Live event stream** — SSE feed of all machine events (cycle start/end, alarms, power changes) in real time.
 
@@ -74,6 +76,10 @@ hive-os/
 │   ├── progress.py           # job progress tracker
 │   ├── score.py              # daily score + streak
 │   ├── bottleneck.py         # current factory constraint detector
+│   ├── event_pipeline.py     # validation, timestamps, deduplication, audit
+│   ├── data_quality.py       # per-machine telemetry confidence
+│   ├── commissioning.py      # offline Maestro evidence analysis + replay
+│   ├── optimization.py       # explainable, confidence-gated priorities
 │   ├── operations.py         # downtime, maintenance, quality/rework, barcode
 │   ├── cv_sql_connector.py   # Cabinet Vision SQL placeholder adapter
 │   ├── ottimo_connector.py   # Ottimo placeholder barcode adapter
@@ -173,7 +179,10 @@ python src/maestro_agent.py --machine morbidelli_cx100 --simulate
 python src/maestro_agent.py --machine morbidelli_cx100
 ```
 
-> **Note:** The Maestro log regex in `maestro_agent.py` uses a simulated format. Update `MAESTRO_LOG_PATTERN` and `MAESTRO_EVENTS` after reading 20–30 real log lines on-site (~30 min task).
+The parser supports the simulated format plus conservative aliases for common
+machine, cycle, program, alarm, and part-completion terms. Use **Commission** in
+the dashboard to test a real log before importing its history. Unrecognized
+keywords are surfaced for the final site-specific mapping.
 
 ---
 
@@ -196,6 +205,9 @@ unprefixed routes remain available for compatibility and local tooling.
 | GET | `/score/daily` | Today's score, streak, 7-day average |
 | GET | `/sequence` | Priority-ranked production queue |
 | GET | `/bottlenecks` | Current constraint ranking and recommendation |
+| GET | `/data-quality` | Telemetry confidence, cycle integrity, part links, and clock drift |
+| GET | `/optimization` | Confidence-gated factory priorities and constraint persistence |
+| POST | `/commissioning/log/analyze` | Dry-run or import a validated Maestro log sample |
 | GET | `/diagnostics` | Service and machine-agent connection health |
 | GET | `/deployment` | Windows install package readiness and commands |
 | GET | `/config` | Current editable site setup configuration |
@@ -218,6 +230,9 @@ unprefixed routes remain available for compatibility and local tooling.
 | POST | `/rework/{id}/close` | Close a rework task |
 | GET | `/barcode/events` | Recent barcode events |
 | POST | `/barcode/events` | Create a normalized barcode event |
+
+See [OPTIMIZATION_MODEL.md](OPTIMIZATION_MODEL.md) for the evidence model,
+research basis, assumptions, confidence gate, and learning stages.
 | POST | `/connectors/ottimo/placeholder` | Demo Ottimo barcode payload adapter |
 | POST | `/connectors/cabinet-vision-sql/placeholder` | Demo Cabinet Vision SQL row adapter |
 | GET | `/report/shift` | Printable shift report |

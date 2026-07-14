@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchRework, fetchBarcodeEvents, postJson, simulateEvent } from "./api";
+import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, postJson, simulateEvent } from "./api";
 import { MachineCard } from "./MachineCard";
 import { MachineDetail } from "./MachineDetail";
 import { JobProgress } from "./JobProgress";
@@ -10,6 +10,8 @@ import { BottleneckPanel } from "./BottleneckPanel";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { OperationsPanel } from "./OperationsPanel";
 import { SetupPanel } from "./SetupPanel";
+import { IntelligencePanel } from "./IntelligencePanel";
+import { CommissioningPanel } from "./CommissioningPanel";
 import { useSSE } from "./useSSE";
 
 const GROUPS = [
@@ -27,7 +29,8 @@ function factoryOee(oeeList) {
   const active = oeeList.filter(m => m.run_time_s > 0 || m.idle_time_s > 0);
   if (!active.length) return null;
   const avg = k => active.reduce((s, m) => s + (m[k] ?? 0), 0) / active.length;
-  return { availability: avg("availability"), oee: avg("oee"), active: active.length };
+  return { availability: avg("availability"), oee: avg("oee"), active: active.length,
+           provisional: active.some(machine => machine.provisional) };
 }
 
 export default function App() {
@@ -39,6 +42,7 @@ export default function App() {
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [showOperations, setShowOperations] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
+  const [showCommissioning, setShowCommissioning] = useState(false);
   const demoRef = useRef(null);
 
   const { data: machines = [] } = useQuery({
@@ -61,6 +65,12 @@ export default function App() {
   });
   const { data: bottlenecks = null } = useQuery({
     queryKey: ["bottlenecks"], queryFn: fetchBottlenecks, refetchInterval: 30000,
+  });
+  const { data: dataQuality = null } = useQuery({
+    queryKey: ["dataQuality"], queryFn: fetchDataQuality, refetchInterval: 30000,
+  });
+  const { data: optimization = null } = useQuery({
+    queryKey: ["optimization"], queryFn: fetchOptimization, refetchInterval: 30000,
   });
   const { data: diagnostics = null } = useQuery({
     queryKey: ["diagnostics"], queryFn: fetchDiagnostics, refetchInterval: 30000,
@@ -98,6 +108,9 @@ export default function App() {
       qc.invalidateQueries({ queryKey: ["oee"] });
       qc.invalidateQueries({ queryKey: ["activeJobs"] });
       qc.invalidateQueries({ queryKey: ["dailyScore"] });
+      qc.invalidateQueries({ queryKey: ["bottlenecks"] });
+      qc.invalidateQueries({ queryKey: ["dataQuality"] });
+      qc.invalidateQueries({ queryKey: ["optimization"] });
     }
   }, [qc]);
 
@@ -235,6 +248,16 @@ export default function App() {
     return postJson(paths[kind], payload);
   };
 
+  const runCommissioningAnalysis = async payload => {
+    const result = await analyzeCommissioningLog(payload);
+    if (payload.persist) {
+      ["machines", "oee", "bottlenecks", "dataQuality", "optimization", "diagnostics"].forEach(key => {
+        qc.invalidateQueries({ queryKey: [key] });
+      });
+    }
+    return result;
+  };
+
   return (
     <div style={{ minHeight: "100vh", background: "#0d1117", color: "#f9fafb",
                   fontFamily: "'Inter', system-ui, sans-serif", padding: "20px 24px" }}>
@@ -257,7 +280,10 @@ export default function App() {
         {summary && (
           <div style={{ display: "flex", gap: 24, alignItems: "center" }}>
             <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 10, color: "#6b7280" }}>FACTORY OEE (8h)</div>
+              <div title={summary.provisional ? "Performance or quality evidence is not calibrated yet" : "Calibrated factory OEE"}
+                   style={{ fontSize: 10, color: "#6b7280" }}>
+                FACTORY OEE{summary.provisional ? "*" : ""} (8h)
+              </div>
               <div style={{ fontSize: 28, fontWeight: 800,
                             color: summary.oee >= 0.75 ? "#22c55e"
                                  : summary.oee >= 0.5  ? "#f59e0b" : "#ef4444" }}>
@@ -274,6 +300,12 @@ export default function App() {
         )}
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={() => setShowCommissioning(true)} style={{
+            background: "#1d4ed8", border: "1px solid #3b82f6", color: "#f9fafb",
+            padding: "7px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
+          }}>
+            Commission
+          </button>
           <button onClick={() => setShowSetup(true)} style={{
             background: "#1f2937", border: "1px solid #374151", color: "#f9fafb",
             padding: "7px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
@@ -307,6 +339,9 @@ export default function App() {
           </button>
         </div>
       </div>
+
+      <IntelligencePanel optimization={optimization} quality={dataQuality}
+                         onCommission={() => setShowCommissioning(true)} />
 
       {/* ── Daily Score ── */}
       <div style={{ background: "#111827", border: "1px solid #1f2937",
@@ -459,6 +494,10 @@ export default function App() {
           onDemo={runOperationsDemo}
         />
       )}
+      {showCommissioning && (
+        <CommissioningPanel machines={enriched} onAnalyze={runCommissioningAnalysis}
+                            onClose={() => setShowCommissioning(false)} />
+      )}
 
       <style>{`
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -469,6 +508,8 @@ export default function App() {
           .bottom-grid { grid-template-columns: 1fr !important; }
           .constraint-grid { grid-template-columns: 1fr 1fr !important; }
           .constraint-recommendation { grid-column: 1 / -1; }
+          .intelligence-grid { grid-template-columns: 1fr 1fr !important; }
+          .commission-controls { grid-template-columns: 1fr !important; }
         }
       `}</style>
     </div>

@@ -45,6 +45,28 @@ def test_recent_machine_event_marks_agent_online(conn):
     assert machine["status"] == "online"
 
 
+def test_diagnostics_uses_newest_agent_or_production_signal(conn):
+    machine_id = conn.execute(
+        "SELECT id FROM machines WHERE machine_key='morbidelli_cx100'"
+    ).fetchone()["id"]
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """INSERT INTO agent_status
+           (machine_id,source,last_heartbeat_at,last_received_at)
+           VALUES (?,?,?,?)""",
+        (machine_id, "test", "2020-01-01T00:00:00+00:00", "2020-01-01T00:00:00+00:00"),
+    )
+    conn.execute(
+        "INSERT INTO machine_events (machine_id,event_type,ts) VALUES (?,?,?)",
+        (machine_id, "cycle_start", now),
+    )
+    conn.commit()
+    result = diagnostics.build(conn, CFG, mqtt_connected=True, cv_watcher_running=False)
+    machine = next(item for item in result["machines"] if item["machine_key"] == "morbidelli_cx100")
+    assert machine["last_seen"] == now
+    assert machine["status"] == "online"
+
+
 def test_diagnostics_endpoint(conn):
     from fastapi.testclient import TestClient
     import main

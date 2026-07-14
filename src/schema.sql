@@ -73,6 +73,37 @@ CREATE TABLE IF NOT EXISTS machine_events (
     recorded_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Central ingestion ledger. Raw telemetry passes through this gate before it
+-- can affect OEE, constraints, or scheduling decisions.
+CREATE TABLE IF NOT EXISTS event_fingerprints (
+    fingerprint     TEXT PRIMARY KEY,
+    event_id        INTEGER REFERENCES machine_events(id),
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS event_ingestion_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    machine_id      INTEGER REFERENCES machines(id),
+    event_id        INTEGER REFERENCES machine_events(id),
+    source          TEXT NOT NULL,
+    status          TEXT NOT NULL, -- accepted | rejected | duplicate | heartbeat
+    reason          TEXT,
+    event_type      TEXT,
+    event_ts        TEXT,
+    received_at     TEXT NOT NULL,
+    raw_payload     TEXT
+);
+
+CREATE TABLE IF NOT EXISTS agent_status (
+    machine_id          INTEGER PRIMARY KEY REFERENCES machines(id),
+    source              TEXT NOT NULL,
+    last_heartbeat_at   TEXT,
+    last_event_at       TEXT,
+    last_received_at    TEXT NOT NULL,
+    clock_skew_s        REAL,
+    raw_payload         TEXT
+);
+
 CREATE TABLE IF NOT EXISTS oee_snapshots (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     machine_id      INTEGER NOT NULL REFERENCES machines(id),
@@ -190,6 +221,8 @@ CREATE INDEX IF NOT EXISTS idx_parts_cnc_front ON parts(cnc_file_front);
 CREATE INDEX IF NOT EXISTS idx_machine_events_machine_ts ON machine_events(machine_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_machine_events_part_ts ON machine_events(part_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_machine_events_type_ts ON machine_events(event_type, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_event_ingestion_machine_received ON event_ingestion_log(machine_id, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_event_ingestion_status_received ON event_ingestion_log(status, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_oee_snapshots_machine_window ON oee_snapshots(machine_id, window_end DESC);
 CREATE INDEX IF NOT EXISTS idx_downtime_status_started ON downtime_events(status, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_work_orders_status_created ON maintenance_work_orders(status, created_at DESC);

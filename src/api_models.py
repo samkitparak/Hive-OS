@@ -147,3 +147,10 @@ class SiteConfigUpdate(RequestModel):
     energy_defaults: EnergyDefaults
     energy_meters: list[EnergyMeterConfig]
     maestro_agents: list[MaestroAgentConfig]
+
+
+class CommissioningLogRequest(RequestModel):
+    machine_key: str = Field(min_length=1, pattern=r"^[a-z0-9_]+$")
+    log_text: str = Field(min_length=1, max_length=5_000_000)
+    persist: bool = False
+    site_timezone: str = Field(default="Asia/Kolkata", min_length=1, max_length=64)

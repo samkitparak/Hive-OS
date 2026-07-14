@@ -5,7 +5,7 @@ const CONFIDENCE_COLOR = {
 };
 
 export function BottleneckPanel({ report }) {
-  const current = report?.current;
+  const current = report?.current ?? report?.candidate;
   if (!current) {
     return (
       <div style={{ color: "#6b7280", fontSize: 11 }}>
@@ -23,14 +23,17 @@ export function BottleneckPanel({ report }) {
           {current.machine_name}
         </div>
         <div style={{ color: confidenceColor, fontSize: 10, fontWeight: 700, marginTop: 3 }}>
-          {current.confidence.toUpperCase()} CONFIDENCE
+          {report?.current ? "CONFIRMED" : "CANDIDATE"} · {current.confidence.toUpperCase()} CONFIDENCE
         </div>
       </div>
       <Metric label="Constraint score" value={`${Math.round(current.score * 100)}%`} color="#ef4444" />
-      <Metric label="Utilisation" value={`${Math.round(current.utilisation * 100)}%`} color="#60a5fa" />
+      <Metric label="Active share" value={`${Math.round((current.active_ratio ?? current.utilisation) * 100)}%`} color="#60a5fa" />
       <Metric label="Queue" value={`${current.queue_depth} parts`} color="#f59e0b" />
       <Metric label="Alarms" value={current.alarms} color={current.alarms ? "#ef4444" : "#6b7280"} />
       <div className="constraint-recommendation" style={{ color: "#9ca3af", fontSize: 11, lineHeight: 1.4 }}>
+        <div style={{ color: "#d1d5db", fontWeight: 700, marginBottom: 3 }}>
+          {(current.primary_cause ?? "learning").replaceAll("_", " ")}
+        </div>
         {current.recommendation}
       </div>
     </div>

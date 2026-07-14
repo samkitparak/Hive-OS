@@ -3,11 +3,10 @@ OEE calculator.
 
 OEE = Availability × Performance × Quality
 
-For Tier 1 (sensing only, no reject tracking yet):
-  Availability  = run_time / planned_time
-  Performance   = parts_made / parts_planned   (when planned data exists)
-                  OR  run_time / total_time     (fallback, no job context)
-  Quality       = 1.0  (no defect data yet — added in Tier 2)
+Availability comes from machine-state duration. Performance uses calibrated
+ideal time for linked completed parts when available. Quality uses recorded
+machine quality checks. Missing performance/quality evidence is represented as
+provisional instead of inventing a value from availability.
 
 Snapshots are written to oee_snapshots table every time calculate() is called.
 """
@@ -18,9 +17,21 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+import cycle_time
+
 
 PLANNED_SHIFT_HOURS = 8  # assume one 8-hour shift; tune per factory
 _calculation_lock = threading.RLock()
+
+
+def _parse_dt(ts: str) -> datetime:
+    """Parse an event timestamp into an aware UTC-compatible datetime."""
+    text = ts.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        parsed = datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 @dataclass
@@ -39,6 +50,9 @@ class OEEResult:
     performance:   float
     quality:       float
     oee:           float
+    performance_source: str
+    quality_source: str
+    provisional: bool
 
 
 def _events_in_window(conn: sqlite3.Connection, machine_id: int,
@@ -58,21 +72,13 @@ def _compute_time_buckets(events: list[dict], window_start: str,
     Walk events in order, accumulate run/idle/down seconds.
     Returns (run_time_s, idle_time_s, down_time_s).
     """
-    def _dt(ts: str) -> datetime:
-        # Handle both ISO with Z and without tz
-        ts = ts.replace("Z", "+00:00")
-        try:
-            return datetime.fromisoformat(ts)
-        except ValueError:
-            return datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-
     run = idle = down = 0
     if not events:
         return 0, 0, 0
 
     state   = "off"
-    prev_ts = _dt(window_start)
-    end_ts  = _dt(window_end)
+    prev_ts = _parse_dt(window_start)
+    end_ts  = _parse_dt(window_end)
 
     STATE_MAP = {
         "power_on":    "run",
@@ -87,7 +93,7 @@ def _compute_time_buckets(events: list[dict], window_start: str,
     }
 
     for ev in events:
-        ev_ts    = _dt(ev["ts"])
+        ev_ts    = _parse_dt(ev["ts"])
         duration = max(0, int((ev_ts - prev_ts).total_seconds()))
 
         if state == "run":
@@ -128,6 +134,38 @@ def _parts_in_window(conn: sqlite3.Connection, machine_id: int,
     return row[0] if row else 0
 
 
+def _ideal_run_time(conn: sqlite3.Connection, machine_id: int,
+                    machine_key: str, start: str, end: str) -> tuple[float, int]:
+    rows = conn.execute(
+        """SELECT p.* FROM machine_events me
+           JOIN parts p ON p.id=me.part_id
+           WHERE me.machine_id=? AND me.event_type='cycle_end'
+             AND me.ts>=? AND me.ts<=? AND me.part_id IS NOT NULL""",
+        (machine_id, start, end),
+    ).fetchall()
+    estimates = []
+    for row in rows:
+        estimate = cycle_time.estimate(
+            cycle_time.extract_features(dict(row), machine_key)
+        )
+        if estimate is not None:
+            estimates.append(estimate)
+    return sum(estimates), len(estimates)
+
+
+def _quality_rate(conn: sqlite3.Connection, machine_id: int,
+                  start: str, end: str) -> tuple[float, int]:
+    row = conn.execute(
+        """SELECT COUNT(*) total,
+                  SUM(CASE WHEN result='pass' THEN 1 ELSE 0 END) good
+           FROM quality_checks WHERE machine_id=? AND ts>=? AND ts<=?""",
+        (machine_id, start, end),
+    ).fetchone()
+    total = row["total"] if row else 0
+    good = row["good"] if row and row["good"] is not None else 0
+    return (good / total if total else 1.0), total
+
+
 def _calculate_unlocked(conn: sqlite3.Connection, machine_id: int,
                         window_hours: int = PLANNED_SHIFT_HOURS,
                         now: Optional[datetime] = None) -> OEEResult:
@@ -157,14 +195,22 @@ def _calculate_unlocked(conn: sqlite3.Connection, machine_id: int,
     parts_planned = parts_made  # conservative: don't penalise performance without schedule data
 
     availability = run_s / planned_time_s if planned_time_s > 0 else 0.0
-    performance  = 1.0  # no ideal cycle time data yet — filled in Tier 2
-    quality      = 1.0  # no reject data yet
+    ideal_run_s, estimated_parts = _ideal_run_time(
+        conn, machine_id, machine_key, ws, we
+    )
+    if run_s > 0 and estimated_parts == parts_made and estimated_parts > 0:
+        performance = min(1.0, ideal_run_s / run_s)
+        performance_source = "calibrated_cycle_times"
+    else:
+        performance = 1.0
+        performance_source = "unavailable"
 
-    # If we have actual parts data, use cycle time vs planned
-    if parts_made > 0 and run_s > 0:
-        # Each part took run_s/parts_made seconds on average
-        # Without ideal cycle time we can't compute real performance
-        performance = min(1.0, availability + 0.05)  # placeholder until cycle times known
+    quality, quality_checks = _quality_rate(conn, machine_id, ws, we)
+    quality_source = (
+        "quality_checks" if quality_checks >= 10
+        else ("insufficient_quality_checks" if quality_checks else "unavailable")
+    )
+    provisional = performance_source == "unavailable" or quality_source == "unavailable"
 
     oee = availability * performance * quality
 
@@ -183,6 +229,9 @@ def _calculate_unlocked(conn: sqlite3.Connection, machine_id: int,
         performance    = round(performance, 4),
         quality        = round(quality, 4),
         oee            = round(oee, 4),
+        performance_source = performance_source,
+        quality_source = quality_source,
+        provisional    = provisional,
     )
 
     # Persist snapshot

@@ -95,7 +95,9 @@ export function MachineCard({ machine, oee, onClick }) {
       {oee && (
         <div>
           <OeeBar value={oee.availability} label="Avail" />
-          <OeeBar value={oee.oee}          label="OEE" />
+          <div title={oee.provisional ? "Performance or quality evidence is not calibrated yet" : "Calibrated OEE"}>
+            <OeeBar value={oee.oee} label={oee.provisional ? "OEE*" : "OEE"} />
+          </div>
         </div>
       )}
       {!oee && (

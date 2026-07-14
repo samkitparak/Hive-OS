@@ -7,12 +7,12 @@ MQTT topic:  hive/machines/{machine_key}/events
 Payload:     JSON — see _build_payload()
 
 # ── INDIA TODO ──────────────────────────────────────────────────────────────
-# The log parsing below uses SIMULATED log format.
+# The exact format still needs validation against the installed Maestro version.
 # On-site steps (30 min):
 #   1. Open C:\\SCM\\Maestro\\Logs\\ on any SCM machine PC
 #   2. Open the most recent .log file
 #   3. Note the actual line format and event keywords
-#   4. Update MAESTRO_LOG_PATTERN and MAESTRO_EVENTS below to match
+#   4. Run the HIVE commissioning analyzer and map any unknown event aliases
 #   5. Update cnc_folder paths in config/machines.yaml
 # See INDIA_CHECKLIST.md → "Maestro Log Watcher" section
 # ─────────────────────────────────────────────────────────────────────────────
@@ -53,7 +53,7 @@ CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 #   2026-05-31 08:15:00 [WARN ] ALARM       code=1042 msg=Feed_axis_overload
 #   2026-05-31 09:00:00 [INFO ] MACHINE_OFF
 #
-# Replace MAESTRO_LOG_PATTERN with the real regex once you've seen actual logs.
+# The exact pattern is followed by conservative aliases for common log formats.
 # ─────────────────────────────────────────────────────────────────────────────
 
 MAESTRO_LOG_PATTERN = re.compile(
@@ -72,6 +72,25 @@ MAESTRO_EVENTS = {
     "CYCLE_END":     "cycle_end",
     "ALARM":         "alarm",
 }
+
+# Conservative aliases used by the commissioning analyzer. Exact simulated
+# lines still take the fast path above; these cover common industrial log terms
+# without binding the rest of HIVE to one Maestro version or language pack.
+MAESTRO_EVENT_ALIASES = {
+    "power_on": ("MACHINE_ON", "POWER_ON", "MACHINE STARTED"),
+    "power_off": ("MACHINE_OFF", "POWER_OFF", "MACHINE STOPPED"),
+    "cycle_start": ("CYCLE_START", "CYCLE START", "PROGRAM START", "PROGRAM_STARTED"),
+    "cycle_end": ("CYCLE_END", "CYCLE END", "PROGRAM END", "PROGRAM_COMPLETED", "PROGRAM COMPLETED"),
+    "idle": ("MACHINE_IDLE", "MACHINE IDLE", "WAITING FOR PART"),
+    "alarm": ("ALARM", "FAULT", "ERROR"),
+    "part_complete": ("PART_COMPLETE", "PART COMPLETE", "SCAN_OUT", "QC_OK"),
+}
+
+FLEXIBLE_TIMESTAMP = re.compile(
+    r"(?P<ts>\d{4}[-/]\d{2}[-/]\d{2}[ T]\d{2}:\d{2}:\d{2}"
+    r"|\d{2}[./-]\d{2}[./-]\d{4}[ T]\d{2}:\d{2}:\d{2})"
+)
+PROGRAM_FILE = re.compile(r"(?P<program>[^\s=;,\"']+\.(?:xcs|ard))", re.IGNORECASE)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -82,9 +101,31 @@ def _parse_log_line(line: str) -> Optional[dict]:
     # INDIA TODO: if the real log format doesn't match MAESTRO_LOG_PATTERN,
     # rewrite this function. Everything else in the agent stays the same.
     """
-    m = MAESTRO_LOG_PATTERN.match(line.strip())
+    clean = line.strip()
+    m = MAESTRO_LOG_PATTERN.match(clean)
     if not m:
-        return None
+        ts_match = FLEXIBLE_TIMESTAMP.search(clean)
+        if not ts_match:
+            return None
+        upper = clean.upper()
+        event_type = next(
+            (canonical for canonical, aliases in MAESTRO_EVENT_ALIASES.items()
+             if any(alias in upper for alias in aliases)),
+            None,
+        )
+        if not event_type:
+            return None
+        fields = {}
+        for key, value in re.findall(r"([A-Za-z_][\w.-]*)\s*=\s*([^\s;,]+)", clean):
+            fields[key.lower()] = value.strip('"\'')
+        program_match = PROGRAM_FILE.search(clean)
+        if program_match and "program" not in fields:
+            program = program_match.group("program")
+            fields["program"] = program.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+        ts = ts_match.group("ts").replace("/", "-").replace("T", " ")
+        if re.match(r"\d{2}[.-]\d{2}[.-]\d{4}", ts):
+            ts = datetime.strptime(ts.replace(".", "-"), "%d-%m-%Y %H:%M:%S").strftime("%Y-%m-%d %H:%M:%S")
+        return {"event_type": event_type, "ts": ts, "raw": clean, **fields}
 
     event_raw = m.group("event")
     event_type = MAESTRO_EVENTS.get(event_raw)
@@ -101,7 +142,7 @@ def _parse_log_line(line: str) -> Optional[dict]:
     return {
         "event_type": event_type,
         "ts":         m.group("ts"),
-        "raw":        line.strip(),
+        "raw":        clean,
         **fields,
     }
 
@@ -109,7 +150,7 @@ def _parse_log_line(line: str) -> Optional[dict]:
 def _extract_cnc_file(parsed: dict) -> Optional[str]:
     """Pull the .xcs filename out of CYCLE_START / CYCLE_END events."""
     prog = parsed.get("program", "")
-    if prog.endswith(".xcs"):
+    if str(prog).lower().endswith((".xcs", ".ard")):
         return prog
     return None
 
