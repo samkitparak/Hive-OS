@@ -104,6 +104,60 @@ CREATE TABLE IF NOT EXISTS agent_status (
     raw_payload         TEXT
 );
 
+-- Evidence used by the learning and digital-twin layers. Observations are
+-- immutable derivatives of raw events; learned models are versioned so a poor
+-- candidate can never silently replace the current production model.
+CREATE TABLE IF NOT EXISTS cycle_observations (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    machine_id          INTEGER NOT NULL REFERENCES machines(id),
+    part_id             INTEGER REFERENCES parts(id),
+    start_event_id      INTEGER REFERENCES machine_events(id),
+    end_event_id        INTEGER NOT NULL UNIQUE REFERENCES machine_events(id),
+    started_at          TEXT,
+    ended_at            TEXT NOT NULL,
+    duration_s          REAL,
+    duration_source     TEXT NOT NULL, -- event_pair | payload
+    validity            TEXT NOT NULL, -- valid | rejected
+    rejection_reason    TEXT,
+    features_json       TEXT,
+    used_for_training   INTEGER NOT NULL DEFAULT 0,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS cycle_models (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    machine_id              INTEGER NOT NULL REFERENCES machines(id),
+    version                 INTEGER NOT NULL,
+    training_signature      TEXT NOT NULL UNIQUE,
+    sample_count            INTEGER NOT NULL,
+    train_count             INTEGER NOT NULL,
+    validation_count        INTEGER NOT NULL,
+    inlier_count            INTEGER NOT NULL,
+    coefficients_json       TEXT NOT NULL,
+    identified_features_json TEXT NOT NULL,
+    mae_s                   REAL,
+    mape                    REAL,
+    r2                      REAL,
+    residual_cv             REAL,
+    confidence              TEXT NOT NULL, -- low | medium | high
+    status                  TEXT NOT NULL, -- candidate | active | superseded
+    reason                  TEXT,
+    trained_at              TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS route_observations (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    part_id             INTEGER NOT NULL REFERENCES parts(id),
+    from_machine_id     INTEGER NOT NULL REFERENCES machines(id),
+    to_machine_id       INTEGER NOT NULL REFERENCES machines(id),
+    from_event_id       INTEGER NOT NULL REFERENCES machine_events(id),
+    to_event_id         INTEGER NOT NULL REFERENCES machine_events(id),
+    transfer_s          REAL NOT NULL,
+    observed_at         TEXT NOT NULL,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(from_event_id, to_event_id)
+);
+
 CREATE TABLE IF NOT EXISTS oee_snapshots (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     machine_id      INTEGER NOT NULL REFERENCES machines(id),
@@ -223,6 +277,10 @@ CREATE INDEX IF NOT EXISTS idx_machine_events_part_ts ON machine_events(part_id,
 CREATE INDEX IF NOT EXISTS idx_machine_events_type_ts ON machine_events(event_type, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_event_ingestion_machine_received ON event_ingestion_log(machine_id, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_event_ingestion_status_received ON event_ingestion_log(status, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cycle_observations_machine_valid ON cycle_observations(machine_id, validity, ended_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cycle_models_machine_status ON cycle_models(machine_id, status, trained_at DESC);
+CREATE INDEX IF NOT EXISTS idx_route_observations_part_time ON route_observations(part_id, observed_at);
+CREATE INDEX IF NOT EXISTS idx_route_observations_edge ON route_observations(from_machine_id, to_machine_id);
 CREATE INDEX IF NOT EXISTS idx_oee_snapshots_machine_window ON oee_snapshots(machine_id, window_end DESC);
 CREATE INDEX IF NOT EXISTS idx_downtime_status_started ON downtime_events(status, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_work_orders_status_created ON maintenance_work_orders(status, created_at DESC);

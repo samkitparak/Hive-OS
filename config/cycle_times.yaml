@@ -7,7 +7,7 @@
 #   1. Pick 20 parts that vary in size and operation type
 #   2. Time each one with a stopwatch from load to unload
 #   3. Record: length_mm, width_mm, has_groove, num_cnc_faces, num_eb_edges, actual_seconds
-#   4. Send the table to Claude — coefficients will be fitted automatically
+#   4. Import the events into HIVE; a validated model will be fitted automatically
 #
 # Until calibrated, all coefficients are 0 and estimates return None.
 # The system works fine without them — ETAs just show "set cycle times".

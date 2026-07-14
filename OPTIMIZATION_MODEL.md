@@ -83,6 +83,45 @@ evidence, but HIVE will not recommend a schedule change from it.
 PLC writes and autonomous machine control are outside the present safety
 boundary. HIVE observes, reconciles, and recommends first.
 
+## Automatic Cycle Learning
+
+HIVE derives an immutable cycle observation only when a `cycle_end` can be
+paired with the nearest unused `cycle_start` on the same machine. The pair must
+have a real part link, matching part identity, and a duration between one second
+and four hours. Payload durations are accepted only as a labeled fallback.
+
+Each machine model uses the same explainable CV features as the manual model.
+Training is chronological: the newest 20% is held out, outliers are filtered by
+median absolute deviation, and a small nonnegative least-squares active-set
+search prevents impossible negative time coefficients. Constant features are
+excluded as unidentifiable. A candidate needs enough samples and medium or high
+validation confidence before it can become active; it replaces an existing
+active model only when confidence improves or same-tier error improves by 5%.
+
+## Routes And Digital Twin
+
+Route edges are created only from a completed cycle followed by the next cycle
+start for the same part on a different machine. Edge support, unique parts,
+median transfer time, outgoing probability, and confidence remain visible.
+They describe observed transitions, not automatically inferred complete routes.
+
+The production twin uses SimPy discrete-event resources to reproduce machine
+queues, part flow, transfers, and beam-saw material changeovers. It can compare
+the current sequencer with FIFO, earliest-date, shortest-processing-time, and
+material-batching policies. Results remain commissioning what-if scenarios
+until every simulated operation has a cycle model and at least 80% of selected
+part routes have direct historical evidence.
+
+This structure follows NIST guidance that production simulation starts with
+explicit requirements and validated input data, and research that combines
+live physical state with discrete-event models before using the model for
+scheduling decisions:
+
+- [NIST production-system discrete-event simulation requirements](https://nvlpubs.nist.gov/nistpubs/Legacy/IR/nistir6154.pdf)
+- [NIST data-driven dispatching-rule identification](https://tsapps.nist.gov/publication/get_pdf.cfm?pub_id=927446)
+- [NIST simulation-integrated production planning framework](https://tsapps.nist.gov/publication/get_pdf.cfm?pub_id=921140)
+- [Open discrete-event simulator for dynamic flexible job shops](https://www.sciencedirect.com/science/article/pii/S1569190X24000625)
+
 ## Factory Assumptions To Verify
 
 - Machine PCs use local India time and may not have synchronized clocks.

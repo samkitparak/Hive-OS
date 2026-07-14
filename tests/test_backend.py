@@ -67,6 +67,23 @@ def test_api_prefix_routes_to_backend(client):
     assert response.json() == {"status": "ok", "service": "hive-os", "version": "0.3.0"}
     assert client.get("/api/machines").status_code == 200
 
+
+def test_learning_and_twin_endpoints(client):
+    learning = client.get("/api/learning/status")
+    routes = client.get("/api/routing/graph")
+    readiness = client.get("/api/digital-twin/readiness")
+    assert learning.status_code == 200
+    assert routes.status_code == 200
+    assert readiness.status_code == 200
+    assert "active_models" in learning.json()
+    assert "edges" in routes.json()
+    assert "model_coverage" in readiness.json()
+
+
+def test_twin_rejects_unknown_policy(client):
+    response = client.post("/api/digital-twin/compare", json={"policies": ["magic"]})
+    assert response.status_code == 400
+
 def test_machines_have_required_fields(client):
     data = client.get("/machines").json()
     required = {"machine_key", "name", "type", "state", "last_event", "last_seen"}

@@ -28,6 +28,7 @@ the sequence number for groove programs — e.g. r86bg007 vs r86b0007.
 Pattern: r{run}{face}g{seq}  where face ∈ {b, f} and seq is digits.
 """
 
+import json
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -101,6 +102,113 @@ def _is_calibrated(cfg: dict) -> bool:
     return any(v != 0 for v in cfg.values() if isinstance(v, (int, float)))
 
 
+def coefficient_names(machine_key: str) -> list[str]:
+    """Return the coefficient contract for a machine's linear model."""
+    mtype = MACHINE_TYPE_MAP.get(machine_key, "")
+    if mtype in ("beam_saw", "panel_saw"):
+        return ["base_s", "length_coeff", "width_coeff", "area_coeff"]
+    if mtype == "cnc":
+        return ["base_s", "area_coeff", "face_coeff", "groove_coeff"]
+    if mtype == "edge_bander":
+        return ["base_s", "length_coeff", "edge_coeff"]
+    if mtype in ("press", "glue"):
+        return ["base_s", "area_coeff"]
+    if mtype in ("sander", "paint"):
+        return ["base_s", "length_coeff"]
+    return []
+
+
+def design_row(features: PartFeatures) -> list[float]:
+    """Convert part features to the row used for fitting and prediction."""
+    mtype = MACHINE_TYPE_MAP.get(features.machine_key, "")
+    if mtype in ("beam_saw", "panel_saw"):
+        return [1, features.length_mm, features.width_mm, features.area_m2]
+    if mtype == "cnc":
+        return [1, features.area_m2, float(features.two_faces), float(features.has_groove)]
+    if mtype == "edge_bander":
+        return [features.num_edges, features.length_mm * features.num_edges,
+                max(0, features.num_edges - 1)]
+    if mtype in ("press", "glue"):
+        return [1, features.area_m2]
+    if mtype in ("sander", "paint"):
+        return [1, features.length_mm]
+    return []
+
+
+def estimate_from_coefficients(features: PartFeatures,
+                               coefficients: dict) -> Optional[float]:
+    """Estimate from an already-loaded coefficient mapping."""
+    if features.machine_key not in MACHINE_TYPE_MAP or not coefficients:
+        return None
+    if MACHINE_TYPE_MAP[features.machine_key] == "edge_bander" and features.num_edges == 0:
+        return None
+    names = coefficient_names(features.machine_key)
+    row = design_row(features)
+    if not names or len(names) != len(row):
+        return None
+    value = sum(float(coefficients.get(name, 0)) * term for name, term in zip(names, row))
+    return max(0.0, round(value, 1))
+
+
+def active_model(conn: sqlite3.Connection, machine_key: str) -> Optional[dict]:
+    row = conn.execute(
+        """SELECT cm.* FROM cycle_models cm
+           JOIN machines m ON m.id=cm.machine_id
+           WHERE m.machine_key=? AND cm.status='active'
+           ORDER BY cm.version DESC LIMIT 1""",
+        (machine_key,),
+    ).fetchone()
+    if not row:
+        return None
+    result = dict(row)
+    result["coefficients"] = json.loads(result.pop("coefficients_json"))
+    result["identified_features"] = json.loads(result.pop("identified_features_json"))
+    return result
+
+
+def active_models(conn: sqlite3.Connection) -> dict[str, dict]:
+    rows = conn.execute(
+        """SELECT cm.*, m.machine_key FROM cycle_models cm
+           JOIN machines m ON m.id=cm.machine_id WHERE cm.status='active'
+           ORDER BY cm.version"""
+    ).fetchall()
+    result = {}
+    for row in rows:
+        model = dict(row)
+        model["coefficients"] = json.loads(model.pop("coefficients_json"))
+        model["identified_features"] = json.loads(model.pop("identified_features_json"))
+        result[model["machine_key"]] = model
+    return result
+
+
+def estimate_for_part(conn: sqlite3.Connection, part: dict, machine_key: str,
+                      cfg_path: Path = CONFIG_PATH,
+                      learned_models: Optional[dict[str, dict]] = None,
+                      config: Optional[dict] = None) -> dict:
+    """Choose a learned model first, then the manually calibrated fallback."""
+    features = extract_features(part, machine_key)
+    learned = (learned_models.get(machine_key) if learned_models is not None
+               else active_model(conn, machine_key))
+    if learned:
+        return {
+            "seconds": estimate_from_coefficients(features, learned["coefficients"]),
+            "source": "learned",
+            "confidence": learned["confidence"],
+            "model_version": learned["version"],
+        }
+    if config is None:
+        with open(cfg_path) as config_file:
+            config = yaml.safe_load(config_file) or {}
+    coefficients = config.get("machines", {}).get(machine_key, {})
+    seconds = estimate_from_coefficients(features, coefficients) if _is_calibrated(coefficients) else None
+    return {
+        "seconds": seconds,
+        "source": "manual" if seconds is not None else "unavailable",
+        "confidence": "manual" if seconds is not None else "none",
+        "model_version": None,
+    }
+
+
 def estimate(features: PartFeatures,
              cfg_path: Path = CONFIG_PATH) -> Optional[float]:
     """
@@ -114,39 +222,7 @@ def estimate(features: PartFeatures,
     if not cfg or not _is_calibrated(cfg):
         return None
 
-    mtype = MACHINE_TYPE_MAP.get(features.machine_key, "")
-
-    if mtype in ("beam_saw", "panel_saw"):
-        t = (cfg.get("base_s", 0)
-             + features.length_mm * cfg.get("length_coeff", 0)
-             + features.width_mm  * cfg.get("width_coeff",  0)
-             + features.area_m2   * cfg.get("area_coeff",   0))
-
-    elif mtype == "cnc":
-        t = (cfg.get("base_s", 0)
-             + features.area_m2 * cfg.get("area_coeff", 0)
-             + (cfg.get("face_coeff",   0) if features.two_faces  else 0)
-             + (cfg.get("groove_coeff", 0) if features.has_groove else 0))
-
-    elif mtype == "edge_bander":
-        if features.num_edges == 0:
-            return None  # part doesn't go through edge bander
-        per_pass = cfg.get("base_s", 0) + features.length_mm * cfg.get("length_coeff", 0)
-        return_time = (features.num_edges - 1) * cfg.get("edge_coeff", 0)
-        t = per_pass * features.num_edges + return_time
-
-    elif mtype in ("press", "glue"):
-        t = (cfg.get("base_s", 0)
-             + features.area_m2 * cfg.get("area_coeff", 0))
-
-    elif mtype in ("sander", "paint"):
-        t = (cfg.get("base_s", 0)
-             + features.length_mm * cfg.get("length_coeff", 0))
-
-    else:
-        return None
-
-    return max(0.0, round(t, 1))
+    return estimate_from_coefficients(features, cfg)
 
 
 def estimate_job(conn: sqlite3.Connection, job_name: str,
@@ -177,7 +253,7 @@ def estimate_job(conn: sqlite3.Connection, job_name: str,
         return {}
 
     parts = conn.execute(
-        """SELECT length_mm, width_mm, eb1, eb2, eb3, eb4,
+        """SELECT id, length_mm, width_mm, qty, eb1, eb2, eb3, eb4,
                   cnc_file_back, cnc_file_front, has_cnc
            FROM parts WHERE job_id=?""",
         (job["id"],)
@@ -185,27 +261,37 @@ def estimate_job(conn: sqlite3.Connection, job_name: str,
 
     machine_totals: dict[str, list[float]] = {k: [] for k in MACHINE_TYPE_MAP}
     machine_uncalibrated: dict[str, bool]  = {k: False for k in MACHINE_TYPE_MAP}
+    learned_models = active_models(conn)
+    with open(cfg_path) as config_file:
+        config = yaml.safe_load(config_file) or {}
 
     for part in parts:
         p = dict(part)
+        observed = {
+            row["machine_key"] for row in conn.execute(
+                """SELECT DISTINCT m.machine_key FROM machine_events me
+                   JOIN machines m ON m.id=me.machine_id WHERE me.part_id=?""",
+                (p["id"],),
+            ).fetchall()
+        }
+        applicable = {"gabbiani_pt80"} | observed
+        if p.get("has_cnc"):
+            applicable.add("morbidelli_cx100")
+        if any(p.get(key) for key in ("eb1", "eb2", "eb3", "eb4")):
+            applicable.add("stefani_kd")
         for mk in MACHINE_TYPE_MAP:
-            # Skip machines that don't process this part type
-            mtype = MACHINE_TYPE_MAP[mk]
-            if mtype in ("cnc",) and not p.get("has_cnc"):
+            if mk not in applicable:
                 continue
-            if mtype == "edge_bander":
-                eb_count = sum(1 for k in ("eb1","eb2","eb3","eb4") if p.get(k))
-                if eb_count == 0:
-                    continue
-            if mtype in ("press", "glue", "sander", "paint"):
-                pass  # all parts go through these — include them all
 
             feats = extract_features(p, mk)
-            t = estimate(feats, cfg_path)
+            prediction = estimate_for_part(
+                conn, p, mk, cfg_path, learned_models=learned_models, config=config
+            )
+            t = prediction["seconds"]
             if t is None:
                 machine_uncalibrated[mk] = True
             else:
-                machine_totals[mk].append(t)
+                machine_totals[mk].extend([t] * max(int(p.get("qty") or 1), 1))
 
     result_machines = {}
     critical_path_s = None
@@ -221,6 +307,9 @@ def estimate_job(conn: sqlite3.Connection, job_name: str,
             "estimated_total_s": round(total, 1) if total else None,
             "estimated_avg_s":   round(avg,   1) if avg   else None,
             "uncalibrated":      machine_uncalibrated[mk],
+            "source":            "learned" if mk in learned_models else (
+                "manual" if times else "unavailable"
+            ),
         }
         if total and (critical_path_s is None or total > critical_path_s):
             critical_path_s  = total

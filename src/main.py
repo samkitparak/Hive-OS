@@ -42,6 +42,9 @@ import cycle_time as cycle_time_module
 import sequencer as sequencer_module
 import bottleneck as bottleneck_module
 import data_quality as data_quality_module
+import digital_twin as digital_twin_module
+import learning as learning_module
+import routing as routing_module
 import commissioning as commissioning_module
 import event_pipeline
 import optimization as optimization_module
@@ -56,6 +59,7 @@ from api_models import (
     BarcodeEventCreate,
     CloseRequest,
     CommissioningLogRequest,
+    DigitalTwinRequest,
     CvSqlRow,
     DowntimeCreate,
     OttimoPlaceholder,
@@ -95,13 +99,14 @@ _mqtt_client = None
 _conn        = None
 _cv_observer = None
 _event_watch_task = None
+_learning_watch_task = None
 _route_conn_override = None
 _route_connections = threading.local()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _mqtt_client, _conn, _cv_observer, _event_watch_task
+    global _mqtt_client, _conn, _cv_observer, _event_watch_task, _learning_watch_task
     _conn = init_db(DB_PATH, check_same_thread=False)
     try:
         _mqtt_client = mqtt_bridge.start(_conn, CONFIG_PATH)
@@ -110,7 +115,14 @@ async def lifespan(app: FastAPI):
         log.warning("MQTT bridge failed to start (no broker?): %s", e)
     _cv_observer = cv_watcher.start(_conn, CONFIG_PATH)
     _event_watch_task = asyncio.create_task(_watch_events())
+    _learning_watch_task = asyncio.create_task(_watch_learning())
     yield
+    if _learning_watch_task:
+        _learning_watch_task.cancel()
+        try:
+            await _learning_watch_task
+        except asyncio.CancelledError:
+            pass
     if _event_watch_task:
         _event_watch_task.cancel()
         try:
@@ -180,6 +192,20 @@ async def _watch_events():
             await asyncio.sleep(0.2)
     finally:
         mqtt_bridge.unsubscribe_events(q)
+
+
+async def _watch_learning():
+    """Periodically derive learning evidence without blocking request handling."""
+    while True:
+        await asyncio.sleep(30)
+        try:
+            conn = _get_conn()
+            await asyncio.to_thread(learning_module.refresh_all, conn)
+            await asyncio.to_thread(routing_module.refresh_observations, conn)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("cycle learning refresh failed")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -360,6 +386,40 @@ def get_data_quality(window_hours: int = Query(8, ge=1, le=168)):
 @app.get("/optimization")
 def get_optimization(window_hours: int = Query(8, ge=1, le=24)):
     return optimization_module.build(_get_conn(), window_hours)
+
+
+@app.get("/learning/status")
+def get_learning_status():
+    return learning_module.status(_get_conn())
+
+
+@app.post("/learning/refresh")
+def post_learning_refresh():
+    conn = _get_conn()
+    result = learning_module.refresh_all(conn)
+    result["routing"] = routing_module.refresh_observations(conn)
+    return result
+
+
+@app.get("/routing/graph")
+def get_routing_graph():
+    return routing_module.graph(_get_conn())
+
+
+@app.get("/digital-twin/readiness")
+def get_digital_twin_readiness():
+    return digital_twin_module.readiness(_get_conn())
+
+
+@app.post("/digital-twin/compare")
+def post_digital_twin_compare(payload: DigitalTwinRequest):
+    try:
+        return digital_twin_module.compare(
+            _get_conn(), payload.job_names, payload.policies,
+            payload.stochastic, payload.seed,
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
 
 
 @app.post("/commissioning/log/analyze")

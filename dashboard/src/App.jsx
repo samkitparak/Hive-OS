@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, postJson, simulateEvent } from "./api";
+import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, postJson, simulateEvent } from "./api";
 import { MachineCard } from "./MachineCard";
 import { MachineDetail } from "./MachineDetail";
 import { JobProgress } from "./JobProgress";
@@ -72,6 +72,15 @@ export default function App() {
   const { data: optimization = null } = useQuery({
     queryKey: ["optimization"], queryFn: fetchOptimization, refetchInterval: 30000,
   });
+  const { data: learning = null } = useQuery({
+    queryKey: ["learning"], queryFn: fetchLearningStatus, refetchInterval: 30000,
+  });
+  const { data: routing = null } = useQuery({
+    queryKey: ["routing"], queryFn: fetchRoutingGraph, refetchInterval: 30000,
+  });
+  const { data: twin = null } = useQuery({
+    queryKey: ["twin"], queryFn: fetchTwinReadiness, refetchInterval: 60000,
+  });
   const { data: diagnostics = null } = useQuery({
     queryKey: ["diagnostics"], queryFn: fetchDiagnostics, refetchInterval: 30000,
   });
@@ -111,6 +120,9 @@ export default function App() {
       qc.invalidateQueries({ queryKey: ["bottlenecks"] });
       qc.invalidateQueries({ queryKey: ["dataQuality"] });
       qc.invalidateQueries({ queryKey: ["optimization"] });
+      qc.invalidateQueries({ queryKey: ["learning"] });
+      qc.invalidateQueries({ queryKey: ["routing"] });
+      qc.invalidateQueries({ queryKey: ["twin"] });
     }
   }, [qc]);
 
@@ -341,6 +353,7 @@ export default function App() {
       </div>
 
       <IntelligencePanel optimization={optimization} quality={dataQuality}
+                         learning={learning} routing={routing} twin={twin}
                          onCommission={() => setShowCommissioning(true)} />
 
       {/* ── Daily Score ── */}

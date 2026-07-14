@@ -19,6 +19,8 @@ operations are limited to the HIVE database and site configuration.
 - **Explainable optimization engine** — ranks dynamic constraints using active periods, queue depth, inferred downstream starvation, alarms, and a separate telemetry-confidence gate.
 - **Machine commissioning** — browse for a real Maestro log, validate parser coverage and cycle integrity, then opt in to an idempotent historical replay.
 - **Data trust layer** — normalizes India-local timestamps, suppresses duplicate MQTT delivery, isolates heartbeats, audits rejected events, and scores each machine's evidence quality.
+- **Automatic cycle learning** — pairs validated part cycles, robustly fits versioned nonnegative models, and protects active models from weak candidates.
+- **Production digital twin** — compares dispatch policies with discrete-event machine queues and material changeovers, gated by model and route coverage.
 - **Phase 1 operations layer** — placeholder-ready downtime, maintenance, quality/rework, barcode, Cabinet Vision SQL, and Ottimo workflows that can be replaced with real formats later.
 - **Live event stream** — SSE feed of all machine events (cycle start/end, alarms, power changes) in real time.
 
@@ -80,6 +82,9 @@ hive-os/
 │   ├── data_quality.py       # per-machine telemetry confidence
 │   ├── commissioning.py      # offline Maestro evidence analysis + replay
 │   ├── optimization.py       # explainable, confidence-gated priorities
+│   ├── learning.py           # automatic cycle observations + model validation
+│   ├── routing.py            # observed same-part process transitions
+│   ├── digital_twin.py       # SimPy schedule-policy comparison
 │   ├── operations.py         # downtime, maintenance, quality/rework, barcode
 │   ├── cv_sql_connector.py   # Cabinet Vision SQL placeholder adapter
 │   ├── ottimo_connector.py   # Ottimo placeholder barcode adapter
@@ -207,6 +212,11 @@ unprefixed routes remain available for compatibility and local tooling.
 | GET | `/bottlenecks` | Current constraint ranking and recommendation |
 | GET | `/data-quality` | Telemetry confidence, cycle integrity, part links, and clock drift |
 | GET | `/optimization` | Confidence-gated factory priorities and constraint persistence |
+| GET | `/learning/status` | Cycle observations and candidate/active model evidence |
+| POST | `/learning/refresh` | Derive observations, train candidates, and refresh route evidence |
+| GET | `/routing/graph` | Observed part-flow edges with support and confidence |
+| GET | `/digital-twin/readiness` | Cycle-model and observed-route coverage gate |
+| POST | `/digital-twin/compare` | Compare deterministic or seeded schedule scenarios |
 | POST | `/commissioning/log/analyze` | Dry-run or import a validated Maestro log sample |
 | GET | `/diagnostics` | Service and machine-agent connection health |
 | GET | `/deployment` | Windows install package readiness and commands |
@@ -230,21 +240,21 @@ unprefixed routes remain available for compatibility and local tooling.
 | POST | `/rework/{id}/close` | Close a rework task |
 | GET | `/barcode/events` | Recent barcode events |
 | POST | `/barcode/events` | Create a normalized barcode event |
-
-See [OPTIMIZATION_MODEL.md](OPTIMIZATION_MODEL.md) for the evidence model,
-research basis, assumptions, confidence gate, and learning stages.
 | POST | `/connectors/ottimo/placeholder` | Demo Ottimo barcode payload adapter |
 | POST | `/connectors/cabinet-vision-sql/placeholder` | Demo Cabinet Vision SQL row adapter |
 | GET | `/report/shift` | Printable shift report |
 | GET | `/events/stream` | SSE live event stream |
 | POST | `/events/simulate` | Inject a fake event (demo/dev) |
 
+See [OPTIMIZATION_MODEL.md](OPTIMIZATION_MODEL.md) for the evidence model,
+research basis, assumptions, confidence gate, and learning stages.
+
 ---
 
-## Tier 2 (after India data collection)
+## After India data collection
 
 Once weeks of real OEE data exist:
-- Real Performance OEE (requires cycle times from `cycle_times.yaml`)
+- Promote automatically learned cycle models into real Performance OEE
 - Validate bottleneck scoring weights against real queues and operator observations
 - Dynamic job resequencing based on live machine state
 - AMR routing

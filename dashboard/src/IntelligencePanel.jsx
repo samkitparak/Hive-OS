@@ -4,7 +4,7 @@ const STATUS = {
   commissioning: { color: "#60a5fa", label: "Commissioning required" },
 };
 
-export function IntelligencePanel({ optimization, quality, onCommission }) {
+export function IntelligencePanel({ optimization, quality, learning, routing, twin, onCommission }) {
   if (!optimization || !quality) return null;
   const status = STATUS[optimization.status] ?? STATUS.commissioning;
   const recommendation = optimization.recommendations?.[0];
@@ -13,8 +13,19 @@ export function IntelligencePanel({ optimization, quality, onCommission }) {
     <section style={{ borderTop: "1px solid #1f2937", borderBottom: "1px solid #1f2937",
                       padding: "14px 0", marginBottom: 20 }}>
       <div className="intelligence-grid" style={{ display: "grid",
-            gridTemplateColumns: "180px 150px minmax(260px, 1fr) auto", gap: 20,
+            gridTemplateColumns: "170px 130px 150px minmax(240px, 1fr) auto", gap: 20,
             alignItems: "center" }}>
+        <div>
+          <div style={{ color: "#4b5563", fontSize: 9, fontWeight: 700,
+                        textTransform: "uppercase" }}>Factory model</div>
+          <div style={{ color: learning?.active_models ? "#22c55e" : "#f59e0b",
+                        fontSize: 13, fontWeight: 800, marginTop: 4 }}>
+            {learning?.active_models ?? 0} active model{learning?.active_models === 1 ? "" : "s"}
+          </div>
+          <div style={{ color: "#6b7280", fontSize: 10, marginTop: 3 }}>
+            {routing?.edge_count ?? 0} route edges · {Math.round((twin?.model_coverage ?? 0) * 100)}% modeled
+          </div>
+        </div>
         <div>
           <div style={{ color: status.color, fontSize: 11, fontWeight: 800,
                         textTransform: "uppercase" }}>{status.label}</div>
@@ -35,7 +46,9 @@ export function IntelligencePanel({ optimization, quality, onCommission }) {
             {recommendation?.title ?? "Continue collecting evidence"}
           </div>
           <div style={{ color: "#9ca3af", fontSize: 11, marginTop: 3 }}>
-            {recommendation?.action ?? optimization.guardrail}
+            {twin?.operational_recommendation
+              ? (recommendation?.action ?? optimization.guardrail)
+              : (twin?.guardrail ?? recommendation?.action ?? optimization.guardrail)}
           </div>
         </div>
         <button onClick={onCommission} style={{ background: "#2563eb", color: "white",

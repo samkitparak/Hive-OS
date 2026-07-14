@@ -145,9 +145,8 @@ def _ideal_run_time(conn: sqlite3.Connection, machine_id: int,
     ).fetchall()
     estimates = []
     for row in rows:
-        estimate = cycle_time.estimate(
-            cycle_time.extract_features(dict(row), machine_key)
-        )
+        prediction = cycle_time.estimate_for_part(conn, dict(row), machine_key)
+        estimate = prediction["seconds"]
         if estimate is not None:
             estimates.append(estimate)
     return sum(estimates), len(estimates)

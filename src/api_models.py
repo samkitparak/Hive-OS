@@ -154,3 +154,10 @@ class CommissioningLogRequest(RequestModel):
     log_text: str = Field(min_length=1, max_length=5_000_000)
     persist: bool = False
     site_timezone: str = Field(default="Asia/Kolkata", min_length=1, max_length=64)
+
+
+class DigitalTwinRequest(RequestModel):
+    job_names: Optional[list[str]] = None
+    policies: Optional[list[str]] = None
+    stochastic: bool = False
+    seed: int = Field(default=1, ge=0, le=2_147_483_647)
