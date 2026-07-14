@@ -29,6 +29,7 @@ operations are limited to the HIVE database and site configuration.
 - **Factory integration boundary** — versioned mappings, read-only SQL discovery, credential references, sample fingerprints, issue audits, and idempotent import batches.
 - **Industrial telemetry gateway** — commissioned Modbus TCP, OPC-UA, and MQTT signals; read-only probes; immutable contracts; debounced machine state; raw/latest/hourly telemetry; and offsite simulation.
 - **Warehouse intelligence** — derived edge demand, component lots, usable-remnant allocation, schedule reservations, immutable movements, and evidence-labeled purchase suggestions.
+- **Procurement and ERP exchange** — verified supplier/SKU mappings, inbound-aware order suggestions, controlled PO approval, CSV/outbox adapters, idempotent receipts, and supplier evidence.
 - **Live event stream** — SSE feed of all machine events (cycle start/end, alarms, power changes) in real time.
 
 ---
@@ -81,6 +82,7 @@ hive-os/
 │   ├── energy_agent.py       # Modbus TCP energy meter poller
 │   ├── industrial_gateway.py # commissioned Modbus/OPC-UA/MQTT telemetry
 │   ├── inventory.py          # component, remnant, shortage, and movement truth
+│   ├── procurement.py        # supplier mappings, purchase orders, receipts, ERP outbox
 │   ├── maestro_agent.py      # Maestro log file watcher
 │   ├── mqtt_bridge.py        # MQTT subscriber → DB + event broadcast
 │   ├── oee.py                # OEE calculator
@@ -118,6 +120,7 @@ hive-os/
 ├── CONNECTOR_COMMISSIONING.md # CV SQL, Ottimo, and Maestro site workflow
 ├── INDUSTRIAL_TELEMETRY.md    # industrial I/O contracts and site workflow
 ├── WAREHOUSE_INTELLIGENCE.md  # stock, remnants, BOM boundary, and purchasing logic
+├── PROCUREMENT_INTEGRATION.md # supplier, PO, receipt, and ERP adapter contract
 └── INDIA_CHECKLIST.md        # on-site configuration checklist
 ```
 
@@ -298,6 +301,15 @@ unprefixed routes remain available for compatibility and local tooling.
 | PUT | `/inventory/orders/{id}/requirements/{key}` | Record a manual BOM requirement |
 | POST | `/inventory/remnants` | Record a measured panel remnant |
 | PATCH | `/inventory/remnants/{key}` | Change an unreserved remnant disposition |
+| GET | `/procurement/snapshot` | Supplier mappings, needs, POs, receipts, metrics, and ERP outbox |
+| PUT | `/procurement/suppliers/{key}` | Create or version a supplier |
+| PUT | `/procurement/suppliers/{key}/mappings/{type}/{item}` | Map a HIVE item to a supplier SKU and purchase unit |
+| POST | `/procurement/orders` | Create a manual draft purchase order |
+| POST | `/procurement/orders/draft-recommendations` | Draft mapped uncovered requirements by supplier |
+| POST | `/procurement/orders/{id}/action` | Approve, queue, or cancel a purchase order |
+| GET | `/procurement/orders/{id}/export.csv` | Export a purchase order CSV |
+| POST | `/procurement/receipts` | Post an idempotent accepted/rejected goods receipt |
+| POST | `/procurement/imports/csv` | Validate or apply supplier catalog and receipt CSV files |
 | GET | `/diagnostics` | Service and machine-agent connection health |
 | GET | `/deployment` | Windows install package readiness and commands |
 | GET | `/config` | Current editable site setup configuration |

@@ -40,7 +40,7 @@ After installation, run:
 .\deploy\windows\test-hive-install.ps1
 ```
 
-This checks the dashboard, API, connector, industrial, and warehouse registries, MQTT port,
+This checks the dashboard, API, connector, industrial, warehouse, and procurement registries, MQTT port,
 ODBC driver, Modbus/OPC-UA client libraries, install folder, logs folder, and
 startup task.
 

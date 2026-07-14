@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Archive, PackagePlus, Plus, Ruler, Save } from "lucide-react";
+import { Archive, PackagePlus, Plus, Ruler, Save, ShoppingCart } from "lucide-react";
+import { ProcurementPanel } from "./ProcurementPanel";
 
 const line = { borderTop: "1px solid #263244", padding: "10px 0" };
 const label = { color: "#6b7280", fontSize: 9, fontWeight: 800, textTransform: "uppercase" };
@@ -269,7 +270,8 @@ export function ResourcePanel({ data, actor, onAction }) {
   };
   const machineNames = useMemo(() => data.machine_profiles.map(item => ({ machine_key: item.machine_key, machine_name: item.machine_name })), [data.machine_profiles]);
   const tabs = [["materials", "Sheets", Archive], ["components", "Components", PackagePlus],
-    ["remnants", "Remnants", Ruler], ["capacity", "Capacity", null], ["calendar", "Calendar", null]];
+    ["remnants", "Remnants", Ruler], ["procurement", "Procurement", ShoppingCart],
+    ["capacity", "Capacity", null], ["calendar", "Calendar", null]];
   return <div style={{ borderTop: "1px solid #374151", marginTop: 12, paddingTop: 12 }}>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
       <div><div style={label}>Factory resources</div><div style={{ color: data.resource_ready ? "#22c55e" : "#f59e0b", fontSize: 13, fontWeight: 800, marginTop: 3 }}>{data.status}</div></div>
@@ -300,6 +302,7 @@ export function ResourcePanel({ data, actor, onAction }) {
     {tab === "remnants" && <RemnantEditor warehouse={warehouse} materials={data.materials} actor={actor}
       onCreate={payload => run("remnantCreate", payload)}
       onUpdate={(key, payload) => run("remnantUpdate", { key, payload })} />}
+    {tab === "procurement" && <ProcurementPanel data={data.procurement} actor={actor} onAction={run} />}
     {tab === "capacity" && <div className="resource-capacity-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
       <div><div style={label}>Labor roles</div>{data.labor_roles.map(item => <LaborRow key={`${item.role_key}-${item.updated_at}`} item={item} actor={actor} onSave={(key, payload) => run("labor", { key, payload })} />)}
         <div style={{ ...label, marginTop: 14 }}>Tool pools</div>{data.tool_pools.map(item => <ToolRow key={`${item.pool_key}-${item.updated_at}`} item={item} actor={actor} onSave={(key, payload) => run("tool", { key, payload })} />)}</div>

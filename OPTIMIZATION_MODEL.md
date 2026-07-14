@@ -10,6 +10,13 @@ The model is deliberately explainable. Every recommendation carries its source
 evidence, while estimated gains remain hidden until real cycle times and stable
 factory telemetry are available.
 
+Supply recommendations use a separate deterministic evidence path. HIVE can
+surface unmapped shortages with high confidence because they come from explicit
+demand, stock, reservations, and open inbound quantities. Lead-time risks remain
+medium confidence because projected arrival uses commissioned supplier lead time,
+not a guaranteed delivery date. No estimated financial or throughput gain is
+shown for either recommendation.
+
 ## Research Basis
 
 The active-period family of methods identifies a constraint from the duration a

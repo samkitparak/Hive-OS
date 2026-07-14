@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, updateMaterialStock, updateInventoryItem, updateInventoryLot, updateInventoryRequirement, createInventoryRemnant, updateInventoryRemnant, updateLaborRole, updateToolPool, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, fetchConnectorSnapshot, analyzeConnector, approveConnector, importConnectorRecords, updateConnectorProfile, discoverCabinetVisionSql, syncCabinetVisionSql, fetchIndustrialSnapshot, updateIndustrialProfile, simulateIndustrialProfile, probeIndustrialProfile, probeIndustrialMqtt, approveIndustrialProfile, pollIndustrialProfile, browseIndustrialOpcua, postJson, simulateEvent } from "./api";
+import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, fetchProcurementSnapshot, updateProcurementSupplier, updateProcurementMapping, createPurchaseOrder, draftProcurementRecommendations, actOnPurchaseOrder, createGoodsReceipt, importProcurementCsv, updateMaterialStock, updateInventoryItem, updateInventoryLot, updateInventoryRequirement, createInventoryRemnant, updateInventoryRemnant, updateLaborRole, updateToolPool, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, fetchConnectorSnapshot, analyzeConnector, approveConnector, importConnectorRecords, updateConnectorProfile, discoverCabinetVisionSql, syncCabinetVisionSql, fetchIndustrialSnapshot, updateIndustrialProfile, simulateIndustrialProfile, probeIndustrialProfile, probeIndustrialMqtt, approveIndustrialProfile, pollIndustrialProfile, browseIndustrialOpcua, postJson, simulateEvent } from "./api";
 import { MachineCard } from "./MachineCard";
 import { MachineDetail } from "./MachineDetail";
 import { JobProgress } from "./JobProgress";
@@ -97,6 +97,9 @@ export default function App() {
   });
   const { data: resourceSnapshot = null } = useQuery({
     queryKey: ["resourceSnapshot"], queryFn: fetchResourceSnapshot, refetchInterval: 30000,
+  });
+  const { data: procurementSnapshot = null } = useQuery({
+    queryKey: ["procurementSnapshot"], queryFn: fetchProcurementSnapshot, refetchInterval: 30000,
   });
   const { data: routeExceptions = [] } = useQuery({
     queryKey: ["routeExceptions"], queryFn: fetchRouteExceptions, refetchInterval: 15000,
@@ -366,7 +369,7 @@ export default function App() {
   };
 
   const refreshPlanning = () => {
-    ["productionOrders", "productionReadiness", "planningScenarios", "activeSchedule", "resourceSnapshot", "routeExceptions", "executionSnapshot", "identitySnapshot", "sequence", "twin", "jobs"].forEach(key => {
+    ["productionOrders", "productionReadiness", "planningScenarios", "activeSchedule", "resourceSnapshot", "procurementSnapshot", "routeExceptions", "executionSnapshot", "identitySnapshot", "sequence", "twin", "jobs", "optimization", "diagnostics"].forEach(key => {
       qc.invalidateQueries({ queryKey: [key] });
     });
   };
@@ -392,6 +395,13 @@ export default function App() {
     else if (kind === "wip") result = await updateWipBuffer(data.key, data.payload);
     else if (kind === "unavailability") result = await createResourceUnavailability(data);
     else if (kind === "deleteUnavailability") result = await deleteResourceUnavailability(data.id, data.actor);
+    else if (kind === "procurementSupplier") result = await updateProcurementSupplier(data.key, data.payload);
+    else if (kind === "procurementMapping") result = await updateProcurementMapping(data.supplierKey, data.objectType, data.objectKey, data.payload);
+    else if (kind === "procurementCreateOrder") result = await createPurchaseOrder(data);
+    else if (kind === "procurementDraft") result = await draftProcurementRecommendations(data);
+    else if (kind === "procurementOrderAction") result = await actOnPurchaseOrder(data.id, data.payload);
+    else if (kind === "procurementReceipt") result = await createGoodsReceipt(data);
+    else if (kind === "procurementImport") result = await importProcurementCsv(data);
     refreshPlanning();
     return result;
   };
@@ -650,7 +660,8 @@ export default function App() {
       )}
       {showPlanning && (
         <PlanningPanel
-          data={{ orders: productionOrders, readiness: productionReadiness, scenarios: planningScenarios, activeSchedule, exceptions: routeExceptions, resources: resourceSnapshot }}
+          data={{ orders: productionOrders, readiness: productionReadiness, scenarios: planningScenarios, activeSchedule, exceptions: routeExceptions,
+            resources: resourceSnapshot ? { ...resourceSnapshot, procurement: procurementSnapshot } : null }}
           machines={enriched}
           onAction={runPlanningAction}
           onClose={() => setShowPlanning(false)}

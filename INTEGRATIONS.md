@@ -24,7 +24,7 @@
 1. Cabinet Vision exports and Maestro event reliability
 2. HIVE unit labels, then Ottimo alias and station-event mapping
 3. Energy meters and utility-cost allocation
-4. Inventory/remnant tracking and purchase alerts
+4. Inventory/remnant tracking, supplier commissioning, purchase orders, and receipts
 5. Commission OEM maintenance plans, condition thresholds, and spare catalogs
 6. Direct Cabinet Vision SQL integration
 7. Environmental, camera, and material-movement automation
@@ -56,3 +56,14 @@ contracts, normalized samples, latest values, hourly rollups, and debounced
 machine-state transitions. See `INDUSTRIAL_TELEMETRY.md`.
 Legacy placeholder endpoints remain available for demo/test compatibility only.
 See `MAINTENANCE_CONTROL.md` for preventive trigger and evidence contracts.
+
+## Procurement and ERP Boundary
+
+HIVE now owns canonical supplier-item mappings, inbound-aware shortages,
+purchase-order approval, accepted/rejected receipts, and supplier performance
+evidence. Day one uses validated CSV import/export. A real ERP connector reads
+the canonical outbox, translates it to the vendor contract, and positively
+acknowledges delivery; queueing alone never marks a PO sent.
+
+See `PROCUREMENT_INTEGRATION.md` for the exact master data, lifecycle, CSV, and
+adapter contracts.

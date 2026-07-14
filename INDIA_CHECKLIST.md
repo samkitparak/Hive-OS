@@ -45,6 +45,28 @@ Dashboard → **Planning** → **Resources**
 
 ---
 
+## Procurement and ERP Exchange
+
+Dashboard -> **Planning** -> **Resources** -> **Procurement**
+
+- [ ] Export the supplier/item catalog from the current ERP or approved purchasing sheet
+- [ ] Confirm each supplier legal identity, stable key, currency, lead time, and optional GLN
+- [ ] Map every current sheet and component shortage to the exact supplier SKU and purchase unit
+- [ ] Verify conversion factors, pack multiples, MOQ, and prices against a current supplier document
+- [ ] Validate the supplier catalog CSV before applying it; reconcile accepted and rejected row counts
+- [ ] Draft shortages and confirm existing open inbound quantity is not ordered twice
+- [ ] Approve and export one test PO; confirm queueing alone does not mark it sent
+- [ ] Decide the real ERP adapter target: API, EDI, staging table, or watched file folder
+- [ ] Store ERP credentials outside HIVE master data and test positive and failed outbox acknowledgments
+- [ ] Post a partial receipt and confirm only accepted quantity enters its physical lot
+- [ ] Post a rejected quantity with a reason and confirm it returns to uncovered demand
+- [ ] Replay the receipt and confirm no second stock movement is created
+- [ ] Reconcile observed lead time, on-time rate, and rejection rate after at least five receipts
+
+See `PROCUREMENT_INTEGRATION.md` for CSV columns and the adapter contract.
+
+---
+
 ## Maestro Log Watcher — SCM CNC Machines
 
 Primary workflow: dashboard → **Commission**

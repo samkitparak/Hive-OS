@@ -814,6 +814,192 @@ CREATE TABLE IF NOT EXISTS inventory_sync_issues (
     UNIQUE(production_order_id, part_id, source_field, issue_code)
 );
 
+-- Vendor-neutral procurement master data. HIVE item/material keys remain the
+-- internal identity; supplier SKUs, GTINs, packs, and purchase units are
+-- versioned boundary mappings.
+CREATE TABLE IF NOT EXISTS procurement_suppliers (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    supplier_key        TEXT NOT NULL UNIQUE,
+    name                TEXT NOT NULL,
+    legal_name          TEXT,
+    currency            TEXT NOT NULL DEFAULT 'INR',
+    lead_time_days      INTEGER NOT NULL DEFAULT 0 CHECK(lead_time_days >= 0),
+    gln                 TEXT,
+    tax_id              TEXT,
+    email               TEXT,
+    external_system     TEXT,
+    source              TEXT NOT NULL DEFAULT 'manual',
+    active              INTEGER NOT NULL DEFAULT 1,
+    verified            INTEGER NOT NULL DEFAULT 0,
+    version             INTEGER NOT NULL DEFAULT 1,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS procurement_item_mappings (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    supplier_id         INTEGER NOT NULL REFERENCES procurement_suppliers(id),
+    object_type         TEXT NOT NULL, -- component | sheet
+    object_key          TEXT NOT NULL,
+    supplier_sku        TEXT NOT NULL,
+    gtin                TEXT,
+    purchase_uom        TEXT NOT NULL,
+    conversion_factor   REAL NOT NULL DEFAULT 1 CHECK(conversion_factor > 0),
+    order_multiple      REAL NOT NULL DEFAULT 1 CHECK(order_multiple > 0),
+    min_order_qty       REAL NOT NULL DEFAULT 0 CHECK(min_order_qty >= 0),
+    unit_price          REAL CHECK(unit_price IS NULL OR unit_price >= 0),
+    currency            TEXT NOT NULL DEFAULT 'INR',
+    preferred           INTEGER NOT NULL DEFAULT 0,
+    source              TEXT NOT NULL DEFAULT 'manual',
+    verified            INTEGER NOT NULL DEFAULT 0,
+    version             INTEGER NOT NULL DEFAULT 1,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    UNIQUE(supplier_id, object_type, object_key)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_procurement_preferred_mapping
+    ON procurement_item_mappings(object_type, object_key) WHERE preferred=1;
+
+CREATE TABLE IF NOT EXISTS purchase_orders (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    po_number           TEXT NOT NULL UNIQUE,
+    supplier_id         INTEGER NOT NULL REFERENCES procurement_suppliers(id),
+    status              TEXT NOT NULL DEFAULT 'draft',
+    currency            TEXT NOT NULL DEFAULT 'INR',
+    expected_at         TEXT,
+    external_id         TEXT,
+    source              TEXT NOT NULL DEFAULT 'shortage_recommendation',
+    notes               TEXT,
+    version             INTEGER NOT NULL DEFAULT 1,
+    created_by          TEXT NOT NULL,
+    approved_by         TEXT,
+    approved_at         TEXT,
+    queued_at           TEXT,
+    sent_at             TEXT,
+    closed_at           TEXT,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    UNIQUE(supplier_id, external_id)
+);
+
+CREATE TABLE IF NOT EXISTS purchase_order_lines (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    purchase_order_id   INTEGER NOT NULL REFERENCES purchase_orders(id),
+    line_number         INTEGER NOT NULL CHECK(line_number >= 1),
+    mapping_id          INTEGER REFERENCES procurement_item_mappings(id),
+    object_type         TEXT NOT NULL, -- component | sheet
+    object_key          TEXT NOT NULL,
+    item_name           TEXT NOT NULL,
+    supplier_sku        TEXT NOT NULL,
+    internal_uom        TEXT NOT NULL,
+    purchase_uom        TEXT NOT NULL,
+    conversion_factor   REAL NOT NULL CHECK(conversion_factor > 0),
+    ordered_qty         REAL NOT NULL CHECK(ordered_qty > 0),
+    received_qty        REAL NOT NULL DEFAULT 0 CHECK(received_qty >= 0),
+    rejected_qty        REAL NOT NULL DEFAULT 0 CHECK(rejected_qty >= 0),
+    unit_price          REAL CHECK(unit_price IS NULL OR unit_price >= 0),
+    currency            TEXT NOT NULL,
+    need_by_at          TEXT,
+    status              TEXT NOT NULL DEFAULT 'open',
+    notes               TEXT,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    UNIQUE(purchase_order_id, line_number),
+    UNIQUE(purchase_order_id, object_type, object_key)
+);
+
+CREATE TABLE IF NOT EXISTS goods_receipts (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    receipt_key         TEXT NOT NULL UNIQUE,
+    purchase_order_id   INTEGER NOT NULL REFERENCES purchase_orders(id),
+    supplier_id         INTEGER NOT NULL REFERENCES procurement_suppliers(id),
+    external_receipt_id TEXT,
+    source_hash         TEXT,
+    received_at         TEXT NOT NULL,
+    location            TEXT,
+    status              TEXT NOT NULL DEFAULT 'posted',
+    source              TEXT NOT NULL DEFAULT 'manual',
+    verified            INTEGER NOT NULL DEFAULT 0,
+    actor               TEXT NOT NULL,
+    notes               TEXT,
+    created_at          TEXT NOT NULL,
+    UNIQUE(supplier_id, external_receipt_id)
+);
+
+CREATE TABLE IF NOT EXISTS goods_receipt_lines (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    goods_receipt_id    INTEGER NOT NULL REFERENCES goods_receipts(id),
+    purchase_order_line_id INTEGER NOT NULL REFERENCES purchase_order_lines(id),
+    lot_code            TEXT NOT NULL,
+    accepted_qty        REAL NOT NULL DEFAULT 0 CHECK(accepted_qty >= 0),
+    rejected_qty        REAL NOT NULL DEFAULT 0 CHECK(rejected_qty >= 0),
+    purchase_uom        TEXT NOT NULL,
+    conversion_factor   REAL NOT NULL CHECK(conversion_factor > 0),
+    accepted_internal_qty REAL NOT NULL DEFAULT 0 CHECK(accepted_internal_qty >= 0),
+    rejection_reason    TEXT,
+    location            TEXT,
+    created_at          TEXT NOT NULL,
+    UNIQUE(goods_receipt_id, purchase_order_line_id)
+);
+
+CREATE TABLE IF NOT EXISTS procurement_outbox (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_type       TEXT NOT NULL,
+    object_type         TEXT NOT NULL,
+    object_key          TEXT NOT NULL,
+    payload_json        TEXT NOT NULL,
+    payload_sha256      TEXT NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'pending', -- pending | delivered | failed
+    attempts            INTEGER NOT NULL DEFAULT 0,
+    external_id         TEXT,
+    last_error          TEXT,
+    created_at          TEXT NOT NULL,
+    delivered_at        TEXT,
+    updated_at          TEXT NOT NULL,
+    UNIQUE(document_type, object_type, object_key)
+);
+
+CREATE TABLE IF NOT EXISTS procurement_exchange_runs (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    direction           TEXT NOT NULL, -- import | export
+    document_type       TEXT NOT NULL,
+    source_sha256       TEXT NOT NULL,
+    file_name           TEXT,
+    mode                TEXT NOT NULL,
+    status              TEXT NOT NULL,
+    records_seen        INTEGER NOT NULL DEFAULT 0,
+    records_accepted    INTEGER NOT NULL DEFAULT 0,
+    records_rejected    INTEGER NOT NULL DEFAULT 0,
+    records_imported    INTEGER NOT NULL DEFAULT 0,
+    summary_json        TEXT NOT NULL DEFAULT '{}',
+    actor               TEXT NOT NULL,
+    created_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS procurement_exchange_issues (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id              INTEGER NOT NULL REFERENCES procurement_exchange_runs(id),
+    record_index        INTEGER,
+    field_key           TEXT,
+    code                TEXT NOT NULL,
+    detail              TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS procurement_import_batches (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_type       TEXT NOT NULL,
+    source_sha256       TEXT NOT NULL,
+    run_id              INTEGER NOT NULL REFERENCES procurement_exchange_runs(id),
+    imported_at         TEXT NOT NULL,
+    UNIQUE(document_type, source_sha256)
+);
+
+CREATE INDEX IF NOT EXISTS idx_po_status ON purchase_orders(status, expected_at);
+CREATE INDEX IF NOT EXISTS idx_po_line_object ON purchase_order_lines(object_type, object_key, status);
+CREATE INDEX IF NOT EXISTS idx_receipt_po ON goods_receipts(purchase_order_id, received_at);
+CREATE INDEX IF NOT EXISTS idx_procurement_outbox_status ON procurement_outbox(status, id);
+
 CREATE TABLE IF NOT EXISTS resource_change_events (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     resource_type       TEXT NOT NULL,

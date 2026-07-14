@@ -7,6 +7,7 @@ from typing import Optional
 
 import bottleneck
 import data_quality
+import procurement
 
 
 def _downtime_evidence(conn: sqlite3.Connection, start: str, end: str) -> Optional[dict]:
@@ -43,6 +44,7 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
     end = now.isoformat()
     quality = data_quality.build(conn, window_hours, now)
     constraint = bottleneck.detect(conn, window_hours, now)
+    purchasing = procurement.snapshot(conn)
     recommendations = []
 
     low_reporting = [
@@ -69,6 +71,49 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
             "confidence": "high",
             "estimated_gain": None,
             "evidence": [f"Telemetry score {round(target['score'] * 100)}%", *target["issues"][:2]],
+        })
+
+    uncovered = [
+        item for item in purchasing["recommendations"]
+        if item["uncovered_qty"] > 1e-9
+    ]
+    unmapped = [
+        item for item in uncovered
+        if not item["mapping"] or not item["mapping"]["verified"]
+        or not item["mapping"]["supplier_verified"]
+    ]
+    supply_risks = [item for item in uncovered if item["at_risk"]]
+    if unmapped:
+        recommendations.append({
+            "priority": len(recommendations) + 1,
+            "category": "supply",
+            "title": f"Commission suppliers for {len(unmapped)} shortages",
+            "action": (
+                "Map supplier SKUs, purchase units, pack sizes, and lead times; "
+                "verify the master data before approving purchase orders."
+            ),
+            "confidence": "high",
+            "estimated_gain": None,
+            "evidence": [
+                f"{item['name']}: {item['uncovered_qty']:g} {item['internal_uom']} uncovered"
+                for item in unmapped[:3]
+            ],
+        })
+    elif supply_risks:
+        recommendations.append({
+            "priority": len(recommendations) + 1,
+            "category": "supply",
+            "title": f"Expedite {len(supply_risks)} supply-risk items",
+            "action": (
+                "Review need-by dates against projected supplier arrival and expedite, "
+                "split, or reschedule the affected orders."
+            ),
+            "confidence": "medium",
+            "estimated_gain": None,
+            "evidence": [
+                f"{item['name']}: projected {item['projected_arrival_at']}"
+                for item in supply_risks[:3]
+            ],
         })
 
     current = constraint.current
@@ -139,6 +184,13 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
         "current_constraint": vars(current) if current else None,
         "constraint_persistence": round(persistence, 3),
         "constraint_history": history,
+        "supply": {
+            "commissioned": purchasing["commissioned"],
+            "uncovered_shortages": len(uncovered),
+            "unmapped_shortages": len(unmapped),
+            "supply_risks": len(supply_risks),
+            "open_purchase_orders": purchasing["summary"]["open_purchase_orders"],
+        },
         "recommendations": recommendations,
         "guardrail": (
             "Estimated gains remain hidden until real cycle times and stable telemetry are available."

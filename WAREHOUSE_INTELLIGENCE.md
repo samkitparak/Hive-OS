@@ -76,8 +76,10 @@ suggested order = round_up(max(0, target stock - free stock), order multiple)
 ```
 
 Cost is shown only when unit cost is commissioned. Supplier and lead time remain
-blank rather than inferred. Suggestions are advisory and never create or send a
-purchase order.
+blank rather than inferred. The warehouse snapshot is advisory; the separate
+procurement workflow subtracts remaining open inbound, converts internal demand
+to supplier units, and requires verified master data plus named approval before
+a purchase order can leave draft. See `PROCUREMENT_INTEGRATION.md`.
 
 ## On-Site Commissioning
 
@@ -94,6 +96,9 @@ purchase order.
 6. Approve one test schedule, then cancel it and verify every reservation is
    released. Approve again, complete the test order, and verify issues and
    remnant consumption in the movement ledger.
+7. Open **Procurement**, commission suppliers and item mappings, draft one
+   shortage, approve and export it, then post a test receipt and reconcile the
+   inventory movement.
 
 ## API
 

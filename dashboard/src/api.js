@@ -64,6 +64,21 @@ export const markLabelJobPrinted = (id, payload) => postJson(`/labels/jobs/${id}
 export const labelPrintUrl = id => `${BASE}/labels/jobs/${id}/print`;
 export const labelZplUrl = id => `${BASE}/labels/jobs/${id}/zpl`;
 export const fetchResourceSnapshot = () => request("/resources/snapshot");
+export const fetchProcurementSnapshot = () => request("/procurement/snapshot");
+export const updateProcurementSupplier = (supplierKey, payload) => request(
+  `/procurement/suppliers/${encodeURIComponent(supplierKey)}`,
+  { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+);
+export const updateProcurementMapping = (supplierKey, objectType, objectKey, payload) => request(
+  `/procurement/suppliers/${encodeURIComponent(supplierKey)}/mappings/${encodeURIComponent(objectType)}/${encodeURIComponent(objectKey)}`,
+  { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+);
+export const createPurchaseOrder = payload => postJson("/procurement/orders", payload);
+export const draftProcurementRecommendations = payload => postJson("/procurement/orders/draft-recommendations", payload);
+export const actOnPurchaseOrder = (id, payload) => postJson(`/procurement/orders/${id}/action`, payload);
+export const createGoodsReceipt = payload => postJson("/procurement/receipts", payload);
+export const importProcurementCsv = payload => postJson("/procurement/imports/csv", payload);
+export const purchaseOrderExportUrl = id => `${BASE}/procurement/orders/${id}/export.csv`;
 export const updateMaterialStock = (materialKey, payload) => request(`/resources/materials/${encodeURIComponent(materialKey)}`, {
   method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
 });

@@ -53,6 +53,7 @@ import planning as planning_module
 import production_control as production_control_module
 import resources as resources_module
 import inventory as inventory_module
+import procurement as procurement_module
 import execution as execution_module
 import identity as identity_module
 import diagnostics as diagnostics_module
@@ -82,6 +83,14 @@ from api_models import (
     InventoryItemUpdate,
     InventoryLotBalanceUpdate,
     InventoryRequirementUpdate,
+    GoodsReceiptCreate,
+    ProcurementCsvImport,
+    ProcurementDraftRequest,
+    ProcurementMappingUpdate,
+    ProcurementOutboxAck,
+    ProcurementSupplierUpdate,
+    PurchaseOrderAction,
+    PurchaseOrderCreate,
     DigitalTwinRequest,
     ExecutionActionRequest,
     ExecutionExceptionDecision,
@@ -127,7 +136,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.10.0"
+APP_VERSION = "0.11.0"
 
 
 class ApiPrefixMiddleware:
@@ -894,6 +903,131 @@ def patch_inventory_remnant(remnant_key: str, payload: RemnantUpdate):
     except KeyError as error:
         raise HTTPException(404, str(error)) from error
     except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/procurement/snapshot")
+def get_procurement_snapshot(job_name: Optional[list[str]] = Query(default=None)):
+    return procurement_module.snapshot(_get_conn(), job_name)
+
+
+@app.put("/procurement/suppliers/{supplier_key}")
+def put_procurement_supplier(supplier_key: str, payload: ProcurementSupplierUpdate):
+    try:
+        return procurement_module.upsert_supplier(
+            _get_conn(), supplier_key, payload.model_dump(exclude_none=True)
+        )
+    except (sqlite3.IntegrityError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.put("/procurement/suppliers/{supplier_key}/mappings/{object_type}/{object_key}")
+def put_procurement_mapping(supplier_key: str, object_type: str, object_key: str,
+                            payload: ProcurementMappingUpdate):
+    try:
+        return procurement_module.upsert_mapping(
+            _get_conn(), supplier_key, object_type, object_key,
+            payload.model_dump(exclude_none=True),
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except (sqlite3.IntegrityError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/procurement/orders")
+def post_purchase_order(payload: PurchaseOrderCreate):
+    try:
+        return procurement_module.create_order(
+            _get_conn(), payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except (sqlite3.IntegrityError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/procurement/orders/draft-recommendations")
+def post_procurement_drafts(payload: ProcurementDraftRequest):
+    try:
+        return procurement_module.draft_recommendations(
+            _get_conn(), payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except (sqlite3.IntegrityError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/procurement/orders/{order_id}")
+def get_purchase_order(order_id: int):
+    try:
+        return procurement_module.order_detail(_get_conn(), order_id)
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+
+
+@app.post("/procurement/orders/{order_id}/action")
+def post_purchase_order_action(order_id: int, payload: PurchaseOrderAction):
+    try:
+        return procurement_module.decide_order(
+            _get_conn(), order_id, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except (sqlite3.IntegrityError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/procurement/orders/{order_id}/export.csv")
+def get_purchase_order_csv(order_id: int):
+    try:
+        order = procurement_module.order_detail(_get_conn(), order_id)
+        content = procurement_module.order_csv(_get_conn(), order_id)
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    return Response(
+        content=content, media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{order["po_number"]}.csv"'},
+    )
+
+
+@app.get("/procurement/outbox")
+def get_procurement_outbox(status: Optional[str] = Query(default=None)):
+    return {"documents": procurement_module.outbox(_get_conn(), status)}
+
+
+@app.post("/procurement/outbox/{outbox_id}/ack")
+def post_procurement_outbox_ack(outbox_id: int, payload: ProcurementOutboxAck):
+    try:
+        return procurement_module.acknowledge_outbox(
+            _get_conn(), outbox_id, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+
+
+@app.post("/procurement/receipts")
+def post_goods_receipt(payload: GoodsReceiptCreate):
+    try:
+        return procurement_module.receive_order(
+            _get_conn(), payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except (sqlite3.IntegrityError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/procurement/imports/csv")
+def post_procurement_csv(payload: ProcurementCsvImport):
+    try:
+        return procurement_module.import_csv(
+            _get_conn(), payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except (sqlite3.IntegrityError, ValueError) as error:
         raise HTTPException(400, str(error)) from error
 
 

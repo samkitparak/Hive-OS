@@ -10,6 +10,8 @@ import commissioning
 import data_quality
 import event_pipeline
 import optimization
+import production_control
+import resources
 from db import init_db
 from maestro_agent import _parse_log_line, _simulated_log_lines
 
@@ -107,6 +109,25 @@ def test_optimizer_stays_in_commissioning_mode_without_evidence(conn):
     assert result["status"] == "commissioning"
     assert result["recommendations"][0]["category"] == "commissioning"
     assert result["guardrail"]
+
+
+def test_optimizer_surfaces_unmapped_supply_shortages(conn):
+    conn.execute("INSERT INTO jobs (job_name,total_parts) VALUES ('SUPPLY-1',1)")
+    job_id = conn.execute("SELECT last_insert_rowid() id").fetchone()["id"]
+    conn.execute(
+        """INSERT INTO parts
+           (job_id,part_name,material,length_mm,width_mm,thickness_mm,qty,grain,eb1)
+           VALUES (?,'Panel','BOARD A',1000,500,18,1,1,'E1')""",
+        (job_id,),
+    )
+    conn.commit()
+    production_control.sync_all(conn)
+    resources.sync_defaults(conn)
+
+    result = optimization.build(conn, 8, datetime(2026, 7, 14, 12, tzinfo=timezone.utc))
+    supply = next(item for item in result["recommendations"] if item["category"] == "supply")
+    assert supply["confidence"] == "high"
+    assert result["supply"]["unmapped_shortages"] > 0
 
 
 def test_intelligence_endpoints(conn):

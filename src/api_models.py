@@ -509,6 +509,112 @@ class RemnantUpdate(RequestModel):
     actor: str = Field(default="operator", min_length=1)
 
 
+class ProcurementSupplierUpdate(RequestModel):
+    name: str = Field(min_length=1, max_length=200)
+    legal_name: Optional[str] = Field(default=None, max_length=240)
+    currency: str = Field(default="INR", min_length=3, max_length=3)
+    lead_time_days: int = Field(default=0, ge=0, le=3650)
+    gln: Optional[str] = Field(default=None, max_length=13)
+    tax_id: Optional[str] = Field(default=None, max_length=100)
+    email: Optional[str] = Field(default=None, max_length=240)
+    external_system: Optional[str] = Field(default=None, max_length=100)
+    active: bool = True
+    verified: bool = False
+    expected_version: Optional[int] = Field(default=None, ge=1)
+    actor: str = Field(default="operator", min_length=1)
+
+
+class ProcurementMappingUpdate(RequestModel):
+    supplier_sku: str = Field(min_length=1, max_length=200)
+    gtin: Optional[str] = Field(default=None, max_length=32)
+    purchase_uom: str = Field(min_length=1, max_length=30)
+    conversion_factor: float = Field(default=1, gt=0)
+    order_multiple: float = Field(default=1, gt=0)
+    min_order_qty: float = Field(default=0, ge=0)
+    unit_price: Optional[float] = Field(default=None, ge=0)
+    currency: str = Field(default="INR", min_length=3, max_length=3)
+    preferred: bool = False
+    verified: bool = False
+    expected_version: Optional[int] = Field(default=None, ge=1)
+    source: str = Field(default="manual", min_length=1, max_length=60)
+    actor: str = Field(default="operator", min_length=1)
+
+
+class PurchaseOrderLineCreate(RequestModel):
+    object_type: Literal["component", "sheet"]
+    object_key: str = Field(min_length=1, max_length=100)
+    ordered_qty: float = Field(gt=0)
+    unit_price: Optional[float] = Field(default=None, ge=0)
+    currency: Optional[str] = Field(default=None, min_length=3, max_length=3)
+    need_by_at: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class PurchaseOrderCreate(RequestModel):
+    supplier_key: str = Field(min_length=1, max_length=80)
+    po_number: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    currency: Optional[str] = Field(default=None, min_length=3, max_length=3)
+    expected_at: Optional[str] = None
+    external_id: Optional[str] = Field(default=None, max_length=200)
+    source: str = Field(default="manual", min_length=1, max_length=60)
+    notes: Optional[str] = None
+    actor: str = Field(default="planner", min_length=1)
+    lines: list[PurchaseOrderLineCreate] = Field(min_length=1)
+
+
+class ProcurementDraftRequest(RequestModel):
+    supplier_key: Optional[str] = Field(default=None, max_length=80)
+    object_keys: list[str] = Field(default_factory=list)
+    notes: Optional[str] = None
+    actor: str = Field(default="planner", min_length=1)
+
+
+class PurchaseOrderAction(RequestModel):
+    action: Literal["approve", "queue", "cancel"]
+    expected_version: Optional[int] = Field(default=None, ge=1)
+    actor: str = Field(default="planner", min_length=1)
+    notes: Optional[str] = None
+
+
+class GoodsReceiptLineCreate(RequestModel):
+    po_line_id: Optional[int] = Field(default=None, ge=1)
+    line_number: Optional[int] = Field(default=None, ge=1)
+    lot_code: Optional[str] = Field(default=None, max_length=100)
+    accepted_qty: float = Field(default=0, ge=0)
+    rejected_qty: float = Field(default=0, ge=0)
+    rejection_reason: Optional[str] = Field(default=None, max_length=500)
+    location: Optional[str] = Field(default=None, max_length=200)
+
+
+class GoodsReceiptCreate(RequestModel):
+    receipt_key: str = Field(min_length=1, max_length=100)
+    purchase_order_id: int = Field(ge=1)
+    external_receipt_id: Optional[str] = Field(default=None, max_length=200)
+    received_at: Optional[str] = None
+    location: Optional[str] = Field(default=None, max_length=200)
+    verified: bool = False
+    source: str = Field(default="manual", min_length=1, max_length=60)
+    notes: Optional[str] = None
+    actor: str = Field(default="receiver", min_length=1)
+    lines: list[GoodsReceiptLineCreate] = Field(min_length=1)
+
+
+class ProcurementOutboxAck(RequestModel):
+    success: bool
+    external_id: Optional[str] = Field(default=None, max_length=200)
+    error: Optional[str] = Field(default=None, max_length=1000)
+    actor: str = Field(default="erp-worker", min_length=1)
+
+
+class ProcurementCsvImport(RequestModel):
+    document_type: Literal["supplier_catalog", "goods_receipt"]
+    mode: Literal["validate", "apply"] = "validate"
+    csv_text: str = Field(min_length=1)
+    file_name: Optional[str] = Field(default=None, max_length=240)
+    approve_master_data: bool = False
+    actor: str = Field(default="operator", min_length=1)
+
+
 class LaborRoleUpdate(RequestModel):
     headcount: int = Field(ge=0)
     verified: bool = False

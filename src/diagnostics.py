@@ -8,6 +8,7 @@ from typing import Optional
 import yaml
 
 import inventory
+import procurement
 
 PLACEHOLDER_HOSTS = {
     *(f"192.168.1.{number}" for number in range(51, 55)),
@@ -147,6 +148,11 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
         and warehouse_summary["component_shortages"] == 0
         and warehouse_summary["open_sync_issues"] == 0
     )
+    purchasing = procurement.snapshot(conn)
+    purchasing_summary = purchasing["summary"]
+    procurement_ready = bool(
+        purchasing_summary["suppliers"] > 0 and purchasing["commissioned"]
+    )
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -166,6 +172,11 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "component_shortages": warehouse_summary["component_shortages"],
             "verified_available_remnants": warehouse_summary["available_remnants"],
             "inventory_sync_issues": warehouse_summary["open_sync_issues"],
+            "verified_suppliers": purchasing_summary["verified_suppliers"],
+            "mapped_procurement_shortages": purchasing_summary["mapped_shortages"],
+            "procurement_supply_risks": purchasing_summary["supply_risks"],
+            "open_purchase_orders": purchasing_summary["open_purchase_orders"],
+            "procurement_outbox_pending": purchasing_summary["pending_outbox"],
         },
         "services": [
             {"key": "database", "name": "Database", "status": "online",
@@ -205,6 +216,17 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
                  f"{warehouse_summary['component_shortages']} shortages; "
                  f"{warehouse_summary['available_remnants']} verified remnants; "
                  f"{warehouse_summary['open_sync_issues']} source issues"
+             )},
+            {"key": "procurement", "name": "Procurement and ERP exchange",
+             "status": "offline" if any(
+                 item["status"] == "failed" for item in purchasing["outbox"]
+             ) else ("ready" if procurement_ready else "needs_site_value"),
+             "detail": (
+                 f"{purchasing_summary['mapped_shortages']}/"
+                 f"{purchasing_summary['uncovered_shortages']} shortages mapped; "
+                 f"{purchasing_summary['supply_risks']} supply risks; "
+                 f"{purchasing_summary['open_purchase_orders']} open POs; "
+                 f"{purchasing_summary['pending_outbox']} exchange documents pending"
              )},
         ],
         "machines": machines,
