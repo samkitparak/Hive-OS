@@ -105,8 +105,9 @@ start for the same part on a different machine. Edge support, unique parts,
 median transfer time, outgoing probability, and confidence remain visible.
 They describe observed transitions, not automatically inferred complete routes.
 
-The production twin uses SimPy discrete-event resources to reproduce machine
-queues, part flow, transfers, and beam-saw material changeovers. It can compare
+The production twin uses SimPy discrete-event resources to reproduce finite
+machine, shared labor, shared tooling, recurring shifts, planned maintenance,
+finite input buffers, part flow, transfers, and beam-saw material changeovers. It can compare
 the current sequencer with FIFO, earliest-date, shortest-processing-time, and
 material-batching policies. Results remain commissioning what-if scenarios
 until every simulated operation has a cycle model and at least 80% of selected
@@ -115,8 +116,10 @@ part routes have direct historical evidence.
 Live planning uses only explicit production-order `due_at` timestamps. Cabinet
 Vision `job_date` remains source metadata and cannot create a false overdue job.
 Policies are ranked by total tardiness, late-job count, makespan, and setup time.
-Every scenario is persisted and must pass readiness plus stale-input checks
-before a named operator can approve it.
+Every scenario is persisted and must pass order, resource, route, model,
+feasibility, and stale-input checks before a named operator can approve it.
+Scenario results expose capacity wait, calendar wait, blocked parts, and
+machine/labor/tool utilization rather than treating unfinished work as complete.
 
 This structure follows NIST guidance that production simulation starts with
 explicit requirements and validated input data, and research that combines

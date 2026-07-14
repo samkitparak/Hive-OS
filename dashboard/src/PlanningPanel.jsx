@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { ResourcePanel } from "./ResourcePanel";
 
 const panel = { background: "#111827", border: "1px solid #263244", borderRadius: 8, padding: 14 };
 const label = { color: "#6b7280", fontSize: 9, fontWeight: 800, textTransform: "uppercase" };
@@ -130,10 +131,11 @@ function ScenarioView({ scenario, actor, onDecision }) {
       <div style={{ color: ready ? "#22c55e" : "#f59e0b", fontSize: 10, fontWeight: 800, textTransform: "uppercase" }}>{ready ? "Production ready" : "Commissioning only"}</div>
     </div>
     <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}><thead><tr style={{ color: "#6b7280", textAlign: "left" }}>
-      <th style={{ padding: 6 }}>Policy</th><th>Late jobs</th><th>Tardiness</th><th>Makespan</th><th>Setups</th></tr></thead><tbody>
+      <th style={{ padding: 6 }}>Policy</th><th>Feasible</th><th>Late jobs</th><th>Tardiness</th><th>Makespan</th><th>Wait</th><th>Setups</th></tr></thead><tbody>
       {(scenario.result.scenarios ?? []).map(item => <tr key={item.policy} style={{ borderTop: "1px solid #1f2937" }}>
-        <td style={{ padding: 6, color: "#e5e7eb", fontWeight: 700 }}>{item.policy}</td><td>{item.late_jobs}</td>
-        <td>{Math.round(item.total_tardiness_s / 60)}m</td><td>{Math.round(item.makespan_s / 60)}m</td><td>{item.setup_count}</td></tr>)}</tbody></table></div>
+        <td style={{ padding: 6, color: "#e5e7eb", fontWeight: 700 }}>{item.policy}</td><td style={{ color: item.feasible ? "#22c55e" : "#f87171" }}>{item.feasible ? "yes" : "no"}</td><td>{item.late_jobs}</td>
+        <td>{Math.round(item.total_tardiness_s / 60)}m</td><td>{Math.round(item.makespan_s / 60)}m</td>
+        <td>{Math.round(((item.capacity_wait_s ?? 0) + (item.calendar_wait_s ?? 0)) / 60)}m</td><td>{item.setup_count}</td></tr>)}</tbody></table></div>
     <div style={{ color: "#9ca3af", fontSize: 10, marginTop: 10 }}>{scenario.readiness.guardrail}</div>
     {scenario.status === "draft" && <div style={{ display: "flex", gap: 7, justifyContent: "flex-end", marginTop: 12, flexWrap: "wrap" }}>
       <select value={policy} onChange={event => setPolicy(event.target.value)} style={input}>{(scenario.result.scenarios ?? []).map(item => <option key={item.policy}>{item.policy}</option>)}</select>
@@ -146,12 +148,13 @@ function ScenarioView({ scenario, actor, onDecision }) {
 }
 
 export function PlanningPanel({ data, machines, onClose, onAction }) {
-  const { orders = [], readiness = null, scenarios = [], activeSchedule = null, exceptions = [] } = data;
+  const { orders = [], readiness = null, scenarios = [], activeSchedule = null, exceptions = [], resources = null } = data;
   const [actor, setActor] = useState("operator");
   const [selectedJobs, setSelectedJobs] = useState([]);
   const [routeData, setRouteData] = useState(null);
   const [latestScenario, setLatestScenario] = useState(null);
   const [exceptionLimit, setExceptionLimit] = useState(25);
+  const [showResources, setShowResources] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const loadRoute = async order => { setError(""); try { setRouteData(await onAction("routes", { job_name: order.job_name })); } catch (err) { setError(err.message); } };
@@ -162,13 +165,16 @@ export function PlanningPanel({ data, machines, onClose, onAction }) {
     <div style={{ width: "min(1180px, 100%)", background: "#0d1117", border: "1px solid #374151", borderRadius: 8, padding: 18, color: "#f9fafb" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", marginBottom: 16 }}>
         <div><div style={{ fontSize: 17, fontWeight: 800 }}>Production planning</div><div style={{ color: "#6b7280", fontSize: 10, marginTop: 3 }}>Orders · routes · simulation · approval</div></div>
-        <div style={{ display: "flex", gap: 7 }}><input value={actor} onChange={event => setActor(event.target.value)} placeholder="Operator" style={input} /><button onClick={onClose} title="Close" style={button}>×</button></div>
+        <div style={{ display: "flex", gap: 7, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <button onClick={() => setShowResources(current => !current)} style={{ ...button, borderColor: showResources ? "#60a5fa" : "#374151" }}>Resources</button>
+          <input value={actor} onChange={event => setActor(event.target.value)} placeholder="Operator" style={input} /><button onClick={onClose} title="Close" style={button}>×</button></div>
       </div>
       {error && <div style={{ color: "#f87171", fontSize: 10, marginBottom: 10 }}>{error}</div>}
       {readiness && <div style={{ ...panel, marginBottom: 12 }}><div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
         <div><div style={label}>Commissioning readiness</div><div style={{ color: readiness.control_ready ? "#22c55e" : "#f59e0b", fontSize: 13, fontWeight: 800, marginTop: 4 }}>{readiness.status.replace("_", " ")}</div></div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>{readiness.checks.map(check => <span key={check.key} title={check.detail} style={{ color: check.passed ? "#22c55e" : "#6b7280", fontSize: 9, fontWeight: 800 }}>{check.passed ? "✓" : "○"} {check.label}</span>)}</div>
       </div></div>}
+      {showResources && resources && <div style={{ ...panel, marginBottom: 12 }}><ResourcePanel data={resources} actor={actor} onAction={onAction} /></div>}
       {activeSchedule?.items?.length > 0 && <div style={{ ...panel, borderColor: "#166534", marginBottom: 12 }}><div style={label}>Approved schedule</div>
         <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>{activeSchedule.items.map(item => <span key={item.position} style={{ fontSize: 10, color: "#d1fae5" }}>{item.position}. {item.job_name}</span>)}</div></div>}
       <div style={{ ...panel, marginBottom: 12 }}><div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "end" }}>

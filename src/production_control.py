@@ -7,6 +7,7 @@ import sqlite3
 from datetime import datetime, timezone
 
 import routing
+import resources as factory_resources
 
 ORDER_STATUSES = ("draft", "ready", "released", "in_progress", "hold", "completed", "cancelled")
 TRANSITIONS = {
@@ -195,6 +196,12 @@ def update_order(conn: sqlite3.Connection, order_id: int, payload: dict) -> dict
             route = route_summary(conn, current["job_id"])
             if route["coverage"] < 1:
                 raise ValueError("Every part needs a planned route before release")
+            resource_status = factory_resources.snapshot(conn, [current["job_name"]])
+            if not resource_status["resource_ready"]:
+                missing = ", ".join(
+                    check["label"] for check in resource_status["checks"] if not check["passed"]
+                )
+                raise ValueError(f"Verify production resources before readying this order: {missing}")
         updates["status"] = target
         if target == "released" and current["status"] != "released":
             updates["released_at"] = _now()
@@ -226,6 +233,10 @@ def update_order(conn: sqlite3.Connection, order_id: int, payload: dict) -> dict
         (order_id, event_type, current["status"], target_status, actor,
          payload.get("notes"), json.dumps(updates, sort_keys=True), updates["updated_at"]),
     )
+    if target_status in ("completed", "cancelled") and target_status != current["status"]:
+        factory_resources.settle_order_reservations(
+            conn, order_id, target_status == "completed", actor
+        )
     conn.commit()
     return _order_row(conn, order_id)
 
@@ -438,6 +449,7 @@ def list_exceptions(conn: sqlite3.Connection, status: str = "open") -> list[dict
 
 
 def readiness(conn: sqlite3.Connection) -> dict:
+    resource_status = factory_resources.snapshot(conn)
     orders = conn.execute(
         """SELECT COUNT(*) total,
                   SUM(CASE WHEN status IN ('ready','released','in_progress') THEN 1 ELSE 0 END) active,
@@ -482,11 +494,13 @@ def readiness(conn: sqlite3.Connection) -> dict:
          "detail": f"{modeled} of {route_machines} route machines modeled"},
         {"key": "exceptions", "label": "Route exceptions", "passed": exceptions == 0,
          "detail": f"{exceptions} unresolved deviations"},
+        {"key": "resources", "label": "Factory resources", "passed": resource_status["resource_ready"],
+         "detail": f"{sum(check['passed'] for check in resource_status['checks'])} of {len(resource_status['checks'])} resource gates passed"},
         {"key": "schedule", "label": "Approved schedule", "passed": schedule is not None,
          "detail": "approved" if schedule else "not approved"},
     ]
     control_ready = all(check["passed"] for check in checks if check["key"] in (
-        "work", "due_dates", "routes", "exceptions"
+        "work", "due_dates", "routes", "exceptions", "resources"
     ))
     optimization_ready = control_ready and all(check["passed"] for check in checks)
     return {
@@ -496,7 +510,8 @@ def readiness(conn: sqlite3.Connection) -> dict:
         "checks": checks,
         "summary": {"total_orders": orders["total"] or 0, "active_orders": active,
                     "released_orders": orders["released"] or 0,
-                    "open_exceptions": exceptions},
+                    "open_exceptions": exceptions,
+                    "resource_ready": resource_status["resource_ready"]},
     }
 
 

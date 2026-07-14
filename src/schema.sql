@@ -378,6 +378,141 @@ CREATE TABLE IF NOT EXISTS production_schedule_items (
     UNIQUE(scenario_id, position)
 );
 
+-- ISA-95-inspired resource capability and availability. Defaults are explicit
+-- engineering assumptions; verified=1 means a named operator checked them.
+CREATE TABLE IF NOT EXISTS material_definitions (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    material_key        TEXT NOT NULL UNIQUE,
+    name                TEXT NOT NULL,
+    sheet_length_mm     REAL NOT NULL DEFAULT 2440,
+    sheet_width_mm      REAL NOT NULL DEFAULT 1220,
+    yield_factor        REAL NOT NULL DEFAULT 0.82 CHECK(yield_factor > 0 AND yield_factor <= 1),
+    source              TEXT NOT NULL DEFAULT 'engineering_assumption',
+    verified            INTEGER NOT NULL DEFAULT 0,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS material_lots (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    material_id         INTEGER NOT NULL REFERENCES material_definitions(id),
+    lot_code            TEXT NOT NULL,
+    location            TEXT,
+    status              TEXT NOT NULL DEFAULT 'available', -- available | hold | consumed
+    on_hand_sheets      REAL NOT NULL DEFAULT 0 CHECK(on_hand_sheets >= 0),
+    reserved_sheets     REAL NOT NULL DEFAULT 0 CHECK(reserved_sheets >= 0),
+    source              TEXT NOT NULL DEFAULT 'manual',
+    verified            INTEGER NOT NULL DEFAULT 0,
+    updated_at          TEXT NOT NULL,
+    UNIQUE(material_id, lot_code)
+);
+
+CREATE TABLE IF NOT EXISTS material_requirements (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    production_order_id INTEGER NOT NULL REFERENCES production_orders(id),
+    material_id         INTEGER NOT NULL REFERENCES material_definitions(id),
+    required_area_m2    REAL NOT NULL DEFAULT 0,
+    required_sheets     INTEGER,
+    unknown_part_count  INTEGER NOT NULL DEFAULT 0,
+    source              TEXT NOT NULL DEFAULT 'cv_dimensions',
+    confidence          TEXT NOT NULL DEFAULT 'estimated',
+    updated_at          TEXT NOT NULL,
+    UNIQUE(production_order_id, material_id)
+);
+
+CREATE TABLE IF NOT EXISTS labor_roles (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    role_key            TEXT NOT NULL UNIQUE,
+    name                TEXT NOT NULL,
+    headcount           INTEGER NOT NULL DEFAULT 1 CHECK(headcount >= 0),
+    source              TEXT NOT NULL DEFAULT 'engineering_assumption',
+    verified            INTEGER NOT NULL DEFAULT 0,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tool_pools (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    pool_key            TEXT NOT NULL UNIQUE,
+    name                TEXT NOT NULL,
+    total_qty           INTEGER NOT NULL DEFAULT 1 CHECK(total_qty >= 0),
+    available_qty       INTEGER NOT NULL DEFAULT 1 CHECK(available_qty >= 0),
+    source              TEXT NOT NULL DEFAULT 'engineering_assumption',
+    verified            INTEGER NOT NULL DEFAULT 0,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS machine_resource_profiles (
+    machine_id          INTEGER PRIMARY KEY REFERENCES machines(id),
+    labor_role_id       INTEGER REFERENCES labor_roles(id),
+    labor_qty           INTEGER NOT NULL DEFAULT 1 CHECK(labor_qty >= 0),
+    tool_pool_id        INTEGER REFERENCES tool_pools(id),
+    tool_qty            INTEGER NOT NULL DEFAULT 1 CHECK(tool_qty >= 0),
+    machine_capacity    INTEGER NOT NULL DEFAULT 1 CHECK(machine_capacity >= 1),
+    source              TEXT NOT NULL DEFAULT 'engineering_assumption',
+    verified            INTEGER NOT NULL DEFAULT 0,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS work_calendar_windows (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    resource_type       TEXT NOT NULL, -- factory | machine | labor_role | tool_pool
+    resource_key        TEXT NOT NULL,
+    weekday             INTEGER NOT NULL CHECK(weekday BETWEEN 0 AND 6),
+    start_time          TEXT NOT NULL,
+    end_time            TEXT NOT NULL,
+    capacity            INTEGER NOT NULL DEFAULT 1 CHECK(capacity >= 1),
+    timezone            TEXT NOT NULL DEFAULT 'Asia/Kolkata',
+    source              TEXT NOT NULL DEFAULT 'engineering_assumption',
+    verified            INTEGER NOT NULL DEFAULT 0,
+    active              INTEGER NOT NULL DEFAULT 1,
+    updated_at          TEXT NOT NULL,
+    UNIQUE(resource_type, resource_key, weekday, start_time, end_time)
+);
+
+CREATE TABLE IF NOT EXISTS resource_unavailability (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    resource_type       TEXT NOT NULL,
+    resource_key        TEXT NOT NULL,
+    starts_at           TEXT NOT NULL,
+    ends_at             TEXT NOT NULL,
+    reason              TEXT NOT NULL,
+    source              TEXT NOT NULL DEFAULT 'manual',
+    work_order_id       INTEGER REFERENCES maintenance_work_orders(id),
+    created_by          TEXT NOT NULL,
+    created_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS wip_buffers (
+    machine_id          INTEGER PRIMARY KEY REFERENCES machines(id),
+    capacity_qty        INTEGER NOT NULL DEFAULT 50 CHECK(capacity_qty >= 1),
+    current_qty         INTEGER NOT NULL DEFAULT 0 CHECK(current_qty >= 0),
+    source              TEXT NOT NULL DEFAULT 'engineering_assumption',
+    verified            INTEGER NOT NULL DEFAULT 0,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS material_reservations (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    scenario_id         INTEGER NOT NULL REFERENCES planning_scenarios(id),
+    production_order_id INTEGER NOT NULL REFERENCES production_orders(id),
+    material_lot_id     INTEGER NOT NULL REFERENCES material_lots(id),
+    quantity_sheets     REAL NOT NULL CHECK(quantity_sheets > 0),
+    status              TEXT NOT NULL DEFAULT 'committed', -- committed | consumed | released
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    UNIQUE(scenario_id, production_order_id, material_lot_id)
+);
+
+CREATE TABLE IF NOT EXISTS resource_change_events (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    resource_type       TEXT NOT NULL,
+    resource_key        TEXT NOT NULL,
+    event_type          TEXT NOT NULL,
+    actor               TEXT NOT NULL,
+    payload_json        TEXT,
+    ts                  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS connector_sync_state (
     connector_key   TEXT PRIMARY KEY,
     status          TEXT NOT NULL DEFAULT 'not_configured',
@@ -411,6 +546,12 @@ CREATE INDEX IF NOT EXISTS idx_route_steps_part_status ON part_route_steps(part_
 CREATE INDEX IF NOT EXISTS idx_route_step_events_step_ts ON route_step_events(route_step_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_route_exceptions_status_ts ON route_exceptions(status, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_planning_scenarios_status_created ON planning_scenarios(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_material_requirements_order ON material_requirements(production_order_id);
+CREATE INDEX IF NOT EXISTS idx_material_lots_material_status ON material_lots(material_id, status);
+CREATE INDEX IF NOT EXISTS idx_material_reservations_status ON material_reservations(status, production_order_id);
+CREATE INDEX IF NOT EXISTS idx_calendar_resource_day ON work_calendar_windows(resource_type, resource_key, weekday);
+CREATE INDEX IF NOT EXISTS idx_resource_unavailability_window ON resource_unavailability(resource_type, resource_key, starts_at, ends_at);
+CREATE INDEX IF NOT EXISTS idx_resource_change_events_key_ts ON resource_change_events(resource_type, resource_key, ts DESC);
 
 -- Seed the 14 in-scope HAEEV machines (aluminium pair excluded, compressors/dust collectors as utility)
 INSERT OR IGNORE INTO machines (name, machine_key, type, brand, model, has_maestro, has_opcua, active) VALUES

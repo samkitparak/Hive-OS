@@ -16,7 +16,8 @@ HIVE separates imported product data from executable production control:
 This follows the ISA-95 distinction between a work schedule, work requests, and
 machine/line job orders. A source import date is never treated as a due date.
 Operators must set a timezone-aware `due_at` value before an order can become
-`ready` or `released`.
+`ready` or `released`. Material, labor, tooling, calendar, WIP, and required
+machine profiles must also be verified and feasible.
 
 Primary references:
 
@@ -73,8 +74,13 @@ The digital twin ranks policies by:
 
 A scenario cannot be approved unless every operation has a cycle model and at
 least 80% of routes have observed or operator-confirmed evidence. Approval also
-checks a factory-input signature. Changes to orders, routes, models, or evidence
-expire the old scenario and require a fresh comparison.
+requires a feasible finite-capacity resource simulation and checks a factory-input
+signature. Changes to orders, routes, models, resources, stock, calendars,
+maintenance, WIP, or evidence expire the old scenario and require a fresh comparison.
+
+Approved scenarios reserve verified material lots. Completion consumes those
+reservations and cancellation releases them. A replacement schedule must retain
+all released and in-progress work.
 
 The approved sequence remains advisory: HIVE releases and tracks work but does
 not write to PLCs or bypass machine safety controls.
@@ -85,7 +91,8 @@ not write to PLCs or bypass machine safety controls.
 2. Open **Planning** and cancel historical/example jobs.
 3. Set due times and priorities for live jobs.
 4. Review generated part routes; correct product-specific press/sanding/finish steps.
-5. Move complete orders to `ready`, then `released`.
-6. Commission machine logs and barcode stations.
-7. Run schedule comparisons. Approve only when HIVE marks the scenario production-ready.
-8. Resolve route exceptions as the first real jobs cross the floor.
+5. Verify materials, labor, tooling, machine profiles, shift calendar, and WIP buffers.
+6. Move complete orders to `ready`, then `released`.
+7. Commission machine logs and barcode stations.
+8. Run schedule comparisons. Approve only when HIVE marks the scenario production-ready.
+9. Resolve route exceptions as the first real jobs cross the floor.

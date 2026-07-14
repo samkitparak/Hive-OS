@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, postJson, simulateEvent } from "./api";
+import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchResourceSnapshot, updateMaterialStock, updateLaborRole, updateToolPool, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, postJson, simulateEvent } from "./api";
 import { MachineCard } from "./MachineCard";
 import { MachineDetail } from "./MachineDetail";
 import { JobProgress } from "./JobProgress";
@@ -94,6 +94,9 @@ export default function App() {
   });
   const { data: activeSchedule = null } = useQuery({
     queryKey: ["activeSchedule"], queryFn: fetchActiveSchedule, refetchInterval: 30000,
+  });
+  const { data: resourceSnapshot = null } = useQuery({
+    queryKey: ["resourceSnapshot"], queryFn: fetchResourceSnapshot, refetchInterval: 30000,
   });
   const { data: routeExceptions = [] } = useQuery({
     queryKey: ["routeExceptions"], queryFn: fetchRouteExceptions, refetchInterval: 15000,
@@ -290,7 +293,7 @@ export default function App() {
   };
 
   const refreshPlanning = () => {
-    ["productionOrders", "productionReadiness", "planningScenarios", "activeSchedule", "routeExceptions", "sequence", "twin", "jobs"].forEach(key => {
+    ["productionOrders", "productionReadiness", "planningScenarios", "activeSchedule", "resourceSnapshot", "routeExceptions", "sequence", "twin", "jobs"].forEach(key => {
       qc.invalidateQueries({ queryKey: [key] });
     });
   };
@@ -303,6 +306,14 @@ export default function App() {
     else if (kind === "scenario") result = await createPlanningScenario(data);
     else if (kind === "decision") result = await decidePlanningScenario(data.id, data.payload);
     else if (kind === "exception") result = await resolveRouteException(data.id, data.payload);
+    else if (kind === "material") result = await updateMaterialStock(data.key, data.payload);
+    else if (kind === "labor") result = await updateLaborRole(data.key, data.payload);
+    else if (kind === "tool") result = await updateToolPool(data.key, data.payload);
+    else if (kind === "machineResource") result = await updateMachineResource(data.key, data.payload);
+    else if (kind === "calendar") result = await updateFactoryCalendar(data);
+    else if (kind === "wip") result = await updateWipBuffer(data.key, data.payload);
+    else if (kind === "unavailability") result = await createResourceUnavailability(data);
+    else if (kind === "deleteUnavailability") result = await deleteResourceUnavailability(data.id, data.actor);
     refreshPlanning();
     return result;
   };
@@ -557,7 +568,7 @@ export default function App() {
       )}
       {showPlanning && (
         <PlanningPanel
-          data={{ orders: productionOrders, readiness: productionReadiness, scenarios: planningScenarios, activeSchedule, exceptions: routeExceptions }}
+          data={{ orders: productionOrders, readiness: productionReadiness, scenarios: planningScenarios, activeSchedule, exceptions: routeExceptions, resources: resourceSnapshot }}
           machines={enriched}
           onAction={runPlanningAction}
           onClose={() => setShowPlanning(false)}

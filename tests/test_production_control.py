@@ -4,6 +4,7 @@ import pytest
 
 from db import init_db
 import production_control
+import resources
 
 
 def _factory(qty=1, cnc=False):
@@ -18,6 +19,26 @@ def _factory(qty=1, cnc=False):
     )
     conn.commit()
     production_control.sync_all(conn)
+    resources.sync_defaults(conn)
+    material = resources.snapshot(conn, ["ORDER-1"])["materials"][0]
+    resources.set_material_stock(conn, material["material_key"], {
+        "on_hand_sheets": 20, "verified": True, "actor": "test",
+    })
+    resources.update_labor_role(conn, "cutting_operator", {
+        "headcount": 1, "verified": True, "actor": "test",
+    })
+    resources.update_tool_pool(conn, "cutting_tooling", {
+        "total_qty": 1, "available_qty": 1, "verified": True, "actor": "test",
+    })
+    resources.update_machine_profile(conn, "gabbiani_pt80", {
+        "role_key": "cutting_operator", "labor_qty": 1,
+        "pool_key": "cutting_tooling", "tool_qty": 1,
+        "machine_capacity": 1, "verified": True, "actor": "test",
+    })
+    resources.update_factory_calendar(conn, {
+        "weekdays": list(range(7)), "start_time": "00:00", "end_time": "23:59",
+        "timezone": "UTC", "verified": True, "actor": "test",
+    })
     return conn, job_id, conn.execute("SELECT id FROM parts").fetchone()["id"]
 
 

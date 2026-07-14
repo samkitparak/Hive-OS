@@ -54,6 +54,27 @@ export const fetchPlanningScenario = (id) => request(`/planning/scenarios/${id}`
 export const createPlanningScenario = (payload) => postJson("/planning/scenarios", payload);
 export const decidePlanningScenario = (id, payload) => postJson(`/planning/scenarios/${id}/decision`, payload);
 export const fetchActiveSchedule = () => request("/planning/active-schedule");
+export const fetchResourceSnapshot = () => request("/resources/snapshot");
+export const updateMaterialStock = (materialKey, payload) => request(`/resources/materials/${encodeURIComponent(materialKey)}`, {
+  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+});
+export const updateLaborRole = (roleKey, payload) => request(`/resources/labor/${encodeURIComponent(roleKey)}`, {
+  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+});
+export const updateToolPool = (poolKey, payload) => request(`/resources/tooling/${encodeURIComponent(poolKey)}`, {
+  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+});
+export const updateMachineResource = (machineKey, payload) => request(`/resources/machines/${encodeURIComponent(machineKey)}`, {
+  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+});
+export const updateFactoryCalendar = payload => request("/resources/calendar/factory", {
+  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+});
+export const updateWipBuffer = (machineKey, payload) => request(`/resources/wip/${encodeURIComponent(machineKey)}`, {
+  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+});
+export const createResourceUnavailability = payload => postJson("/resources/unavailability", payload);
+export const deleteResourceUnavailability = (id, actor) => request(`/resources/unavailability/${id}?actor=${encodeURIComponent(actor)}`, { method: "DELETE" });
 export const fetchDiagnostics = () => request("/diagnostics");
 export const fetchDeployment = () => request("/deployment");
 export const fetchConfig = () => request("/config");

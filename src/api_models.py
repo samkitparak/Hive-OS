@@ -203,3 +203,65 @@ class PlanningDecision(RequestModel):
     actor: str = Field(min_length=1)
     selected_policy: Optional[Literal["current", "fifo", "edd", "spt", "material_batch"]] = None
     notes: Optional[str] = None
+
+
+class MaterialStockUpdate(RequestModel):
+    on_hand_sheets: float = Field(ge=0)
+    lot_code: str = Field(default="MANUAL-BALANCE", min_length=1)
+    location: Optional[str] = None
+    sheet_length_mm: Optional[float] = Field(default=None, gt=0)
+    sheet_width_mm: Optional[float] = Field(default=None, gt=0)
+    yield_factor: Optional[float] = Field(default=None, gt=0, le=1)
+    verified: bool = False
+    actor: str = Field(default="operator", min_length=1)
+
+
+class LaborRoleUpdate(RequestModel):
+    headcount: int = Field(ge=0)
+    verified: bool = False
+    actor: str = Field(default="operator", min_length=1)
+
+
+class ToolPoolUpdate(RequestModel):
+    total_qty: int = Field(ge=0)
+    available_qty: int = Field(ge=0)
+    verified: bool = False
+    actor: str = Field(default="operator", min_length=1)
+
+
+class MachineResourceProfileUpdate(RequestModel):
+    role_key: str = Field(min_length=1)
+    labor_qty: int = Field(ge=0)
+    pool_key: str = Field(min_length=1)
+    tool_qty: int = Field(ge=0)
+    machine_capacity: int = Field(ge=1)
+    verified: bool = False
+    actor: str = Field(default="operator", min_length=1)
+
+
+class FactoryCalendarUpdate(RequestModel):
+    weekdays: list[int] = Field(min_length=1)
+    start_time: str = Field(min_length=4)
+    end_time: str = Field(min_length=4)
+    timezone: str = Field(default="Asia/Kolkata", min_length=1)
+    capacity: int = Field(default=1, ge=1)
+    verified: bool = False
+    actor: str = Field(default="operator", min_length=1)
+
+
+class WipBufferUpdate(RequestModel):
+    capacity_qty: int = Field(ge=1)
+    current_qty: int = Field(ge=0)
+    verified: bool = False
+    actor: str = Field(default="operator", min_length=1)
+
+
+class ResourceUnavailabilityCreate(RequestModel):
+    resource_type: Literal["factory", "machine", "labor_role", "tool_pool"] = "machine"
+    resource_key: str = Field(min_length=1)
+    starts_at: str = Field(min_length=1)
+    ends_at: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    source: str = "manual"
+    work_order_id: Optional[int] = Field(default=None, ge=1)
+    actor: str = Field(default="operator", min_length=1)

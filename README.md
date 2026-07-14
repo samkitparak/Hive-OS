@@ -20,8 +20,9 @@ operations are limited to the HIVE database and site configuration.
 - **Machine commissioning** — browse for a real Maestro log, validate parser coverage and cycle integrity, then opt in to an idempotent historical replay.
 - **Data trust layer** — normalizes India-local timestamps, suppresses duplicate MQTT delivery, isolates heartbeats, audits rejected events, and scores each machine's evidence quality.
 - **Automatic cycle learning** — pairs validated part cycles, robustly fits versioned nonnegative models, and protects active models from weak candidates.
-- **Production digital twin** — compares dispatch policies with discrete-event machine queues and material changeovers, gated by model and route coverage.
+- **Production digital twin** — compares dispatch policies with finite machine, labor, tooling, calendar, maintenance, material, and WIP capacity.
 - **Production control** — explicit work releases, contractual due times, quantity-aware routes, exception reconciliation, and audited human schedule approval.
+- **Factory resource control** — sheet-stock estimates and reservations, labor/tool pools, machine profiles, shift calendars, planned outages, and finite WIP buffers.
 - **Phase 1 operations layer** — placeholder-ready downtime, maintenance, quality/rework, barcode, Cabinet Vision SQL, and Ottimo workflows that can be replaced with real formats later.
 - **Live event stream** — SSE feed of all machine events (cycle start/end, alarms, power changes) in real time.
 
@@ -88,6 +89,7 @@ hive-os/
 │   ├── digital_twin.py       # SimPy schedule-policy comparison
 │   ├── production_control.py  # order lifecycle + planned/observed route control
 │   ├── planning.py            # persisted scenarios + approval ledger
+│   ├── resources.py           # stock, labor, tooling, calendars, WIP, reservations
 │   ├── operations.py         # downtime, maintenance, quality/rework, barcode
 │   ├── cv_sql_connector.py   # Cabinet Vision SQL placeholder adapter
 │   ├── ottimo_connector.py   # Ottimo placeholder barcode adapter
@@ -98,6 +100,7 @@ hive-os/
 ├── DEPLOYMENT.md             # Windows installation and diagnostics guide
 ├── INTEGRATIONS.md           # integration roadmap
 ├── PHASE1_PLACEHOLDERS.md    # placeholder contracts and replacement points
+├── RESOURCE_MODEL.md         # finite-capacity resource model and site workflow
 └── INDIA_CHECKLIST.md        # on-site configuration checklist
 ```
 
@@ -229,6 +232,14 @@ unprefixed routes remain available for compatibility and local tooling.
 | GET/POST | `/planning/scenarios` | List or generate persisted twin comparisons |
 | POST | `/planning/scenarios/{id}/decision` | Approve or reject a non-stale ready scenario |
 | GET | `/planning/active-schedule` | Current approved dispatch sequence |
+| GET | `/resources/snapshot` | Material, labor, tooling, calendar, WIP, and readiness snapshot |
+| PUT | `/resources/materials/{key}` | Verify sheet definition and update lot stock |
+| PUT | `/resources/labor/{key}` | Verify labor-role headcount |
+| PUT | `/resources/tooling/{key}` | Verify total and available tool-pool capacity |
+| PUT | `/resources/machines/{key}` | Verify machine labor/tool requirements and capacity |
+| PUT | `/resources/calendar/factory` | Replace and verify the recurring factory calendar |
+| PUT | `/resources/wip/{machine_key}` | Verify input-buffer capacity and current WIP |
+| POST/DELETE | `/resources/unavailability` | Add or remove planned resource outages |
 | POST | `/commissioning/log/analyze` | Dry-run or import a validated Maestro log sample |
 | GET | `/diagnostics` | Service and machine-agent connection health |
 | GET | `/deployment` | Windows install package readiness and commands |
@@ -262,6 +273,8 @@ See [OPTIMIZATION_MODEL.md](OPTIMIZATION_MODEL.md) for the evidence model,
 research basis, assumptions, confidence gate, and learning stages.
 See [PRODUCTION_CONTROL.md](PRODUCTION_CONTROL.md) for order lifecycle, route
 reconciliation, schedule approval, and the day-one operator workflow.
+See [RESOURCE_MODEL.md](RESOURCE_MODEL.md) for stock reservations, finite
+capacity, calendars, maintenance, WIP, assumptions, and site verification.
 
 ---
 

@@ -93,6 +93,22 @@ Dashboard → **Planning**
 - [ ] Run schedule comparison; leave it commissioning-only until models and route evidence pass
 - [ ] Resolve every route exception produced by the first physical job
 
+### Factory resources
+
+Planning → **Resources**
+
+- [ ] Count on-hand sheets by exact Cabinet Vision material code and storage location
+- [ ] Confirm sheet length/width for every material; replace the 2440 × 1220 mm assumption where needed
+- [ ] Compare HIVE's 82% nesting-yield estimate against one real Cabinet Vision nest
+- [ ] Enter available qualified headcount for cutting, CNC, edge banding, pressing, finishing, and packing
+- [ ] Count available machine toolsets and note tooling out for sharpening/service
+- [ ] Verify each machine's labor role, tool pool, and simultaneous-operation capacity
+- [ ] Confirm the Monday-Saturday 09:00-18:00 Asia/Kolkata calendar and adjust shifts/breaks
+- [ ] Add known preventive-maintenance windows before schedule comparison
+- [ ] Measure safe input WIP capacity and current WIP at each downstream machine
+- [ ] Verify each resource row only after the physical value is checked
+- [ ] Confirm material reservations appear after schedule approval and release after cancellation
+
 ---
 
 ## Automatic Cycle Time Learning (After Telemetry Is Stable)

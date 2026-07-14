@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 import digital_twin
 import production_control
+import resources as factory_resources
 
 
 def _now() -> str:
@@ -40,9 +41,26 @@ def factory_signature(conn: sqlite3.Connection, job_names: list[str] | None = No
                   (SELECT COALESCE(MAX(id), 0) FROM barcode_events) barcode_event_id
            FROM machine_events"""
     ).fetchone()
+    resource_tables = {}
+    for table, timestamp in (
+        ("material_definitions", "updated_at"),
+        ("material_lots", "updated_at"),
+        ("material_requirements", "updated_at"),
+        ("labor_roles", "updated_at"),
+        ("tool_pools", "updated_at"),
+        ("machine_resource_profiles", "updated_at"),
+        ("work_calendar_windows", "updated_at"),
+        ("resource_unavailability", "created_at"),
+        ("wip_buffers", "updated_at"),
+        ("material_reservations", "updated_at"),
+    ):
+        resource_tables[table] = dict(conn.execute(
+            f"SELECT COUNT(*) count, COALESCE(MAX({timestamp}), '') updated FROM {table}"
+        ).fetchone())
     payload = {
         "orders": orders, "models": models,
         "routes": dict(routes), "evidence": dict(evidence),
+        "resources": resource_tables,
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
@@ -144,6 +162,20 @@ def decide(conn: sqlite3.Connection, scenario_id: int, decision: str,
         raise ValueError("Factory inputs changed; generate a fresh scenario")
 
     chosen = policies[selected_policy]
+    committed_work = {row["job_name"] for row in conn.execute(
+        """SELECT j.job_name FROM production_orders po JOIN jobs j ON j.id=po.job_id
+           WHERE po.status IN ('released','in_progress')"""
+    ).fetchall()}
+    missing_work = sorted(committed_work - set(chosen["job_order"]))
+    if missing_work:
+        raise ValueError(
+            "Approved schedules must retain released or in-progress work: " + ", ".join(missing_work)
+        )
+    try:
+        factory_resources.reserve_materials(conn, scenario_id, chosen["job_order"])
+    except ValueError:
+        conn.rollback()
+        raise
     conn.execute("UPDATE planning_scenarios SET status='expired' WHERE status='approved'")
     conn.execute(
         """UPDATE planning_scenarios SET status='approved', selected_policy=?,

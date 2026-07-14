@@ -64,7 +64,7 @@ def test_get_machines_returns_list(client):
 def test_api_prefix_routes_to_backend(client):
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "service": "hive-os", "version": "0.3.0"}
+    assert response.json() == {"status": "ok", "service": "hive-os", "version": "0.4.0"}
     assert client.get("/api/machines").status_code == 200
 
 
@@ -102,6 +102,29 @@ def test_production_control_and_planning_endpoints(client):
 
 def test_unknown_production_route_is_404(client):
     assert client.get("/api/production/routes/NOT-A-JOB").status_code == 404
+
+
+def test_resource_endpoints_expose_defaults_and_validate_capacity(client):
+    snapshot = client.get("/api/resources/snapshot")
+    assert snapshot.status_code == 200
+    assert {"materials", "labor_roles", "tool_pools", "machine_profiles", "calendar"}.issubset(
+        snapshot.json()
+    )
+    labor = client.put("/api/resources/labor/cutting_operator", json={
+        "headcount": 1, "verified": False, "actor": "test",
+    })
+    assert labor.status_code == 200
+    invalid_tooling = client.put("/api/resources/tooling/cutting_tooling", json={
+        "total_qty": 1, "available_qty": 2, "verified": True, "actor": "test",
+    })
+    assert invalid_tooling.status_code == 400
+    invalid_window = client.post("/api/resources/unavailability", json={
+        "resource_key": "gabbiani_pt80",
+        "starts_at": "2026-07-14T10:00:00+00:00",
+        "ends_at": "2026-07-14T09:00:00+00:00",
+        "reason": "invalid", "actor": "test",
+    })
+    assert invalid_window.status_code == 400
 
 def test_machines_have_required_fields(client):
     data = client.get("/machines").json()

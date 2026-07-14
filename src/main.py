@@ -50,6 +50,7 @@ import event_pipeline
 import optimization as optimization_module
 import planning as planning_module
 import production_control as production_control_module
+import resources as resources_module
 import diagnostics as diagnostics_module
 import deployment as deployment_module
 import config_editor as config_editor_module
@@ -62,6 +63,10 @@ from api_models import (
     CloseRequest,
     CommissioningLogRequest,
     DigitalTwinRequest,
+    FactoryCalendarUpdate,
+    LaborRoleUpdate,
+    MachineResourceProfileUpdate,
+    MaterialStockUpdate,
     PartRouteUpdate,
     PlanningDecision,
     PlanningScenarioCreate,
@@ -72,8 +77,11 @@ from api_models import (
     QualityCheckCreate,
     RemoteConnectionRequest,
     RemoteMachineRequest,
+    ResourceUnavailabilityCreate,
     RouteExceptionDecision,
     SiteConfigUpdate,
+    ToolPoolUpdate,
+    WipBufferUpdate,
     WorkOrderCreate,
 )
 from db import DB_PATH, init_db
@@ -84,7 +92,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.4.0"
 
 
 class ApiPrefixMiddleware:
@@ -116,6 +124,7 @@ async def lifespan(app: FastAPI):
     global _mqtt_client, _conn, _cv_observer, _event_watch_task, _learning_watch_task
     _conn = init_db(DB_PATH, check_same_thread=False)
     production_control_module.sync_all(_conn)
+    resources_module.sync_defaults(_conn)
     try:
         _mqtt_client = mqtt_bridge.start(_conn, CONFIG_PATH)
         log.info("MQTT bridge started")
@@ -158,7 +167,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
-    allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type"],
 )
 app.add_middleware(ApiPrefixMiddleware)
@@ -211,6 +220,7 @@ async def _watch_learning():
             await asyncio.to_thread(learning_module.refresh_all, conn)
             await asyncio.to_thread(routing_module.refresh_observations, conn)
             await asyncio.to_thread(production_control_module.sync_all, conn)
+            await asyncio.to_thread(resources_module.sync_defaults, conn)
             await asyncio.to_thread(production_control_module.reconcile_machine_events, conn)
         except asyncio.CancelledError:
             raise
@@ -542,6 +552,99 @@ def post_planning_decision(scenario_id: int, payload: PlanningDecision):
 @app.get("/planning/active-schedule")
 def get_active_schedule():
     return planning_module.active_schedule(_get_conn())
+
+
+@app.get("/resources/snapshot")
+def get_resource_snapshot(job_name: Optional[list[str]] = Query(default=None)):
+    return resources_module.snapshot(_get_conn(), job_name)
+
+
+@app.put("/resources/materials/{material_key}")
+def put_material_stock(material_key: str, payload: MaterialStockUpdate):
+    try:
+        return resources_module.set_material_stock(
+            _get_conn(), material_key, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.put("/resources/labor/{role_key}")
+def put_labor_role(role_key: str, payload: LaborRoleUpdate):
+    try:
+        return resources_module.update_labor_role(
+            _get_conn(), role_key, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+
+
+@app.put("/resources/tooling/{pool_key}")
+def put_tool_pool(pool_key: str, payload: ToolPoolUpdate):
+    try:
+        return resources_module.update_tool_pool(
+            _get_conn(), pool_key, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.put("/resources/machines/{machine_key}")
+def put_machine_resource_profile(machine_key: str, payload: MachineResourceProfileUpdate):
+    try:
+        return resources_module.update_machine_profile(
+            _get_conn(), machine_key, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.put("/resources/calendar/factory")
+def put_factory_calendar(payload: FactoryCalendarUpdate):
+    try:
+        return resources_module.update_factory_calendar(
+            _get_conn(), payload.model_dump(exclude_none=True)
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.put("/resources/wip/{machine_key}")
+def put_wip_buffer(machine_key: str, payload: WipBufferUpdate):
+    try:
+        return resources_module.update_wip_buffer(
+            _get_conn(), machine_key, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/resources/unavailability")
+def post_resource_unavailability(payload: ResourceUnavailabilityCreate):
+    try:
+        return resources_module.create_unavailability(
+            _get_conn(), payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.delete("/resources/unavailability/{unavailability_id}")
+def delete_resource_unavailability(unavailability_id: int, actor: str = Query("operator", min_length=1)):
+    try:
+        return resources_module.delete_unavailability(_get_conn(), unavailability_id, actor)
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
 
 
 @app.post("/commissioning/log/analyze")

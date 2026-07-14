@@ -12,6 +12,7 @@ import simpy
 import yaml
 
 import cycle_time
+import resources as factory_resources
 import routing
 import sequencer
 
@@ -51,7 +52,8 @@ def _load_jobs(conn: sqlite3.Connection, job_names: list[str] | None = None) -> 
     return jobs
 
 
-def _operation_plan(conn: sqlite3.Connection, jobs: list[dict]) -> tuple[list[dict], dict]:
+def _operation_plan(conn: sqlite3.Connection, jobs: list[dict],
+                    resource_status: dict | None = None) -> tuple[list[dict], dict]:
     parts = []
     operation_count = modeled_count = observed_routes = 0
     missing_models: set[str] = set()
@@ -85,7 +87,23 @@ def _operation_plan(conn: sqlite3.Connection, jobs: list[dict]) -> tuple[list[di
     part_count = len(parts)
     model_coverage = modeled_count / operation_count if operation_count else 0
     route_coverage = observed_routes / part_count if part_count else 0
-    ready = bool(parts) and model_coverage == 1 and route_coverage >= 0.8
+    controlled = any(job.get("production_order_id") for job in jobs)
+    control_ready = (not controlled or (bool(jobs) and all(
+        job.get("order_status") in ("ready", "released", "in_progress") and job.get("due_at")
+        for job in jobs
+    )))
+    resources_ready = not controlled or bool(resource_status and resource_status["resource_ready"])
+    ready = (bool(parts) and model_coverage == 1 and route_coverage >= 0.8 and
+             control_ready and resources_ready)
+    blockers = []
+    if controlled and not control_ready:
+        blockers.append("all selected orders must be ready or released with due times")
+    if controlled and not resources_ready:
+        blockers.append("materials, labor, tooling, calendars, WIP, and availability must be verified")
+    if model_coverage < 1:
+        blockers.append("every operation needs an active cycle model")
+    if route_coverage < 0.8:
+        blockers.append("at least 80% of routes need observed or operator-confirmed evidence")
     readiness = {
         "status": "ready" if ready else "learning",
         "job_count": len(jobs), "part_count": part_count,
@@ -94,17 +112,23 @@ def _operation_plan(conn: sqlite3.Connection, jobs: list[dict]) -> tuple[list[di
         "model_coverage": round(model_coverage, 4),
         "observed_route_coverage": round(route_coverage, 4),
         "missing_models": sorted(missing_models),
+        "control_ready": control_ready,
+        "resource_ready": resources_ready,
+        "resource_checks": resource_status["checks"] if resource_status else [],
         "operational_recommendation": ready,
         "guardrail": ("Schedule recommendations are enabled."
                       if ready else
-                      "Results are commissioning what-if scenarios until all operations have cycle models and 80% of routes are observed."),
+                      "Commissioning only: " + "; ".join(blockers) + "."),
     }
     return parts, readiness
 
 
 def readiness(conn: sqlite3.Connection, job_names: list[str] | None = None) -> dict:
     jobs = _load_jobs(conn, job_names)
-    _, result = _operation_plan(conn, jobs)
+    resource_status = factory_resources.snapshot(
+        conn, [job["job_name"] for job in jobs] if jobs else job_names
+    )
+    _, result = _operation_plan(conn, jobs, resource_status)
     return result
 
 
@@ -132,16 +156,38 @@ def _order_jobs(conn: sqlite3.Connection, jobs: list[dict], parts: list[dict], p
 
 def _single_run(conn: sqlite3.Connection, jobs: list[dict], parts: list[dict],
                 policy: str, stochastic: bool, seed: int, cfg: dict,
-                simulated_at: datetime) -> dict:
+                simulated_at: datetime, resource_context: dict) -> dict:
     randomizer = random.Random(seed)
     env = simpy.Environment()
     machine_keys = sorted({operation["machine_key"] for part in parts for operation in part["operations"]})
-    resources = {key: simpy.Resource(env, capacity=1) for key in machine_keys}
+    profiles = resource_context["profiles"]
+    machine_resources = {
+        key: simpy.Resource(env, capacity=max(1, int(profiles.get(key, {}).get("machine_capacity", 1))))
+        for key in machine_keys
+    }
+    labor_resources = {
+        key: simpy.Resource(env, capacity=capacity)
+        for key, capacity in resource_context["labor"].items() if capacity > 0
+    }
+    tool_resources = {
+        key: simpy.Resource(env, capacity=capacity)
+        for key, capacity in resource_context["tooling"].items() if capacity > 0
+    }
+    buffers = {
+        key: simpy.Container(env, capacity=max(1, values["capacity"]),
+                             init=min(values["current"], max(1, values["capacity"])))
+        for key, values in resource_context["buffers"].items()
+    }
     busy = defaultdict(float)
     job_completion = defaultdict(float)
     flow_times = []
     setup_count = 0
     setup_time = 0.0
+    calendar_wait = 0.0
+    capacity_wait = 0.0
+    labor_busy = defaultdict(float)
+    tooling_busy = defaultdict(float)
+    blocked_units: list[str] = []
     saw_material = {"gabbiani_pt80": None}
     transfer_s = float(cfg.get("transfer_time_s", 30))
     changeover_s = float(cfg.get("material_changeover_s", 600))
@@ -153,31 +199,87 @@ def _single_run(conn: sqlite3.Connection, jobs: list[dict], parts: list[dict],
     ))
 
     def run_part(part: dict):
-        nonlocal setup_count, setup_time
+        nonlocal setup_count, setup_time, calendar_wait, capacity_wait
         started = env.now
+        pending_buffer = None
         for index, operation in enumerate(part["operations"]):
             seconds = operation["seconds"]
             if seconds is None or seconds <= 0:
+                blocked_units.append(f"{part['id']}:{part['unit']}:missing-model")
                 return
             machine_key = operation["machine_key"]
-            with resources[machine_key].request() as request:
-                yield request
-                if machine_key == "gabbiani_pt80" and saw_material[machine_key] not in (None, part["material"]):
-                    yield env.timeout(changeover_s)
-                    busy[machine_key] += changeover_s
-                    setup_count += 1
-                    setup_time += changeover_s
-                if machine_key == "gabbiani_pt80":
-                    saw_material[machine_key] = part["material"]
-                duration = float(seconds)
-                if stochastic:
-                    model = cycle_time.active_model(conn, machine_key)
-                    cv = float(model["residual_cv"] or 0) if model else 0
-                    duration = max(1, randomizer.gauss(duration, duration * min(cv, 0.5)))
-                yield env.timeout(duration)
-                busy[machine_key] += duration
+            profile = profiles.get(machine_key, {})
+            role_key = profile.get("role_key")
+            pool_key = profile.get("pool_key")
+            if role_key and role_key not in labor_resources:
+                blocked_units.append(f"{part['id']}:{part['unit']}:no-labor:{role_key}")
+                return
+            if pool_key and pool_key not in tool_resources:
+                blocked_units.append(f"{part['id']}:{part['unit']}:no-tooling:{pool_key}")
+                return
+            duration = float(seconds)
+            if stochastic:
+                model = cycle_time.active_model(conn, machine_key)
+                cv = float(model["residual_cv"] or 0) if model else 0
+                duration = max(1, randomizer.gauss(duration, duration * min(cv, 0.5)))
+            while True:
+                acquired = []
+                wait_started = env.now
+                resource_sequence = []
+                if role_key:
+                    resource_sequence.append(labor_resources[role_key])
+                if pool_key:
+                    resource_sequence.append(tool_resources[pool_key])
+                resource_sequence.append(machine_resources[machine_key])
+                for resource in resource_sequence:
+                    request = resource.request()
+                    yield request
+                    acquired.append((resource, request))
+                capacity_wait += env.now - wait_started
+                needs_setup = (machine_key == "gabbiani_pt80" and
+                               saw_material[machine_key] not in (None, part["material"]))
+                total_duration = duration + (changeover_s if needs_setup else 0)
+                delay = factory_resources.next_available_delay(
+                    resource_context, machine_key, role_key, pool_key, env.now, total_duration
+                )
+                if delay is None:
+                    for resource, request in reversed(acquired):
+                        resource.release(request)
+                    blocked_units.append(f"{part['id']}:{part['unit']}:calendar:{machine_key}")
+                    return
+                if delay > 0:
+                    for resource, request in reversed(acquired):
+                        resource.release(request)
+                    calendar_wait += delay
+                    yield env.timeout(delay)
+                    continue
+                if pending_buffer is not None:
+                    yield buffers[pending_buffer].get(1)
+                    pending_buffer = None
+                try:
+                    if needs_setup:
+                        yield env.timeout(changeover_s)
+                        busy[machine_key] += changeover_s
+                        setup_count += 1
+                        setup_time += changeover_s
+                    if machine_key == "gabbiani_pt80":
+                        saw_material[machine_key] = part["material"]
+                    yield env.timeout(duration)
+                    busy[machine_key] += duration
+                    if role_key:
+                        labor_busy[role_key] += total_duration
+                    if pool_key:
+                        tooling_busy[pool_key] += total_duration
+                finally:
+                    for resource, request in reversed(acquired):
+                        resource.release(request)
+                break
             if index < len(part["operations"]) - 1:
                 yield env.timeout(transfer_s)
+                next_machine = part["operations"][index + 1]["machine_key"]
+                if next_machine in buffers:
+                    yield buffers[next_machine].put(1)
+                    pending_buffer = next_machine
         job_completion[part["job_name"]] = max(job_completion[part["job_name"]], env.now)
         flow_times.append(env.now - started)
 
@@ -185,6 +287,7 @@ def _single_run(conn: sqlite3.Connection, jobs: list[dict], parts: list[dict],
         env.process(run_part(part))
     env.run()
     makespan = float(env.now)
+    incomplete_units = max(0, len(parts) - len(flow_times))
     due_offsets = {}
     for job in jobs:
         if not job.get("due_at"):
@@ -194,11 +297,23 @@ def _single_run(conn: sqlite3.Connection, jobs: list[dict], parts: list[dict],
             due = due.replace(tzinfo=timezone.utc)
         due_offsets[job["job_name"]] = (due.astimezone(timezone.utc) - simulated_at).total_seconds()
     tardiness = {
-        name: max(0.0, job_completion.get(name, makespan) - offset)
+        name: max(0.0, job_completion.get(
+            name, float(resource_context["horizon_s"]) if incomplete_units else makespan
+        ) - offset)
         for name, offset in due_offsets.items()
     }
-    utilization = {key: round(value / makespan, 4) if makespan else 0
-                   for key, value in busy.items()}
+    utilization = {
+        key: round(value / (makespan * machine_resources[key].capacity), 4) if makespan else 0
+        for key, value in busy.items()
+    }
+    labor_utilization = {
+        key: round(value / (makespan * labor_resources[key].capacity), 4) if makespan else 0
+        for key, value in labor_busy.items()
+    }
+    tool_utilization = {
+        key: round(value / (makespan * tool_resources[key].capacity), 4) if makespan else 0
+        for key, value in tooling_busy.items()
+    }
     return {
         "policy": policy,
         "job_order": [job["job_name"] for job in ordered_jobs],
@@ -211,7 +326,15 @@ def _single_run(conn: sqlite3.Connection, jobs: list[dict], parts: list[dict],
         "late_jobs": sum(value > 0 for value in tardiness.values()),
         "total_tardiness_s": round(sum(tardiness.values()), 1),
         "maximum_tardiness_s": round(max(tardiness.values()), 1) if tardiness else 0,
+        "feasible": incomplete_units == 0,
+        "completed_parts": len(flow_times),
+        "blocked_parts": incomplete_units,
+        "blocked_reasons": sorted(set(blocked_units))[:50],
+        "calendar_wait_s": round(calendar_wait, 1),
+        "capacity_wait_s": round(capacity_wait, 1),
         "machine_utilization": utilization,
+        "labor_utilization": labor_utilization,
+        "tool_utilization": tool_utilization,
         "job_completion_s": {key: round(value, 1) for key, value in job_completion.items()},
     }
 
@@ -224,7 +347,9 @@ def compare(conn: sqlite3.Connection, job_names: list[str] | None = None,
     if unknown:
         raise ValueError(f"unknown policies: {', '.join(unknown)}")
     jobs = _load_jobs(conn, job_names)
-    parts, readiness_result = _operation_plan(conn, jobs)
+    selected_names = [job["job_name"] for job in jobs]
+    resource_status = factory_resources.snapshot(conn, selected_names or job_names)
+    parts, readiness_result = _operation_plan(conn, jobs, resource_status)
     if not jobs:
         return {"readiness": readiness_result, "scenarios": [], "recommendation": None}
     if readiness_result["model_coverage"] < 1:
@@ -232,14 +357,16 @@ def compare(conn: sqlite3.Connection, job_names: list[str] | None = None,
 
     cfg = _config()
     simulated_at = datetime.now(timezone.utc)
-    scenarios = [_single_run(conn, jobs, parts, policy, stochastic, seed, cfg, simulated_at)
+    resource_context = factory_resources.simulation_context(conn, jobs, simulated_at)
+    scenarios = [_single_run(conn, jobs, parts, policy, stochastic, seed, cfg, simulated_at,
+                             resource_context)
                  for policy in selected]
     ranked = sorted(scenarios, key=lambda result: (
-        result["total_tardiness_s"], result["late_jobs"],
+        not result["feasible"], result["total_tardiness_s"], result["late_jobs"],
         result["makespan_s"], result["setup_time_s"]
     ))
     recommendation = None
-    if readiness_result["operational_recommendation"] and ranked:
+    if readiness_result["operational_recommendation"] and ranked and ranked[0]["feasible"]:
         recommendation = {
             "policy": ranked[0]["policy"],
             "basis": "lowest total tardiness, late-job count, makespan, then setup time",
@@ -253,6 +380,7 @@ def compare(conn: sqlite3.Connection, job_names: list[str] | None = None,
             "transfer_time_s": cfg.get("transfer_time_s", 30),
             "material_changeover_s": cfg.get("material_changeover_s", 600),
             "due_dates": "Only production_order.due_at is treated as contractual",
+            "resources": resource_status["assumptions"],
         },
         "scenarios": scenarios,
         "recommendation": recommendation,
