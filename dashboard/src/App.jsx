@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchResourceSnapshot, updateMaterialStock, updateLaborRole, updateToolPool, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, postJson, simulateEvent } from "./api";
+import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, updateMaterialStock, updateLaborRole, updateToolPool, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, postJson, simulateEvent } from "./api";
 import { MachineCard } from "./MachineCard";
 import { MachineDetail } from "./MachineDetail";
 import { JobProgress } from "./JobProgress";
@@ -128,6 +128,9 @@ export default function App() {
   const { data: executionSnapshot = null } = useQuery({
     queryKey: ["executionSnapshot"], queryFn: fetchExecutionSnapshot, refetchInterval: 10000,
   });
+  const { data: identitySnapshot = null } = useQuery({
+    queryKey: ["identitySnapshot"], queryFn: fetchIdentitySnapshot, refetchInterval: 10000,
+  });
 
   const onEvent = useCallback((ev) => {
     if (ev._type === "snapshot") {
@@ -211,7 +214,7 @@ export default function App() {
   };
 
   const refreshOperations = () => {
-    ["operationsSummary", "downtime", "workOrders", "rework", "barcodeEvents", "executionSnapshot", "productionOrders", "resourceSnapshot", "jobs"].forEach(key => {
+    ["operationsSummary", "downtime", "workOrders", "rework", "barcodeEvents", "executionSnapshot", "identitySnapshot", "productionOrders", "resourceSnapshot", "jobs"].forEach(key => {
       qc.invalidateQueries({ queryKey: [key] });
     });
   };
@@ -252,24 +255,30 @@ export default function App() {
   };
 
   const runOperationsAction = async (kind, payload) => {
+    let result;
     if (kind === "downtime") {
-      await postJson("/downtime", payload);
+      result = await postJson("/downtime", payload);
     } else if (kind === "closeDowntime") {
-      await postJson(`/downtime/${payload.id}/close`, { notes: payload.notes });
+      result = await postJson(`/downtime/${payload.id}/close`, { notes: payload.notes });
     } else if (kind === "quality") {
-      await postJson("/quality/checks", payload);
+      result = await postJson("/quality/checks", payload);
     } else if (kind === "closeRework") {
-      await postJson(`/rework/${payload.id}/close`, { notes: payload.notes });
+      result = await postJson(`/rework/${payload.id}/close`, { notes: payload.notes });
     } else if (kind === "workOrder") {
-      await postJson("/maintenance/work-orders", payload);
+      result = await postJson("/maintenance/work-orders", payload);
     } else if (kind === "executionSync") {
-      await syncExecution();
+      result = await syncExecution();
     } else if (kind === "execution") {
-      await updateExecutionJob(payload.id, payload.payload);
+      result = await updateExecutionJob(payload.id, payload.payload);
     } else if (kind === "executionException") {
-      await resolveExecutionException(payload.id, payload.payload);
+      result = await resolveExecutionException(payload.id, payload.payload);
+    } else if (kind === "labelJob") {
+      result = await createLabelJob(payload);
+    } else if (kind === "labelPrinted") {
+      result = await markLabelJobPrinted(payload.id, payload.payload);
     }
     refreshOperations();
+    return result;
   };
 
   const runConfigSave = async (payload) => {
@@ -303,7 +312,7 @@ export default function App() {
   };
 
   const refreshPlanning = () => {
-    ["productionOrders", "productionReadiness", "planningScenarios", "activeSchedule", "resourceSnapshot", "routeExceptions", "sequence", "twin", "jobs"].forEach(key => {
+    ["productionOrders", "productionReadiness", "planningScenarios", "activeSchedule", "resourceSnapshot", "routeExceptions", "executionSnapshot", "identitySnapshot", "sequence", "twin", "jobs"].forEach(key => {
       qc.invalidateQueries({ queryKey: [key] });
     });
   };
@@ -564,7 +573,7 @@ export default function App() {
       )}
       {showOperations && (
         <OperationsPanel
-          data={{ summary: operationsSummary, downtime, workOrders, rework, barcodeEvents, execution: executionSnapshot }}
+          data={{ summary: operationsSummary, downtime, workOrders, rework, barcodeEvents, execution: executionSnapshot, identity: identitySnapshot }}
           machines={enriched}
           jobs={jobs}
           onClose={() => setShowOperations(false)}

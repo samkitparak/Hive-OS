@@ -115,6 +115,22 @@ Planning → **Resources**
 - [ ] Confirm live WIP counts match each configured input buffer before approving production
 - [ ] Keep all machine command output disabled until vendor safety interlocks are independently commissioned
 
+### Unit labels and scanners
+
+Operations -> **Unit identity and labels**
+
+- [ ] Record thermal/office label printer make, model, IP/USB connection, and DPI
+- [ ] Confirm available label stock; the current template is 100 x 50 mm
+- [ ] Print one test set through browser output and one through Zebra ZPL where supported
+- [ ] Scan `HIVE:U:HU-...` using every physical scanner and confirm the full value arrives unchanged
+- [ ] Confirm keyboard-wedge scanners append Enter and do not add a hidden prefix/suffix
+- [ ] Attach one real Ottimo code as an alias to a HIVE unit and scan both values
+- [ ] Scan the same unit twice at one station and confirm the second event is marked duplicate
+- [ ] Scan a unit with deliberately wrong typed job context and confirm it is retained as conflict
+- [ ] Verify unit status changes through started, completed, packed, and dispatched
+- [ ] Confirm browser and ZPL labels remain readable after application to dusty sheet material
+- [ ] Decide whether HAEEV needs globally shared GS1 IDs; obtain a GS1 India Company Prefix before assigning any
+
 ---
 
 ## Automatic Cycle Time Learning (After Telemetry Is Stable)

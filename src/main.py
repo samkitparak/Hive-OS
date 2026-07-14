@@ -28,7 +28,7 @@ from typing import AsyncGenerator, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 import db as db_module
@@ -52,6 +52,7 @@ import planning as planning_module
 import production_control as production_control_module
 import resources as resources_module
 import execution as execution_module
+import identity as identity_module
 import diagnostics as diagnostics_module
 import deployment as deployment_module
 import config_editor as config_editor_module
@@ -66,6 +67,9 @@ from api_models import (
     DigitalTwinRequest,
     ExecutionActionRequest,
     ExecutionExceptionDecision,
+    IdentityMaterializeRequest,
+    LabelJobCreate,
+    LabelPrintConfirmation,
     FactoryCalendarUpdate,
     LaborRoleUpdate,
     MachineResourceProfileUpdate,
@@ -84,6 +88,7 @@ from api_models import (
     RouteExceptionDecision,
     SiteConfigUpdate,
     ToolPoolUpdate,
+    UnitAliasCreate,
     WipBufferUpdate,
     WorkOrderCreate,
 )
@@ -95,7 +100,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.6.0"
 
 
 class ApiPrefixMiddleware:
@@ -128,6 +133,7 @@ async def lifespan(app: FastAPI):
     _conn = init_db(DB_PATH, check_same_thread=False)
     production_control_module.sync_all(_conn)
     resources_module.sync_defaults(_conn)
+    identity_module.sync_controlled_orders(_conn)
     execution_module.sync(_conn)
     try:
         _mqtt_client = mqtt_bridge.start(_conn, CONFIG_PATH)
@@ -453,6 +459,7 @@ def post_digital_twin_compare(payload: DigitalTwinRequest):
 def post_production_sync():
     conn = _get_conn()
     result = production_control_module.sync_all(conn)
+    result["identity_sync"] = identity_module.sync_controlled_orders(conn)
     result["execution_sync"] = execution_module.sync(conn)
     result["reconciliation"] = execution_module.reconcile_machine_events(conn)
     return result
@@ -470,17 +477,24 @@ def get_production_readiness():
 
 @app.put("/production/orders/{order_id}")
 def put_production_order(order_id: int, payload: ProductionOrderUpdate):
+    conn = _get_conn()
     try:
         result = production_control_module.update_order(
-            _get_conn(), order_id, payload.model_dump(exclude_none=True)
+            conn, order_id, payload.model_dump(exclude_none=True), commit=False
         )
-        execution_module.sync(_get_conn())
+        if result["status"] in (*identity_module.CONTROLLED_ORDER_STATES, "cancelled"):
+            identity_module.materialize_order(conn, order_id, payload.actor, commit=False)
+        execution_module.sync(conn, commit=False)
+        conn.commit()
         return result
     except production_control_module.VersionConflict as error:
+        conn.rollback()
         raise HTTPException(409, str(error)) from error
     except KeyError as error:
+        conn.rollback()
         raise HTTPException(404, str(error)) from error
     except ValueError as error:
+        conn.rollback()
         raise HTTPException(400, str(error)) from error
 
 
@@ -624,6 +638,118 @@ def get_traceability_events(object_key: Optional[str] = None,
                             part_id: Optional[int] = None,
                             limit: int = Query(100, ge=1, le=1000)):
     return execution_module.list_traceability(_get_conn(), object_key, part_id, limit)
+
+
+@app.get("/identity/snapshot")
+def get_identity_snapshot():
+    return identity_module.snapshot(_get_conn())
+
+
+@app.post("/identity/orders/{order_id}/materialize")
+def post_identity_materialization(order_id: int, payload: IdentityMaterializeRequest):
+    try:
+        return identity_module.materialize_order(_get_conn(), order_id, payload.actor)
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+
+
+@app.get("/identity/orders/{order_id}/units")
+def get_identity_order_units(order_id: int, include_void: bool = False):
+    return identity_module.list_order_units(_get_conn(), order_id, include_void)
+
+
+@app.get("/identity/units/{unit_key}")
+def get_identity_unit(unit_key: str):
+    try:
+        return identity_module.get_unit(_get_conn(), unit_key)
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+
+
+@app.get("/identity/resolve")
+def get_identity_resolution(value: str = Query(min_length=1, max_length=500)):
+    return identity_module.resolve_identifier(_get_conn(), value)
+
+
+@app.post("/identity/units/{unit_key}/aliases")
+def post_identity_alias(unit_key: str, payload: UnitAliasCreate):
+    try:
+        return identity_module.add_alias(
+            _get_conn(), unit_key, payload.scheme, payload.value,
+            payload.actor, payload.source,
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/labels/jobs")
+def get_label_jobs(limit: int = Query(50, ge=1, le=500)):
+    return identity_module.list_print_jobs(_get_conn(), limit)
+
+
+@app.post("/labels/jobs")
+def post_label_job(payload: LabelJobCreate):
+    try:
+        return identity_module.create_print_job(
+            _get_conn(), payload.order_id, payload.requested_by,
+            payload.only_unprinted, payload.part_ids, payload.template_key,
+            payload.printer_key, payload.notes,
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/labels/jobs/{print_job_id}")
+def get_label_job(print_job_id: int):
+    try:
+        return identity_module.get_print_job(_get_conn(), print_job_id)
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+
+
+@app.get("/labels/jobs/{print_job_id}/print", response_class=HTMLResponse)
+def get_label_job_print_view(print_job_id: int):
+    try:
+        return identity_module.print_job_html(_get_conn(), print_job_id)
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+
+
+@app.get("/labels/jobs/{print_job_id}/zpl")
+def get_label_job_zpl(print_job_id: int):
+    try:
+        content = identity_module.print_job_zpl(_get_conn(), print_job_id)
+        return Response(
+            content, media_type="text/plain",
+            headers={"Content-Disposition": f'attachment; filename="hive-labels-{print_job_id}.zpl"'},
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+
+
+@app.get("/labels/units/{unit_key}/svg")
+def get_unit_label_svg(unit_key: str):
+    try:
+        return Response(identity_module.unit_label_svg(_get_conn(), unit_key),
+                        media_type="image/svg+xml")
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+
+
+@app.post("/labels/jobs/{print_job_id}/printed")
+def post_label_job_printed(print_job_id: int, payload: LabelPrintConfirmation):
+    try:
+        return identity_module.mark_printed(
+            _get_conn(), print_job_id, payload.actor, payload.notes
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
 
 
 @app.get("/resources/snapshot")

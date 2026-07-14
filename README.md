@@ -24,6 +24,7 @@ operations are limited to the HIVE database and site configuration.
 - **Production control** — explicit work releases, contractual due times, quantity-aware routes, exception reconciliation, and audited human schedule approval.
 - **Factory resource control** — sheet-stock estimates and reservations, labor/tool pools, machine profiles, shift calendars, planned outages, and finite WIP buffers.
 - **Station execution control** — approved schedule dispatch, acknowledgements, partial quantities, holds, machine/scanner actuals, WIP movement, and traceability.
+- **Serialized unit identity** — one auditable identity per physical part, alias-safe scanner resolution, duplicate suppression, browser labels, and native Zebra ZPL.
 - **Phase 1 operations layer** — placeholder-ready downtime, maintenance, quality/rework, barcode, Cabinet Vision SQL, and Ottimo workflows that can be replaced with real formats later.
 - **Live event stream** — SSE feed of all machine events (cycle start/end, alarms, power changes) in real time.
 
@@ -92,6 +93,7 @@ hive-os/
 │   ├── planning.py            # persisted scenarios + approval ledger
 │   ├── resources.py           # stock, labor, tooling, calendars, WIP, reservations
 │   ├── execution.py           # station dispatch, actuals, WIP flow, traceability
+│   ├── identity.py            # physical units, scanner aliases, QR/ZPL labels
 │   ├── operations.py         # downtime, maintenance, quality/rework, barcode
 │   ├── cv_sql_connector.py   # Cabinet Vision SQL placeholder adapter
 │   ├── ottimo_connector.py   # Ottimo placeholder barcode adapter
@@ -104,6 +106,7 @@ hive-os/
 ├── PHASE1_PLACEHOLDERS.md    # placeholder contracts and replacement points
 ├── RESOURCE_MODEL.md         # finite-capacity resource model and site workflow
 ├── EXECUTION_CONTROL.md      # station state machine and evidence contracts
+├── IDENTITY_AND_LABELS.md    # serialized units, scan resolution, print outputs
 └── INDIA_CHECKLIST.md        # on-site configuration checklist
 ```
 
@@ -250,6 +253,15 @@ unprefixed routes remain available for compatibility and local tooling.
 | GET | `/execution/exceptions` | Review actual-vs-control deviations |
 | POST | `/execution/exceptions/{id}/resolve` | Correct, accept, or ignore a reviewed deviation |
 | GET | `/traceability/events` | Query physical-flow evidence by object or part |
+| GET | `/identity/snapshot` | Unitization, print queue, and scanner-resolution state |
+| POST | `/identity/orders/{id}/materialize` | Create missing physical unit identities idempotently |
+| GET | `/identity/orders/{id}/units` | List serialized units for an order |
+| GET | `/identity/units/{unit_key}` | Unit aliases, route progress, and traceability |
+| GET | `/identity/resolve` | Diagnose a scanned identifier without writing an event |
+| POST | `/identity/units/{unit_key}/aliases` | Attach Ottimo, ERP, supplier, or licensed GS1 aliases |
+| GET/POST | `/labels/jobs` | List or create print-ready label sets |
+| GET | `/labels/jobs/{id}/print`, `/zpl` | Browser-print or Zebra-native label output |
+| POST | `/labels/jobs/{id}/printed` | Confirm physical label printing |
 | POST | `/commissioning/log/analyze` | Dry-run or import a validated Maestro log sample |
 | GET | `/diagnostics` | Service and machine-agent connection health |
 | GET | `/deployment` | Windows install package readiness and commands |
@@ -287,6 +299,8 @@ See [RESOURCE_MODEL.md](RESOURCE_MODEL.md) for stock reservations, finite
 capacity, calendars, maintenance, WIP, assumptions, and site verification.
 See [EXECUTION_CONTROL.md](EXECUTION_CONTROL.md) for station dispatch, actual
 quantity, scanner/machine reconciliation, WIP movement, and traceability.
+See [IDENTITY_AND_LABELS.md](IDENTITY_AND_LABELS.md) for physical unit IDs,
+scanner alias rules, duplicate protection, QR labels, and Zebra output.
 
 ---
 

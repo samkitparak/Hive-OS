@@ -14,6 +14,7 @@ below.
 | Quality checks | `/quality/checks` | Manual checks or barcode QC events |
 | Rework tasks | `/rework` | Auto-created from failed quality checks |
 | Barcode events | `/barcode/events` | Normalized scanner events |
+| Unit labels | `/labels/jobs` | HIVE QR/SVG and Zebra ZPL output |
 | Ottimo | `/connectors/ottimo/placeholder` | Demo scanner payloads |
 | Cabinet Vision SQL | `/connectors/cabinet-vision-sql/placeholder` | Demo SQL-like job/part rows |
 
@@ -55,11 +56,11 @@ Supported HIVE event types today:
 
 | HIVE event type | Effect |
 |---|---|
-| `part_complete` | Stores the scan |
-| `qc_pass` | Stores the scan and creates a passing quality check |
-| `qc_fail` | Stores the scan, creates a failing quality check, and opens rework |
-| `packed` | Stores the scan |
-| `dispatched` | Stores the scan |
+| `part_complete` | Completes one serialized unit at the resolved station |
+| `qc_pass` | Updates unit disposition and creates a passing quality check |
+| `qc_fail` | Marks the unit non-conforming, creates a failing check, and opens rework |
+| `packed` | Marks the resolved unit packed |
+| `dispatched` | Marks the resolved unit dispatched |
 
 ### Cabinet Vision SQL Server
 
@@ -99,12 +100,15 @@ then handles HIVE inserts/updates for `clients`, `jobs`, `parts`, and
 
 1. External or demo payload arrives at a placeholder endpoint.
 2. Connector adapter maps the payload into HIVE-normalized data.
-3. `operations.py` writes the normalized record into HIVE-native tables.
-4. Route and operation scans reconcile through `execution.py`, which advances
+3. `identity.py` resolves exact HIVE or external aliases and derives job/part
+   context for serialized labels; legacy display-text codes remain supported.
+4. `operations.py` preserves the raw scan and its resolution result.
+5. Route and operation scans reconcile through `execution.py`, which advances
    station quantities and writes traceability evidence when an approved schedule
    exists. Otherwise the scan remains valid commissioning route evidence.
-5. Related workflow records are created automatically where appropriate.
-6. Dashboard queries the same HIVE APIs regardless of whether data came from a
+6. Duplicate unit/station events are retained but cannot double-count quantity.
+7. Related workflow records are created automatically where appropriate.
+8. Dashboard queries the same HIVE APIs regardless of whether data came from a
    placeholder, manual entry, or the final factory integration.
 
 This keeps the user experience stable while the integration details evolve.

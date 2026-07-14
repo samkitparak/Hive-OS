@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime, timezone
 
+import identity
 import production_control
 import resources as factory_resources
 
@@ -54,8 +55,9 @@ def _trace(conn: sqlite3.Connection, row: dict, event_type: str,
             execution_job_id, event_type, action, quantity, uom, read_point,
             business_location, disposition, source, evidence_type, evidence_id,
             actor, idempotency_key, event_time, recorded_at)
-           VALUES ('part',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (object_key or f"part:{row['part_id']}", row["production_order_id"],
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (payload.get("object_type", "part"),
+         object_key or f"part:{row['part_id']}", row["production_order_id"],
          row["part_id"], row["id"], event_type, action, quantity, uom,
          row["machine_key"], payload.get("business_location") or row["machine_key"],
          disposition, source, evidence_type, evidence_id,
@@ -644,17 +646,21 @@ def reconcile_barcode_event(conn: sqlite3.Connection, barcode_event_id: int) -> 
     ).fetchone()
     if not event:
         raise KeyError(f"Barcode event {barcode_event_id} not found")
+    resolution = identity.get_barcode_resolution(conn, barcode_event_id)
+    unit_id = resolution["unit_id"] if resolution else None
+    object_key = resolution["unit_key"] if unit_id else event["barcode"]
     payload = {
         "source": "barcode", "evidence_type": "barcode", "evidence_id": event["id"],
         "actor": event["operator"] or "scanner", "ts": event["ts"],
         "idempotency_key": f"barcode:{event['id']}:{event['event_type']}",
-        "object_key": event["barcode"],
+        "object_key": object_key, "object_type": "unit" if unit_id else "barcode",
+        "unit_id": unit_id,
     }
     if event["part_id"] and event["station"] and event["event_type"] in (
         "route_arrival", "operation_start", "operation_complete", "part_complete"
     ):
         job = conn.execute(
-            """SELECT ej.id FROM execution_jobs ej
+            """SELECT ej.id, ej.route_step_id, ej.machine_id FROM execution_jobs ej
                JOIN part_route_steps prs ON prs.id=ej.route_step_id
                JOIN machines m ON m.id=ej.machine_id
                WHERE prs.part_id=? AND m.machine_key=?
@@ -662,16 +668,36 @@ def reconcile_barcode_event(conn: sqlite3.Connection, barcode_event_id: int) -> 
         ).fetchone()
         if job:
             action = "start" if event["event_type"] in ("route_arrival", "operation_start") else "complete"
+            route_event = "operation_start" if action == "start" else "operation_complete"
+            if unit_id and identity.route_scan_is_duplicate(
+                conn, unit_id, job["route_step_id"], route_event
+            ):
+                identity.mark_barcode_resolution(
+                    conn, event["id"], "duplicate",
+                    f"{route_event} was already recorded for this unit and station",
+                )
+                conn.commit()
+                return {"accepted": True, "duplicate": True,
+                        "execution_job_id": job["id"], "unit_key": object_key}
             action_payload = {**payload, "action": action}
             if action == "start":
                 action_payload["quantity"] = 1
             else:
                 action_payload["good_qty"] = 1
             try:
-                return apply_action(conn, job["id"], action_payload)
+                result = apply_action(conn, job["id"], action_payload, commit=not unit_id)
+                if unit_id:
+                    result["unit"] = identity.record_route_scan(
+                        conn, unit_id, job["route_step_id"], event["id"], route_event,
+                        event["ts"], job["machine_id"],
+                    )
+                    conn.commit()
+                return result
             except ValueError as error:
                 row = _job_row(conn, job["id"])
                 _exception(conn, row, "barcode_evidence_rejected", str(error), action_payload)
+                if resolution:
+                    identity.mark_barcode_resolution(conn, event["id"], "conflict", str(error))
                 conn.commit()
                 return {"accepted": False, "reason": str(error), "execution_job_id": job["id"]}
         if not conn.execute(
@@ -679,10 +705,33 @@ def reconcile_barcode_event(conn: sqlite3.Connection, barcode_event_id: int) -> 
         ).fetchone():
             return None
         route_event = "operation_start" if event["event_type"] in ("route_arrival", "operation_start") else "operation_complete"
-        return production_control.confirm_route_step(
+        step = conn.execute(
+            """SELECT prs.id, prs.machine_id FROM part_route_steps prs
+               JOIN machines m ON m.id=prs.machine_id
+               WHERE prs.part_id=? AND m.machine_key=?""",
+            (event["part_id"], event["station"]),
+        ).fetchone()
+        if unit_id and step and identity.route_scan_is_duplicate(
+            conn, unit_id, step["id"], route_event
+        ):
+            identity.mark_barcode_resolution(
+                conn, event["id"], "duplicate",
+                f"{route_event} was already recorded for this unit and station",
+            )
+            conn.commit()
+            return {"matched": True, "duplicate": True, "step_id": step["id"],
+                    "unit_key": object_key}
+        result = production_control.confirm_route_step(
             conn, event["part_id"], event["station"], route_event,
-            "barcode", event["id"], event["ts"], event["operator"],
+            "barcode", event["id"], event["ts"], event["operator"], commit=not unit_id,
         )
+        if unit_id and step and result.get("matched"):
+            identity.record_route_scan(
+                conn, unit_id, step["id"], event["id"], route_event,
+                event["ts"], step["machine_id"],
+            )
+            conn.commit()
+        return result
     disposition = {
         "qc_pass": "conforming", "qc_fail": "non_conforming",
         "packed": "packed", "dispatched": "dispatched",
@@ -696,15 +745,17 @@ def reconcile_barcode_event(conn: sqlite3.Connection, barcode_event_id: int) -> 
                (object_type, object_key, production_order_id, part_id, event_type,
                 action, quantity, uom, read_point, business_location, disposition,
                 source, evidence_type, evidence_id, actor, idempotency_key,
-                event_time, recorded_at) VALUES ('barcode',?,?,?,?,
+                event_time, recorded_at) VALUES (?,?,?,?,?,
                 'observe',1,'each',?,?,?,?,?,?,?,?,?,?)""",
-            (event["barcode"], order["id"] if order else None, event["part_id"],
+            ("unit" if unit_id else "barcode", object_key,
+             order["id"] if order else None, event["part_id"],
              event["event_type"], event["station"], event["station"], disposition,
              event["source"], "barcode", event["id"], event["operator"],
              payload["idempotency_key"], event["ts"], _now()),
         )
+        unit = identity.record_disposition_scan(conn, event["id"], event["event_type"])
         conn.commit()
-        return {"traceability_recorded": True, "disposition": disposition}
+        return {"traceability_recorded": True, "disposition": disposition, "unit": unit}
     return None
 
 

@@ -64,7 +64,7 @@ def test_get_machines_returns_list(client):
 def test_api_prefix_routes_to_backend(client):
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "service": "hive-os", "version": "0.5.0"}
+    assert response.json() == {"status": "ok", "service": "hive-os", "version": "0.6.0"}
     assert client.get("/api/machines").status_code == 200
 
 
@@ -139,6 +139,18 @@ def test_execution_endpoints_wait_safely_without_an_approved_schedule(client):
         "action": "dispatch", "actor": "test",
     })
     assert missing.status_code == 404
+
+
+def test_identity_and_label_endpoints_start_safely(client):
+    snapshot = client.get("/api/identity/snapshot")
+    assert snapshot.status_code == 200
+    assert {"summary", "orders", "print_jobs", "identity_policy"}.issubset(snapshot.json())
+    assert client.get("/api/identity/units/HU-NOT-REAL").status_code == 404
+    missing_order = client.post("/api/labels/jobs", json={
+        "order_id": 999999, "requested_by": "test",
+    })
+    assert missing_order.status_code == 404
+
 
 def test_machines_have_required_fields(client):
     data = client.get("/machines").json()

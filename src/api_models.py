@@ -223,6 +223,32 @@ class ExecutionExceptionDecision(RequestModel):
     notes: Optional[str] = None
 
 
+class IdentityMaterializeRequest(RequestModel):
+    actor: str = Field(default="operator", min_length=1)
+
+
+class UnitAliasCreate(RequestModel):
+    scheme: str = Field(min_length=1, max_length=40, pattern=r"^[a-zA-Z0-9_-]+$")
+    value: str = Field(min_length=1, max_length=500)
+    actor: str = Field(min_length=1)
+    source: str = Field(default="manual", min_length=1, max_length=80)
+
+
+class LabelJobCreate(RequestModel):
+    order_id: int = Field(ge=1)
+    requested_by: str = Field(default="operator", min_length=1)
+    only_unprinted: bool = True
+    part_ids: Optional[list[int]] = None
+    template_key: Literal["part_100x50"] = "part_100x50"
+    printer_key: Optional[str] = Field(default=None, max_length=100)
+    notes: Optional[str] = None
+
+
+class LabelPrintConfirmation(RequestModel):
+    actor: str = Field(min_length=1)
+    notes: Optional[str] = None
+
+
 class MaterialStockUpdate(RequestModel):
     on_hand_sheets: float = Field(ge=0)
     lot_code: str = Field(default="MANUAL-BALANCE", min_length=1)

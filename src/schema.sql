@@ -605,6 +605,84 @@ CREATE TABLE IF NOT EXISTS execution_exceptions (
     UNIQUE(source, evidence_type, evidence_id, exception_type)
 );
 
+-- One row per physical copy of an imported Cabinet Vision part. HIVE unit
+-- identifiers are intentionally private until HAEEV has a licensed GS1 prefix;
+-- globally standard identifiers can be attached through aliases later.
+CREATE TABLE IF NOT EXISTS trace_units (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    unit_key            TEXT NOT NULL UNIQUE,
+    qr_payload          TEXT NOT NULL UNIQUE,
+    production_order_id INTEGER NOT NULL REFERENCES production_orders(id),
+    part_id             INTEGER NOT NULL REFERENCES parts(id),
+    ordinal             INTEGER NOT NULL CHECK(ordinal >= 1),
+    status              TEXT NOT NULL DEFAULT 'planned',
+    current_machine_id  INTEGER REFERENCES machines(id),
+    version             INTEGER NOT NULL DEFAULT 1,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    UNIQUE(part_id, ordinal)
+);
+
+CREATE TABLE IF NOT EXISTS unit_identifier_aliases (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    unit_id             INTEGER NOT NULL REFERENCES trace_units(id),
+    scheme              TEXT NOT NULL,
+    value               TEXT NOT NULL UNIQUE,
+    active              INTEGER NOT NULL DEFAULT 1,
+    source              TEXT NOT NULL DEFAULT 'hive',
+    created_by          TEXT NOT NULL,
+    created_at          TEXT NOT NULL,
+    UNIQUE(unit_id, scheme, value)
+);
+
+-- Raw scans remain in barcode_events. This table records how each raw value
+-- was interpreted so mappings can be audited and corrected independently.
+CREATE TABLE IF NOT EXISTS barcode_event_resolutions (
+    barcode_event_id    INTEGER PRIMARY KEY REFERENCES barcode_events(id),
+    unit_id             INTEGER REFERENCES trace_units(id),
+    identifier_scheme   TEXT,
+    status              TEXT NOT NULL, -- resolved | applied | duplicate | legacy | unknown | conflict
+    details             TEXT,
+    resolved_at         TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS unit_route_progress (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    unit_id             INTEGER NOT NULL REFERENCES trace_units(id),
+    route_step_id       INTEGER NOT NULL REFERENCES part_route_steps(id),
+    state               TEXT NOT NULL DEFAULT 'planned', -- planned | started | completed
+    started_barcode_id  INTEGER REFERENCES barcode_events(id),
+    completed_barcode_id INTEGER REFERENCES barcode_events(id),
+    started_at          TEXT,
+    completed_at        TEXT,
+    updated_at          TEXT NOT NULL,
+    UNIQUE(unit_id, route_step_id)
+);
+
+CREATE TABLE IF NOT EXISTS label_print_jobs (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    production_order_id INTEGER NOT NULL REFERENCES production_orders(id),
+    template_key        TEXT NOT NULL DEFAULT 'part_100x50',
+    printer_key         TEXT,
+    status              TEXT NOT NULL DEFAULT 'ready', -- ready | printed | cancelled
+    unit_count          INTEGER NOT NULL,
+    requested_by        TEXT NOT NULL,
+    notes               TEXT,
+    created_at          TEXT NOT NULL,
+    printed_at          TEXT,
+    printed_by          TEXT
+);
+
+CREATE TABLE IF NOT EXISTS label_print_items (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    print_job_id        INTEGER NOT NULL REFERENCES label_print_jobs(id),
+    unit_id             INTEGER NOT NULL REFERENCES trace_units(id),
+    position            INTEGER NOT NULL,
+    printed_count       INTEGER NOT NULL DEFAULT 0,
+    last_printed_at     TEXT,
+    UNIQUE(print_job_id, unit_id)
+);
+
 CREATE TABLE IF NOT EXISTS connector_sync_state (
     connector_key   TEXT PRIMARY KEY,
     status          TEXT NOT NULL DEFAULT 'not_configured',
@@ -651,6 +729,13 @@ CREATE INDEX IF NOT EXISTS idx_execution_events_evidence ON execution_job_events
 CREATE INDEX IF NOT EXISTS idx_traceability_object_time ON traceability_events(object_type, object_key, event_time DESC);
 CREATE INDEX IF NOT EXISTS idx_traceability_part_time ON traceability_events(part_id, event_time DESC);
 CREATE INDEX IF NOT EXISTS idx_execution_exceptions_status_time ON execution_exceptions(status, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_trace_units_order_status ON trace_units(production_order_id, status);
+CREATE INDEX IF NOT EXISTS idx_trace_units_part_ordinal ON trace_units(part_id, ordinal);
+CREATE INDEX IF NOT EXISTS idx_unit_aliases_unit_active ON unit_identifier_aliases(unit_id, active);
+CREATE INDEX IF NOT EXISTS idx_barcode_resolutions_status ON barcode_event_resolutions(status, resolved_at DESC);
+CREATE INDEX IF NOT EXISTS idx_unit_progress_step_state ON unit_route_progress(route_step_id, state);
+CREATE INDEX IF NOT EXISTS idx_label_jobs_order_created ON label_print_jobs(production_order_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_label_items_unit_printed ON label_print_items(unit_id, printed_count);
 
 -- Seed the 14 in-scope HAEEV machines (aluminium pair excluded, compressors/dust collectors as utility)
 INSERT OR IGNORE INTO machines (name, machine_key, type, brand, model, has_maestro, has_opcua, active) VALUES

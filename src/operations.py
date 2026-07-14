@@ -5,6 +5,8 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Optional
 
+import identity
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -267,8 +269,19 @@ def list_barcode_events(conn: sqlite3.Connection, limit: int = 100) -> list[dict
 
 
 def create_barcode_event(conn: sqlite3.Connection, payload: dict) -> dict:
-    job_id = _job_id(conn, payload.get("job_name"))
-    part_id = _part_id(conn, payload.get("part_id"), payload.get("job_name"), payload.get("part_name"))
+    resolution = identity.resolve_identifier(conn, payload["barcode"])
+    unit = resolution.get("unit")
+    supplied_job_id = _job_id(conn, payload.get("job_name"))
+    supplied_part_id = _part_id(
+        conn, payload.get("part_id"), payload.get("job_name"), payload.get("part_name")
+    )
+    conflicts = []
+    if unit and supplied_job_id and supplied_job_id != unit["job_id"]:
+        conflicts.append("supplied job does not match the scanned unit")
+    if unit and supplied_part_id and supplied_part_id != unit["part_id"]:
+        conflicts.append("supplied part does not match the scanned unit")
+    job_id = unit["job_id"] if unit else supplied_job_id
+    part_id = unit["part_id"] if unit else supplied_part_id
     ts = payload.get("ts") or _now()
     raw_payload = payload.get("raw_payload")
     if raw_payload is not None and not isinstance(raw_payload, str):
@@ -282,9 +295,18 @@ def create_barcode_event(conn: sqlite3.Connection, payload: dict) -> dict:
              payload.get("event_type", "unknown"), payload.get("operator"),
              payload.get("source", "manual"), raw_payload, ts),
         )
-        if payload.get("event_type") in ("qc_pass", "qc_fail"):
+        recorded_resolution = {**resolution}
+        if conflicts:
+            recorded_resolution["status"] = "conflict"
+        elif not unit:
+            recorded_resolution["status"] = "legacy" if part_id else "unknown"
+        identity.record_barcode_resolution(
+            conn, cur.lastrowid, recorded_resolution,
+            "; ".join(conflicts) if conflicts else None,
+        )
+        if not conflicts and payload.get("event_type") in ("qc_pass", "qc_fail"):
             create_quality_check(conn, {
-                "job_name": payload.get("job_name"),
+                "job_name": unit["job_name"] if unit else payload.get("job_name"),
                 "part_id": part_id,
                 "result": "pass" if payload["event_type"] == "qc_pass" else "fail",
                 "inspector": payload.get("operator"),
@@ -296,9 +318,14 @@ def create_barcode_event(conn: sqlite3.Connection, payload: dict) -> dict:
     except Exception:
         conn.rollback()
         raise
-    result = {"id": cur.lastrowid, **payload, "job_id": job_id, "part_id": part_id, "ts": ts}
+    result = {"id": cur.lastrowid, **payload, "job_id": job_id, "part_id": part_id,
+              "ts": ts, "resolution": identity.get_barcode_resolution(conn, cur.lastrowid)}
+    if conflicts:
+        result["execution"] = {"accepted": False, "reason": "; ".join(conflicts)}
+        return result
     import execution
     execution_result = execution.reconcile_barcode_event(conn, cur.lastrowid)
     if execution_result is not None:
         result["execution"] = execution_result
+    result["resolution"] = identity.get_barcode_resolution(conn, cur.lastrowid)
     return result

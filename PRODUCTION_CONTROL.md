@@ -108,5 +108,6 @@ not write to PLCs or bypass machine safety controls.
 6. Move complete orders to `ready` and run schedule comparisons.
 7. Approve only when HIVE marks the scenario production-ready, then release floor work.
 8. Open **Operations**, dispatch the first available station job, and record acknowledgement.
-9. Commission machine logs and barcode stations against the same station job.
-10. Resolve route and execution exceptions as the first real jobs cross the floor.
+9. Create the order's serialized label set and print one QR label per physical unit.
+10. Commission machine logs and barcode stations against the same station job.
+11. Resolve route and execution exceptions as the first real jobs cross the floor.

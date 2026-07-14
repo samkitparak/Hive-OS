@@ -5,6 +5,7 @@ import pytest
 
 from db import init_db
 import execution
+import identity
 import operations
 import planning
 import production_control
@@ -231,3 +232,24 @@ def test_live_machine_capacity_prevents_parallel_start_beyond_profile():
             "action": "start", "quantity": 1, "actor": "cutter",
             "expected_version": waiting["version"],
         })
+
+
+def test_serialized_scan_cannot_complete_the_same_unit_twice():
+    conn = _approved_factory(qty=2)
+    order = production_control.list_orders(conn)[0]
+    identity.materialize_order(conn, order["id"], "planner")
+    unit = identity.list_order_units(conn, order["id"])[0]
+    _release(conn)
+    first = execution.list_jobs(conn)[0]
+    payload = {
+        "barcode": unit["qr_payload"], "station": "gabbiani_pt80",
+        "event_type": "operation_complete", "operator": "scanner-1", "source": "barcode",
+    }
+    applied = operations.create_barcode_event(conn, payload)
+    duplicate = operations.create_barcode_event(conn, payload)
+    assert applied["execution"]["completed_qty"] == 1
+    assert duplicate["execution"]["duplicate"] is True
+    assert execution._job_row(conn, first["id"])["completed_qty"] == 1
+    assert duplicate["resolution"]["status"] == "duplicate"
+    stored = identity.get_barcode_resolution(conn, duplicate["id"])
+    assert stored["status"] == "duplicate"

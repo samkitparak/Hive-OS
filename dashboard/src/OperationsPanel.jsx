@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { ExecutionPanel } from "./ExecutionPanel";
+import { IdentityPanel } from "./IdentityPanel";
 
 const DOWNTIME_REASONS = [
   ["setup", "Setup / changeover"],
@@ -87,7 +88,7 @@ function jobOptions(jobs) {
 }
 
 export function OperationsPanel({ data, machines = [], jobs = [], onClose, onAction, onDemo }) {
-  const { summary, downtime, workOrders, rework, barcodeEvents, execution } = data;
+  const { summary, downtime, workOrders, rework, barcodeEvents, execution, identity } = data;
   const defaultMachine = machines[0]?.machine_key ?? "";
   const defaultJob = jobs[0]?.job_name ?? "";
   const [busy, setBusy] = useState(false);
@@ -162,6 +163,7 @@ export function OperationsPanel({ data, machines = [], jobs = [], onClose, onAct
         </div>
 
         <ExecutionPanel data={execution} onAction={onAction} />
+        <IdentityPanel data={identity} onAction={onAction} />
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
                       gap: 8, marginBottom: 14 }}>

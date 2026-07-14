@@ -6,7 +6,7 @@
 |---|---|---|
 | Cabinet Vision SQL Server | Live jobs, revisions, materials, due dates | Read-only SQL |
 | Maestro machine software | Cycles, programs, alarms, part completion | Logs / local agent |
-| Ottimo barcode system | Finished goods, packing, dispatch readiness | Logs / API / scanner events |
+| Ottimo barcode system | Serialized WIP, finished goods, packing, dispatch readiness | Logs / API / scanner events |
 | Energy meters | Machine state, power cost, compressor efficiency | Modbus TCP |
 | Sergiani Siemens controller | Press cycle, recipe, temperature, alarms | OPC-UA / Modbus TCP |
 | ERP/accounting | Orders, purchase needs, inventory, costing | API / database export |
@@ -22,7 +22,7 @@
 ## Recommended Sequence
 
 1. Cabinet Vision exports and Maestro event reliability
-2. Ottimo finished-part confirmation and quality/rework capture
+2. HIVE unit labels, then Ottimo alias and station-event mapping
 3. Energy meters and utility-cost allocation
 4. Inventory/remnant tracking and purchase alerts
 5. Maintenance work orders and downtime reasons
