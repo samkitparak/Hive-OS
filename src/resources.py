@@ -10,6 +10,8 @@ from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import inventory
+
 
 DEFAULT_SHEET_LENGTH_MM = 2440.0
 DEFAULT_SHEET_WIDTH_MM = 1220.0
@@ -126,6 +128,7 @@ def sync_defaults(conn: sqlite3.Connection, commit: bool = True) -> dict:
                 (weekday, now),
             )
     material_count = sync_material_requirements(conn, commit=False)
+    inventory_status = inventory.sync_requirements(conn, commit=False)
     if commit:
         conn.commit()
     return {
@@ -133,6 +136,7 @@ def sync_defaults(conn: sqlite3.Connection, commit: bool = True) -> dict:
         "tool_pools": len(TOOL_DEFAULTS),
         "machine_profiles": len(MACHINE_DEFAULTS),
         "material_requirements": material_count,
+        "component_requirements": inventory_status["requirements"],
     }
 
 
@@ -251,9 +255,45 @@ def _material_rows(conn: sqlite3.Connection, display_order_ids: list[int],
             GROUP BY md.id ORDER BY md.name""",
         (*scope_order_ids, *scope_order_ids, *scope_order_ids, *display_order_ids),
     ).fetchall()
+    scope_remnants = inventory.plan_remnants(conn, scope_order_ids)
+    display_remnants = inventory.plan_remnants(conn, display_order_ids)
     result = []
     for row in rows:
         item = dict(row)
+        gross_required = float(item["required_sheets"] or 0)
+        gross_open_required = float(item["open_required_sheets"] or 0)
+        usable_sheet_area = (float(item["sheet_length_mm"]) * float(item["sheet_width_mm"]) /
+                             1_000_000 * float(item["yield_factor"]))
+
+        def net_sheets(order_ids: list[int], credits: dict) -> tuple[int, float]:
+            if not order_ids:
+                return 0, 0.0
+            marks = ",".join("?" for _ in order_ids)
+            requirements = conn.execute(
+                f"""SELECT production_order_id,required_area_m2,unknown_part_count
+                    FROM material_requirements WHERE material_id=?
+                      AND production_order_id IN ({marks})""",
+                (item["id"], *order_ids),
+            ).fetchall()
+            total = 0
+            credited = 0.0
+            for requirement in requirements:
+                credit = min(float(requirement["required_area_m2"]),
+                             float(credits.get((requirement["production_order_id"], item["id"]), 0)))
+                credited += credit
+                if not requirement["unknown_part_count"]:
+                    total += math.ceil(max(0.0, float(requirement["required_area_m2"]) - credit) /
+                                       usable_sheet_area - 1e-12)
+            return total, credited
+
+        net_required, remnant_credit = net_sheets(scope_order_ids, scope_remnants["credits"])
+        net_open_required, open_remnant_credit = net_sheets(display_order_ids, display_remnants["credits"])
+        item["gross_required_sheets"] = gross_required
+        item["gross_open_required_sheets"] = gross_open_required
+        item["required_sheets"] = net_required
+        item["open_required_sheets"] = net_open_required
+        item["remnant_credit_area_m2"] = round(remnant_credit, 4)
+        item["open_remnant_credit_area_m2"] = round(open_remnant_credit, 4)
         lots = [dict(lot) for lot in conn.execute(
             """SELECT id, lot_code, location, status, on_hand_sheets,
                       reserved_sheets, source, verified, updated_at
@@ -301,6 +341,7 @@ def snapshot(conn: sqlite3.Connection, job_names: list[str] | None = None,
     scope_ids = [order["id"] for order in scope_orders]
     display_ids = [order["id"] for order in display_orders]
     materials = _material_rows(conn, display_ids, scope_ids)
+    warehouse = inventory.snapshot(conn, job_names, sync=False)
 
     labor_roles = [dict(row) for row in conn.execute(
         "SELECT role_key, name, headcount, source, verified, updated_at FROM labor_roles ORDER BY name"
@@ -373,6 +414,16 @@ def snapshot(conn: sqlite3.Connection, job_names: list[str] | None = None,
     )
     material_scope = [item for item in materials if float(item["required_sheets"] or 0) > 0 or item["unknown_part_count"]]
     materials_ok = bool(scope_ids) and bool(material_scope) and all(item["feasible"] for item in material_scope)
+    component_requirement_key = "required_qty" if scope_ids else "open_required_qty"
+    component_shortage_key = "shortage_qty" if scope_ids else "open_shortage_qty"
+    component_feasibility_key = "feasible" if scope_ids else "open_feasible"
+    component_scope = [
+        item for item in warehouse["components"]
+        if float(item[component_requirement_key] or 0) > 0
+    ]
+    components_ok = bool(scope_ids) and (
+        not component_scope or all(item[component_feasibility_key] for item in component_scope)
+    )
     open_downtime = 0
     if used_machine_keys:
         marks = ",".join("?" for _ in used_machine_keys)
@@ -385,6 +436,8 @@ def snapshot(conn: sqlite3.Connection, job_names: list[str] | None = None,
     checks = [
         {"key": "materials", "label": "Material stock", "passed": materials_ok,
          "detail": f"{sum(item['shortage_sheets'] for item in material_scope):g} sheet shortage across {len(material_scope)} materials"},
+        {"key": "components", "label": "Edge and hardware stock", "passed": components_ok,
+         "detail": f"{sum(item[component_shortage_key] for item in component_scope):g} unit shortage across {len(component_scope)} required items"},
         {"key": "profiles", "label": "Machine profiles", "passed": profile_ok,
          "detail": f"{sum(bool(item and item['verified']) for item in used_profiles)} of {len(used_machine_keys)} route machines verified"},
         {"key": "labor", "label": "Labor capacity", "passed": labor_ok,
@@ -412,6 +465,7 @@ def snapshot(conn: sqlite3.Connection, job_names: list[str] | None = None,
         "calendar": calendar,
         "wip_buffers": buffers,
         "unavailability": unavailability,
+        "warehouse": warehouse,
         "assumptions": {
             "default_sheet_mm": [DEFAULT_SHEET_LENGTH_MM, DEFAULT_SHEET_WIDTH_MM],
             "default_nesting_yield": DEFAULT_YIELD_FACTOR,
@@ -437,7 +491,7 @@ def set_material_stock(conn: sqlite3.Connection, material_key: str, payload: dic
     verified = int(bool(payload.get("verified", False)))
     lot_code = payload.get("lot_code") or "MANUAL-BALANCE"
     current = conn.execute(
-        "SELECT reserved_sheets FROM material_lots WHERE material_id=? AND lot_code=?",
+        "SELECT id,on_hand_sheets,reserved_sheets FROM material_lots WHERE material_id=? AND lot_code=?",
         (definition["id"], lot_code),
     ).fetchone()
     on_hand = float(payload["on_hand_sheets"])
@@ -456,6 +510,16 @@ def set_material_stock(conn: sqlite3.Connection, material_key: str, payload: dic
              location=excluded.location, status='available', on_hand_sheets=excluded.on_hand_sheets,
              source='manual', verified=excluded.verified, updated_at=excluded.updated_at""",
         (definition["id"], lot_code, payload.get("location"), on_hand, verified, now),
+    )
+    lot = conn.execute(
+        "SELECT id,on_hand_sheets FROM material_lots WHERE material_id=? AND lot_code=?",
+        (definition["id"], lot_code),
+    ).fetchone()
+    inventory.record_movement(
+        conn, object_type="sheet_lot", object_key=f"{definition['material_key']}:{lot_code}",
+        movement_type="adjustment", quantity=on_hand - float(current["on_hand_sheets"] if current else 0),
+        uom="sheet", balance_after=on_hand, actor=payload.get("actor", "operator"),
+        source="manual", notes=payload.get("notes"),
     )
     sync_material_requirements(conn, commit=False)
     _audit(conn, "material", definition["material_key"], "stock_updated",
@@ -617,8 +681,13 @@ def delete_unavailability(conn: sqlite3.Connection, unavailability_id: int, acto
 
 
 def release_committed_reservations(conn: sqlite3.Connection) -> None:
+    inventory.release_committed(conn)
     rows = conn.execute(
-        "SELECT id, material_lot_id, quantity_sheets FROM material_reservations WHERE status='committed'"
+        """SELECT mres.id,mres.scenario_id,mres.production_order_id,mres.material_lot_id,
+                  mres.quantity_sheets,ml.lot_code,ml.on_hand_sheets,md.material_key
+           FROM material_reservations mres JOIN material_lots ml ON ml.id=mres.material_lot_id
+           JOIN material_definitions md ON md.id=ml.material_id
+           WHERE mres.status='committed'"""
     ).fetchall()
     now = _now()
     for row in rows:
@@ -630,12 +699,19 @@ def release_committed_reservations(conn: sqlite3.Connection) -> None:
             "UPDATE material_reservations SET status='released', updated_at=? WHERE id=?",
             (now, row["id"]),
         )
+        inventory.record_movement(
+            conn, object_type="sheet_lot", object_key=f"{row['material_key']}:{row['lot_code']}",
+            movement_type="release", quantity=float(row["quantity_sheets"]), uom="sheet",
+            balance_after=float(row["on_hand_sheets"]), actor="planner", source="planning",
+            production_order_id=row["production_order_id"], scenario_id=row["scenario_id"],
+        )
 
 
 def settle_order_reservations(conn: sqlite3.Connection, production_order_id: int,
                               completed: bool, actor: str) -> None:
     rows = conn.execute(
-        """SELECT mres.id, mres.material_lot_id, mres.quantity_sheets, md.material_key
+        """SELECT mres.id,mres.scenario_id,mres.material_lot_id,mres.quantity_sheets,
+                  md.material_key,ml.lot_code,ml.on_hand_sheets
            FROM material_reservations mres
            JOIN material_lots ml ON ml.id=mres.material_lot_id
            JOIN material_definitions md ON md.id=ml.material_id
@@ -667,6 +743,16 @@ def settle_order_reservations(conn: sqlite3.Connection, production_order_id: int
                "reservation_consumed" if completed else "reservation_released",
                actor, {"production_order_id": production_order_id,
                        "quantity_sheets": row["quantity_sheets"]})
+        inventory.record_movement(
+            conn, object_type="sheet_lot", object_key=f"{row['material_key']}:{row['lot_code']}",
+            movement_type="issue" if completed else "release",
+            quantity=-float(row["quantity_sheets"]) if completed else float(row["quantity_sheets"]),
+            uom="sheet", balance_after=max(0.0, float(row["on_hand_sheets"]) -
+                                            (float(row["quantity_sheets"]) if completed else 0)),
+            actor=actor, source="production", production_order_id=production_order_id,
+            scenario_id=row["scenario_id"],
+        )
+    inventory.settle_order(conn, production_order_id, completed, actor)
 
 
 def reserve_materials(conn: sqlite3.Connection, scenario_id: int, job_names: list[str]) -> None:
@@ -675,16 +761,24 @@ def reserve_materials(conn: sqlite3.Connection, scenario_id: int, job_names: lis
         raise ValueError("Factory resources changed or are no longer feasible; generate a fresh scenario")
     release_committed_reservations(conn)
     orders = _orders(conn, job_names)
+    order_ids = [order["id"] for order in orders]
+    remnant_credits = inventory.reserve_remnants(conn, scenario_id, order_ids)
     now = _now()
     for order in orders:
         requirements = conn.execute(
-            """SELECT material_id, required_sheets FROM material_requirements
-               WHERE production_order_id=?""", (order["id"],)
+            """SELECT mr.material_id,mr.required_area_m2,mr.unknown_part_count,
+                      md.material_key,md.sheet_length_mm,md.sheet_width_mm,md.yield_factor
+               FROM material_requirements mr JOIN material_definitions md ON md.id=mr.material_id
+               WHERE mr.production_order_id=?""", (order["id"],)
         ).fetchall()
         for requirement in requirements:
-            remaining = float(requirement["required_sheets"] or 0)
+            credit = float(remnant_credits.get((order["id"], requirement["material_id"]), 0))
+            usable_area = (float(requirement["sheet_length_mm"]) * float(requirement["sheet_width_mm"]) /
+                           1_000_000 * float(requirement["yield_factor"]))
+            remaining = float(math.ceil(max(0.0, float(requirement["required_area_m2"]) - credit) /
+                                        usable_area - 1e-12))
             lots = conn.execute(
-                """SELECT id, on_hand_sheets, reserved_sheets FROM material_lots
+                """SELECT id,lot_code,on_hand_sheets,reserved_sheets FROM material_lots
                    WHERE material_id=? AND status='available' AND verified=1
                    ORDER BY updated_at, id""", (requirement["material_id"],)
             ).fetchall()
@@ -703,11 +797,19 @@ def reserve_materials(conn: sqlite3.Connection, scenario_id: int, job_names: lis
                     "UPDATE material_lots SET reserved_sheets=reserved_sheets+?, updated_at=? WHERE id=?",
                     (quantity, now, lot["id"]),
                 )
+                inventory.record_movement(
+                    conn, object_type="sheet_lot",
+                    object_key=f"{requirement['material_key']}:{lot['lot_code']}",
+                    movement_type="reservation", quantity=quantity, uom="sheet",
+                    balance_after=float(lot["on_hand_sheets"]), actor="planner", source="planning",
+                    production_order_id=order["id"], scenario_id=scenario_id,
+                )
                 remaining -= quantity
                 if remaining <= 1e-9:
                     break
             if remaining > 1e-9:
                 raise ValueError("Material stock changed during approval; generate a fresh scenario")
+    inventory.reserve_components(conn, scenario_id, order_ids)
 
 
 def simulation_context(conn: sqlite3.Connection, jobs: list[dict], simulated_at: datetime,

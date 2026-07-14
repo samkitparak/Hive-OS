@@ -24,6 +24,10 @@ own availability and verification evidence:
 | `material_lot` | Located, status-controlled sheet stock |
 | `material_requirement` | Estimated sheets required by one production order |
 | `material_reservation` | Stock committed by an approved scenario |
+| `inventory_item` / `inventory_lot` | Edge, hardware, consumable, or packaging definition and located balance |
+| `component_requirement` / `component_reservation` | Per-order demand and schedule commitment |
+| `material_remnant` / `remnant_reservation` | Verified rectangle and one-part conservative allocation |
+| `inventory_movement` | Immutable receipt, adjustment, reservation, release, issue, create, or scrap evidence |
 | `labor_role` | Shared qualified headcount pool |
 | `tool_pool` | Shared available tooling capacity |
 | `machine_resource_profile` | Labor, tooling, and parallel capacity for a machine |
@@ -48,6 +52,11 @@ Only verified, available lots count as stock.
 Schedule approval commits lot-level reservations. Completion consumes the
 reserved sheets; cancellation releases them. A replacement schedule cannot
 discard released or in-progress work, so its material cannot be silently freed.
+
+The same transaction covers edge/hardware lots and verified remnants. HIVE
+derives edge metres from the four Cabinet Vision edge fields. It does not infer
+hardware that the source export does not contain. See
+[WAREHOUSE_INTELLIGENCE.md](WAREHOUSE_INTELLIGENCE.md).
 
 ## Capacity Logic
 

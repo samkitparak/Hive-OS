@@ -77,12 +77,17 @@ def test_defaults_estimate_sheet_demand_but_remain_unverified():
 
 def test_draft_orders_expose_open_material_demand_without_passing_resource_gates():
     conn = _factory()
+    conn.execute("UPDATE parts SET eb1='E1'")
+    conn.commit()
     status = resources.snapshot(conn)
     material = status["materials"][0]
+    component_check = next(check for check in status["checks"] if check["key"] == "components")
     assert status["applicable"] is False
     assert material["required_sheets"] == 0
     assert material["open_required_sheets"] == 1
     assert material["open_shortage_sheets"] == 1
+    assert component_check["passed"] is False
+    assert component_check["detail"] == "2.1 unit shortage across 1 required items"
     assert next(check for check in status["checks"] if check["key"] == "wip")["passed"] is False
 
 

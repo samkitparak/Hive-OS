@@ -113,6 +113,11 @@ material-batching policies. Results remain commissioning what-if scenarios
 until every simulated operation has a cycle model and at least 80% of selected
 part routes have direct historical evidence.
 
+Verified rectangular remnants are allocated before new sheets using a
+largest-part/smallest-fitting-remnant heuristic. One remnant credits one physical
+part only; HIVE does not claim multi-part nesting without a commissioned cutting
+pattern export.
+
 Live planning uses only explicit production-order `due_at` timestamps. Cabinet
 Vision `job_date` remains source metadata and cannot create a false overdue job.
 Policies are ranked by total tardiness, late-job count, makespan, and setup time.

@@ -7,6 +7,8 @@ from typing import Optional
 
 import yaml
 
+import inventory
+
 PLACEHOLDER_HOSTS = {
     *(f"192.168.1.{number}" for number in range(51, 55)),
     *(f"192.168.1.{number}" for number in range(101, 111)),
@@ -137,6 +139,14 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
     industrial_verified = int(industrial_counts["verified"] or 0)
     industrial_enabled = int(industrial_counts["enabled"] or 0)
     industrial_failing = int(industrial_counts["failing"] or 0)
+    warehouse = inventory.snapshot(conn, sync=False)
+    warehouse_summary = warehouse["summary"]
+    warehouse_ready = (
+        warehouse_summary["component_items"] > 0
+        and warehouse["component_ready"]
+        and warehouse_summary["component_shortages"] == 0
+        and warehouse_summary["open_sync_issues"] == 0
+    )
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -152,6 +162,10 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "enabled_connectors": connector_enabled,
             "verified_industrial_profiles": industrial_verified,
             "enabled_industrial_profiles": industrial_enabled,
+            "component_stock_items": warehouse_summary["component_items"],
+            "component_shortages": warehouse_summary["component_shortages"],
+            "verified_available_remnants": warehouse_summary["available_remnants"],
+            "inventory_sync_issues": warehouse_summary["open_sync_issues"],
         },
         "services": [
             {"key": "database", "name": "Database", "status": "online",
@@ -183,6 +197,14 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
              "detail": (
                  f"{industrial_verified}/{industrial_total} device contracts approved; "
                  f"{industrial_enabled} polling; {industrial_failing} failing"
+             )},
+            {"key": "warehouse", "name": "Warehouse intelligence",
+             "status": "ready" if warehouse_ready else "needs_site_value",
+             "detail": (
+                 f"{warehouse_summary['component_items']} component items; "
+                 f"{warehouse_summary['component_shortages']} shortages; "
+                 f"{warehouse_summary['available_remnants']} verified remnants; "
+                 f"{warehouse_summary['open_sync_issues']} source issues"
              )},
         ],
         "machines": machines,

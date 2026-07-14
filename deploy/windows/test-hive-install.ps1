@@ -49,6 +49,7 @@ $checks += Test-Http "API data quality" "http://$HostName`:$ApiPort/api/data-qua
 $checks += Test-Http "API optimization" "http://$HostName`:$ApiPort/api/optimization"
 $checks += Test-Http "API connectors" "http://$HostName`:$ApiPort/api/connectors/snapshot"
 $checks += Test-Http "API industrial I/O" "http://$HostName`:$ApiPort/api/industrial/snapshot"
+$checks += Test-Http "API warehouse" "http://$HostName`:$ApiPort/api/inventory/snapshot"
 $checks += Test-Port "MQTT" $HostName $MqttPort
 
 $odbc = Get-OdbcDriver -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "ODBC Driver 18 for SQL Server*" }

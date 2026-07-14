@@ -82,6 +82,10 @@ Approved scenarios reserve verified material lots. Completion consumes those
 reservations and cancellation releases them. A replacement schedule must retain
 all released and in-progress work.
 
+Schedule approval atomically reserves sheet lots, component lots, and verified
+remnants. Every reservation, release, issue, physical adjustment, and remnant
+disposition is written to the warehouse movement ledger.
+
 ## Station Execution
 
 An approved scenario is materialized into one `execution_job` per required part

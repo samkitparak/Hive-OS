@@ -19,6 +19,7 @@ import asyncio
 import json
 import logging
 import os
+import sqlite3
 import threading
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -51,6 +52,7 @@ import optimization as optimization_module
 import planning as planning_module
 import production_control as production_control_module
 import resources as resources_module
+import inventory as inventory_module
 import execution as execution_module
 import identity as identity_module
 import diagnostics as diagnostics_module
@@ -77,6 +79,9 @@ from api_models import (
     IndustrialMqttProbeRequest,
     IndustrialProbeRequest,
     IndustrialProfileUpdate,
+    InventoryItemUpdate,
+    InventoryLotBalanceUpdate,
+    InventoryRequirementUpdate,
     DigitalTwinRequest,
     ExecutionActionRequest,
     ExecutionExceptionDecision,
@@ -102,6 +107,8 @@ from api_models import (
     QualityCheckCreate,
     RemoteConnectionRequest,
     RemoteMachineRequest,
+    RemnantCreate,
+    RemnantUpdate,
     ResourceUnavailabilityCreate,
     RouteExceptionDecision,
     SiteConfigUpdate,
@@ -120,7 +127,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.9.0"
+APP_VERSION = "0.10.0"
 
 
 class ApiPrefixMiddleware:
@@ -813,6 +820,76 @@ def put_material_stock(material_key: str, payload: MaterialStockUpdate):
     try:
         return resources_module.set_material_stock(
             _get_conn(), material_key, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/inventory/snapshot")
+def get_inventory_snapshot(job_name: Optional[list[str]] = Query(default=None)):
+    return inventory_module.snapshot(_get_conn(), job_name)
+
+
+@app.get("/inventory/movements")
+def get_inventory_movements(limit: int = Query(default=200, ge=1, le=1000)):
+    return {"movements": inventory_module.movements(_get_conn(), limit=limit)}
+
+
+@app.put("/inventory/items/{item_key}")
+def put_inventory_item(item_key: str, payload: InventoryItemUpdate):
+    try:
+        return inventory_module.upsert_item(
+            _get_conn(), item_key, payload.model_dump(exclude_none=True)
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.put("/inventory/items/{item_key}/lots/{lot_code}")
+def put_inventory_lot(item_key: str, lot_code: str,
+                      payload: InventoryLotBalanceUpdate):
+    try:
+        return inventory_module.set_lot_balance(
+            _get_conn(), item_key, lot_code, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except (sqlite3.IntegrityError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.put("/inventory/orders/{order_id}/requirements/{item_key}")
+def put_inventory_requirement(order_id: int, item_key: str,
+                              payload: InventoryRequirementUpdate):
+    try:
+        return inventory_module.set_requirement(
+            _get_conn(), order_id, item_key, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/inventory/remnants")
+def post_inventory_remnant(payload: RemnantCreate):
+    try:
+        return inventory_module.create_remnant(
+            _get_conn(), payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except (sqlite3.IntegrityError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.patch("/inventory/remnants/{remnant_key}")
+def patch_inventory_remnant(remnant_key: str, payload: RemnantUpdate):
+    try:
+        return inventory_module.update_remnant(
+            _get_conn(), remnant_key, payload.model_dump(exclude_none=True)
         )
     except KeyError as error:
         raise HTTPException(404, str(error)) from error

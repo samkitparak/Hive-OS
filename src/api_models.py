@@ -450,6 +450,63 @@ class MaterialStockUpdate(RequestModel):
     yield_factor: Optional[float] = Field(default=None, gt=0, le=1)
     verified: bool = False
     actor: str = Field(default="operator", min_length=1)
+    notes: Optional[str] = None
+
+
+class InventoryItemUpdate(RequestModel):
+    name: str = Field(min_length=1, max_length=200)
+    category: Literal["edge_band", "hardware", "consumable", "packaging"]
+    uom: Literal["m", "each", "kg", "l"]
+    usage_factor: float = Field(default=1, ge=1, le=5)
+    reorder_point: float = Field(default=0, ge=0)
+    safety_stock: float = Field(default=0, ge=0)
+    order_multiple: float = Field(default=1, gt=0)
+    lead_time_days: int = Field(default=0, ge=0, le=3650)
+    unit_cost: Optional[float] = Field(default=None, ge=0)
+    preferred_supplier: Optional[str] = Field(default=None, max_length=200)
+    verified: bool = False
+    actor: str = Field(default="operator", min_length=1)
+
+
+class InventoryLotBalanceUpdate(RequestModel):
+    on_hand_qty: float = Field(ge=0)
+    location: Optional[str] = Field(default=None, max_length=200)
+    verified: bool = False
+    expected_version: Optional[int] = Field(default=None, ge=1)
+    movement_type: Literal["receipt", "adjustment"] = "adjustment"
+    received_at: Optional[str] = None
+    idempotency_key: Optional[str] = Field(default=None, max_length=200)
+    notes: Optional[str] = None
+    actor: str = Field(default="operator", min_length=1)
+
+
+class InventoryRequirementUpdate(RequestModel):
+    required_qty: float = Field(ge=0)
+    verified: bool = False
+    notes: Optional[str] = None
+    actor: str = Field(default="operator", min_length=1)
+
+
+class RemnantCreate(RequestModel):
+    material_key: str = Field(min_length=1)
+    remnant_key: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    source_material_lot_id: Optional[int] = Field(default=None, ge=1)
+    length_mm: float = Field(gt=0)
+    width_mm: float = Field(gt=0)
+    thickness_mm: Optional[float] = Field(default=None, gt=0)
+    grain_direction: Literal["length", "none"] = "length"
+    location: Optional[str] = Field(default=None, max_length=200)
+    verified: bool = False
+    actor: str = Field(default="operator", min_length=1)
+
+
+class RemnantUpdate(RequestModel):
+    expected_version: int = Field(ge=1)
+    status: Literal["available", "hold", "scrapped"]
+    location: Optional[str] = Field(default=None, max_length=200)
+    verified: bool = False
+    notes: Optional[str] = None
+    actor: str = Field(default="operator", min_length=1)
 
 
 class LaborRoleUpdate(RequestModel):

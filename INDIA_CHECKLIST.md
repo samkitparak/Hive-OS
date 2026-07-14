@@ -30,6 +30,21 @@ Dashboard → **Commission** → **Industrial I/O**
 
 ---
 
+## Warehouse — Sheets, Edge, Hardware, Remnants
+
+Dashboard → **Planning** → **Resources**
+
+- [ ] Count sheet stock by exact Cabinet Vision material code, lot, and location
+- [ ] Confirm physical sheet dimensions and compare estimated sheets with one approved CV nest
+- [ ] Resolve every component source issue before trusting edge demand
+- [ ] Count each edge-band roll in metres and enter location, supplier, lead time, reorder point, safety stock, and order multiple
+- [ ] Obtain a real Cabinet Vision/ERP hardware BOM; until then, enter hardware requirements manually per order
+- [ ] Label, measure, locate, and verify usable remnants; record length along grain
+- [ ] Approve then cancel a test schedule and confirm all sheet, component, and remnant reservations release
+- [ ] Complete the test order and confirm the movement ledger issues stock and consumes allocated remnants
+
+---
+
 ## Maestro Log Watcher — SCM CNC Machines
 
 Primary workflow: dashboard → **Commission**

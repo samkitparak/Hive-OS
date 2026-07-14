@@ -28,6 +28,7 @@ operations are limited to the HIVE database and site configuration.
 - **Preventive maintenance control** — commissioned calendar/usage/condition plans, machine-specific inspections, named LOTO evidence, maintenance-aware schedules, and audited spare reservations.
 - **Factory integration boundary** — versioned mappings, read-only SQL discovery, credential references, sample fingerprints, issue audits, and idempotent import batches.
 - **Industrial telemetry gateway** — commissioned Modbus TCP, OPC-UA, and MQTT signals; read-only probes; immutable contracts; debounced machine state; raw/latest/hourly telemetry; and offsite simulation.
+- **Warehouse intelligence** — derived edge demand, component lots, usable-remnant allocation, schedule reservations, immutable movements, and evidence-labeled purchase suggestions.
 - **Live event stream** — SSE feed of all machine events (cycle start/end, alarms, power changes) in real time.
 
 ---
@@ -79,6 +80,7 @@ hive-os/
 │   ├── ingest.py             # batch ingest walker
 │   ├── energy_agent.py       # Modbus TCP energy meter poller
 │   ├── industrial_gateway.py # commissioned Modbus/OPC-UA/MQTT telemetry
+│   ├── inventory.py          # component, remnant, shortage, and movement truth
 │   ├── maestro_agent.py      # Maestro log file watcher
 │   ├── mqtt_bridge.py        # MQTT subscriber → DB + event broadcast
 │   ├── oee.py                # OEE calculator
@@ -115,6 +117,7 @@ hive-os/
 ├── MAINTENANCE_CONTROL.md    # preventive triggers, safety boundary, spares
 ├── CONNECTOR_COMMISSIONING.md # CV SQL, Ottimo, and Maestro site workflow
 ├── INDUSTRIAL_TELEMETRY.md    # industrial I/O contracts and site workflow
+├── WAREHOUSE_INTELLIGENCE.md  # stock, remnants, BOM boundary, and purchasing logic
 └── INDIA_CHECKLIST.md        # on-site configuration checklist
 ```
 
@@ -288,6 +291,13 @@ unprefixed routes remain available for compatibility and local tooling.
 | POST | `/industrial/profiles/{key}/browse` | Browse OPC-UA nodes without writing |
 | GET | `/industrial/profiles/{key}/telemetry` | Query hourly telemetry evidence |
 | GET | `/energy/intelligence` | Gap-aware energy, idle waste, load factor, cost, and power-factor analysis |
+| GET | `/inventory/snapshot` | Warehouse demand, component lots, remnants, shortages, and purchase suggestions |
+| GET | `/inventory/movements` | Immutable warehouse movement ledger |
+| PUT | `/inventory/items/{key}` | Commission an edge, hardware, consumable, or packaging item |
+| PUT | `/inventory/items/{key}/lots/{lot}` | Record a receipt or physical balance |
+| PUT | `/inventory/orders/{id}/requirements/{key}` | Record a manual BOM requirement |
+| POST | `/inventory/remnants` | Record a measured panel remnant |
+| PATCH | `/inventory/remnants/{key}` | Change an unreserved remnant disposition |
 | GET | `/diagnostics` | Service and machine-agent connection health |
 | GET | `/deployment` | Windows install package readiness and commands |
 | GET | `/config` | Current editable site setup configuration |

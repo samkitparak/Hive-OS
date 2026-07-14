@@ -67,6 +67,21 @@ export const fetchResourceSnapshot = () => request("/resources/snapshot");
 export const updateMaterialStock = (materialKey, payload) => request(`/resources/materials/${encodeURIComponent(materialKey)}`, {
   method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
 });
+export const updateInventoryItem = (itemKey, payload) => request(`/inventory/items/${encodeURIComponent(itemKey)}`, {
+  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+});
+export const updateInventoryLot = (itemKey, lotCode, payload) => request(
+  `/inventory/items/${encodeURIComponent(itemKey)}/lots/${encodeURIComponent(lotCode)}`,
+  { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+);
+export const updateInventoryRequirement = (orderId, itemKey, payload) => request(
+  `/inventory/orders/${orderId}/requirements/${encodeURIComponent(itemKey)}`,
+  { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+);
+export const createInventoryRemnant = payload => postJson("/inventory/remnants", payload);
+export const updateInventoryRemnant = (key, payload) => request(`/inventory/remnants/${encodeURIComponent(key)}`, {
+  method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+});
 export const updateLaborRole = (roleKey, payload) => request(`/resources/labor/${encodeURIComponent(roleKey)}`, {
   method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
 });

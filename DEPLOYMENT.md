@@ -40,7 +40,7 @@ After installation, run:
 .\deploy\windows\test-hive-install.ps1
 ```
 
-This checks the dashboard, API, connector and industrial registries, MQTT port,
+This checks the dashboard, API, connector, industrial, and warehouse registries, MQTT port,
 ODBC driver, Modbus/OPC-UA client libraries, install folder, logs folder, and
 startup task.
 
@@ -110,6 +110,7 @@ package readiness:
 - Database, MQTT bridge, and Cabinet Vision watcher status
 - Approved and enabled factory connector counts
 - Approved, polling, and failing industrial I/O profile counts
+- Component shortages, verified remnants, and warehouse source issues
 - Configured versus unconfigured machines
 - Online, stale, and offline agents
 - Last report age
@@ -132,6 +133,9 @@ they are never written to HIVE configuration or SQLite.
 
 For meters, PLCs, OPC-UA security, MQTT telemetry, signal maps, simulation, and
 real probe approval, follow `INDUSTRIAL_TELEMETRY.md`.
+
+For sheet counts, edge rolls, hardware BOMs, remnants, reservations, and
+purchase suggestions, follow `WAREHOUSE_INTELLIGENCE.md`.
 
 ## Capturing Maestro Evidence
 

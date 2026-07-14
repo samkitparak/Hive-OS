@@ -686,6 +686,134 @@ CREATE TABLE IF NOT EXISTS material_reservations (
     UNIQUE(scenario_id, production_order_id, material_lot_id)
 );
 
+-- Warehouse components that are consumed by production but are not sheet stock.
+-- Cabinet Vision edge fields seed edge_band definitions and requirements;
+-- hardware/consumable requirements remain manual until a real BOM is connected.
+CREATE TABLE IF NOT EXISTS inventory_items (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_key            TEXT NOT NULL UNIQUE,
+    name                TEXT NOT NULL,
+    category            TEXT NOT NULL, -- edge_band | hardware | consumable | packaging
+    uom                 TEXT NOT NULL, -- m | each | kg | l
+    usage_factor        REAL NOT NULL DEFAULT 1 CHECK(usage_factor >= 1),
+    reorder_point       REAL NOT NULL DEFAULT 0 CHECK(reorder_point >= 0),
+    safety_stock        REAL NOT NULL DEFAULT 0 CHECK(safety_stock >= 0),
+    order_multiple      REAL NOT NULL DEFAULT 1 CHECK(order_multiple > 0),
+    lead_time_days      INTEGER NOT NULL DEFAULT 0 CHECK(lead_time_days >= 0),
+    unit_cost           REAL CHECK(unit_cost IS NULL OR unit_cost >= 0),
+    preferred_supplier  TEXT,
+    source              TEXT NOT NULL DEFAULT 'manual',
+    verified            INTEGER NOT NULL DEFAULT 0,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS inventory_lots (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id             INTEGER NOT NULL REFERENCES inventory_items(id),
+    lot_code            TEXT NOT NULL,
+    location            TEXT,
+    status              TEXT NOT NULL DEFAULT 'available', -- available | hold | depleted
+    on_hand_qty         REAL NOT NULL DEFAULT 0 CHECK(on_hand_qty >= 0),
+    reserved_qty        REAL NOT NULL DEFAULT 0 CHECK(reserved_qty >= 0),
+    source              TEXT NOT NULL DEFAULT 'manual',
+    verified            INTEGER NOT NULL DEFAULT 0,
+    version             INTEGER NOT NULL DEFAULT 1,
+    received_at         TEXT,
+    updated_at          TEXT NOT NULL,
+    UNIQUE(item_id, lot_code)
+);
+
+CREATE TABLE IF NOT EXISTS component_requirements (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    production_order_id INTEGER NOT NULL REFERENCES production_orders(id),
+    item_id             INTEGER NOT NULL REFERENCES inventory_items(id),
+    required_qty        REAL NOT NULL CHECK(required_qty >= 0),
+    source              TEXT NOT NULL, -- cv_edges | manual_bom | connector
+    confidence          TEXT NOT NULL DEFAULT 'estimated',
+    notes               TEXT,
+    updated_at          TEXT NOT NULL,
+    UNIQUE(production_order_id, item_id)
+);
+
+CREATE TABLE IF NOT EXISTS component_reservations (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    scenario_id         INTEGER NOT NULL REFERENCES planning_scenarios(id),
+    production_order_id INTEGER NOT NULL REFERENCES production_orders(id),
+    inventory_lot_id    INTEGER NOT NULL REFERENCES inventory_lots(id),
+    quantity            REAL NOT NULL CHECK(quantity > 0),
+    status              TEXT NOT NULL DEFAULT 'committed', -- committed | consumed | released
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    UNIQUE(scenario_id, production_order_id, inventory_lot_id)
+);
+
+-- A remnant is a uniquely measured rectangular panel left after cutting. HIVE
+-- credits only one verified remnant against one physical part instance.
+CREATE TABLE IF NOT EXISTS material_remnants (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    remnant_key         TEXT NOT NULL UNIQUE,
+    material_id         INTEGER NOT NULL REFERENCES material_definitions(id),
+    source_material_lot_id INTEGER REFERENCES material_lots(id),
+    length_mm           REAL NOT NULL CHECK(length_mm > 0),
+    width_mm            REAL NOT NULL CHECK(width_mm > 0),
+    thickness_mm        REAL CHECK(thickness_mm IS NULL OR thickness_mm > 0),
+    grain_direction     TEXT NOT NULL DEFAULT 'length', -- length | none
+    usable_area_m2      REAL NOT NULL CHECK(usable_area_m2 > 0),
+    location            TEXT,
+    status              TEXT NOT NULL DEFAULT 'available', -- available | reserved | consumed | hold | scrapped
+    source              TEXT NOT NULL DEFAULT 'manual_measurement',
+    verified            INTEGER NOT NULL DEFAULT 0,
+    version             INTEGER NOT NULL DEFAULT 1,
+    created_by          TEXT NOT NULL,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS remnant_reservations (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    scenario_id         INTEGER NOT NULL REFERENCES planning_scenarios(id),
+    production_order_id INTEGER NOT NULL REFERENCES production_orders(id),
+    remnant_id          INTEGER NOT NULL REFERENCES material_remnants(id),
+    part_id             INTEGER NOT NULL REFERENCES parts(id),
+    instance_ordinal    INTEGER NOT NULL CHECK(instance_ordinal >= 1),
+    credited_area_m2    REAL NOT NULL CHECK(credited_area_m2 > 0),
+    status              TEXT NOT NULL DEFAULT 'committed', -- committed | consumed | released
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    UNIQUE(scenario_id, remnant_id),
+    UNIQUE(scenario_id, part_id, instance_ordinal)
+);
+
+CREATE TABLE IF NOT EXISTS inventory_movements (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    object_type         TEXT NOT NULL, -- component_lot | sheet_lot | remnant
+    object_key          TEXT NOT NULL,
+    movement_type       TEXT NOT NULL, -- receipt | adjustment | reservation | release | issue | create | scrap
+    quantity            REAL NOT NULL,
+    uom                 TEXT NOT NULL,
+    balance_after       REAL,
+    production_order_id INTEGER REFERENCES production_orders(id),
+    scenario_id         INTEGER REFERENCES planning_scenarios(id),
+    source              TEXT NOT NULL,
+    actor               TEXT NOT NULL,
+    idempotency_key     TEXT UNIQUE,
+    notes               TEXT,
+    ts                  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS inventory_sync_issues (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    production_order_id INTEGER REFERENCES production_orders(id),
+    part_id             INTEGER REFERENCES parts(id),
+    source_field        TEXT NOT NULL,
+    raw_value           TEXT,
+    issue_code          TEXT NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'open',
+    updated_at          TEXT NOT NULL,
+    UNIQUE(production_order_id, part_id, source_field, issue_code)
+);
+
 CREATE TABLE IF NOT EXISTS resource_change_events (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     resource_type       TEXT NOT NULL,
@@ -1094,6 +1222,13 @@ CREATE INDEX IF NOT EXISTS idx_planning_scenarios_status_created ON planning_sce
 CREATE INDEX IF NOT EXISTS idx_material_requirements_order ON material_requirements(production_order_id);
 CREATE INDEX IF NOT EXISTS idx_material_lots_material_status ON material_lots(material_id, status);
 CREATE INDEX IF NOT EXISTS idx_material_reservations_status ON material_reservations(status, production_order_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_lots_item_status ON inventory_lots(item_id, status);
+CREATE INDEX IF NOT EXISTS idx_component_requirements_order ON component_requirements(production_order_id, item_id);
+CREATE INDEX IF NOT EXISTS idx_component_reservations_status ON component_reservations(status, production_order_id);
+CREATE INDEX IF NOT EXISTS idx_remnants_material_status ON material_remnants(material_id, status, verified);
+CREATE INDEX IF NOT EXISTS idx_remnant_reservations_status ON remnant_reservations(status, production_order_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_movements_object_ts ON inventory_movements(object_type, object_key, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_inventory_issues_status ON inventory_sync_issues(status, production_order_id);
 CREATE INDEX IF NOT EXISTS idx_calendar_resource_day ON work_calendar_windows(resource_type, resource_key, weekday);
 CREATE INDEX IF NOT EXISTS idx_resource_unavailability_window ON resource_unavailability(resource_type, resource_key, starts_at, ends_at);
 CREATE INDEX IF NOT EXISTS idx_resource_change_events_key_ts ON resource_change_events(resource_type, resource_key, ts DESC);
