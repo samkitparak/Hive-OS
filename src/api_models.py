@@ -687,3 +687,17 @@ class ImprovementAction(RequestModel):
     evaluation_hours: int = Field(default=8, ge=1, le=720)
     min_samples: int = Field(default=4, ge=2, le=10000)
     confounders: list[str] = Field(default_factory=list, max_length=50)
+
+
+class RootCauseSyncRequest(RequestModel):
+    lookback_days: int = Field(default=30, ge=1, le=3650)
+    actor: str = Field(default="operator", min_length=1)
+
+
+class RootCauseDecision(RequestModel):
+    action: Literal["confirm", "dismiss", "reopen"]
+    expected_version: Optional[int] = Field(default=None, ge=1)
+    actual_cause_code: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    corrective_action: Optional[str] = Field(default=None, max_length=2000)
+    notes: Optional[str] = Field(default=None, max_length=2000)
+    actor: str = Field(min_length=1, max_length=120)

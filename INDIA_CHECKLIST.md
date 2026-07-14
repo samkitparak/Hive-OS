@@ -245,6 +245,29 @@ See `IMPROVEMENT_LEARNING.md` for metric definitions and outcome rules.
 
 ---
 
+## Root-Cause Diagnostics (After Incident Evidence Is Stable)
+
+Dashboard → **Root-cause diagnostics**
+
+- [ ] Obtain OEM alarm-code lists for each exact machine/controller model and map codes to verified failure modes
+- [ ] Confirm machine and HIVE clocks agree before interpreting event order around a failure
+- [ ] Classify every test downtime event with the closest controlled reason instead of leaving it unknown
+- [ ] Link CNC program and physical part identity through one alarm, downtime, and failed quality example
+- [ ] Verify maintenance plans, open work orders, condition thresholds, and required spare shortages reflect the real machine state
+- [ ] Validate voltage, current, power, and frequency units against the meter display before using utility anomalies
+- [ ] Synchronize incidents and compare the top five hypotheses with the shift supervisor's evidence
+- [ ] Record contradictions and data gaps before confirming a cause
+- [ ] Require the reviewing operator's real name, selected actual cause, corrective action, and review note
+- [ ] Dismiss duplicate or invalid source incidents with a reason; reopen them if later evidence changes the decision
+- [ ] Reconcile confirmed causes with maintenance and quality records after each shift
+- [ ] Treat local priors as active only after five confirmed cases of the same incident type
+- [ ] Confirm a reviewed downtime or quality cause appears in `/api/optimization` before starting its improvement experiment
+- [ ] Keep diagnosis advisory; do not connect it directly to PLC writes or automatic schedule changes
+
+See `ROOT_CAUSE_DIAGNOSTICS.md` for evidence weights, learning thresholds, and API behavior.
+
+---
+
 ## Preventive Maintenance and Spares
 
 Dashboard → **Operations** → **Preventive maintenance**
@@ -292,6 +315,7 @@ Dashboard → **Operations** → **Preventive maintenance**
 7. Open `/api/optimization` — confirm low-confidence data is gated and no unsupported gain estimate is shown
 8. Open **Planning** — set one real due time, verify routes, and release only the test job
 9. Scan/start/complete one routed part — confirm quantity advances and no route exception remains
+10. Open **Root-cause diagnostics**, synchronize incidents, and review one case without confirming unsupported evidence
 
 ---
 

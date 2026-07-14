@@ -1444,6 +1444,64 @@ CREATE TABLE IF NOT EXISTS improvement_events (
     ts                  TEXT NOT NULL
 );
 
+-- Incident diagnosis is separate from optimization: correlations remain
+-- hypotheses until a named operator confirms a cause. Re-analysis appends a
+-- new hypothesis version rather than overwriting prior evidence.
+CREATE TABLE IF NOT EXISTS diagnostic_cases (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    case_key            TEXT NOT NULL UNIQUE,
+    incident_type       TEXT NOT NULL, -- alarm | downtime | quality
+    source_type         TEXT NOT NULL,
+    source_id           INTEGER NOT NULL,
+    machine_id          INTEGER REFERENCES machines(id),
+    part_id             INTEGER REFERENCES parts(id),
+    occurred_at         TEXT NOT NULL,
+    ended_at            TEXT,
+    severity            TEXT NOT NULL,
+    symptom_code        TEXT NOT NULL,
+    symptom_label       TEXT NOT NULL,
+    source_json         TEXT NOT NULL DEFAULT '{}',
+    features_json       TEXT NOT NULL DEFAULT '{}',
+    status              TEXT NOT NULL DEFAULT 'open', -- open | confirmed | dismissed
+    top_hypothesis_code TEXT,
+    confidence          TEXT NOT NULL DEFAULT 'low',
+    actual_cause_code   TEXT,
+    corrective_action   TEXT,
+    resolution_notes    TEXT,
+    analysis_version    INTEGER NOT NULL DEFAULT 0,
+    version             INTEGER NOT NULL DEFAULT 1,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    UNIQUE(source_type, source_id)
+);
+
+CREATE TABLE IF NOT EXISTS diagnostic_hypotheses (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    case_id             INTEGER NOT NULL REFERENCES diagnostic_cases(id),
+    analysis_version    INTEGER NOT NULL,
+    cause_code          TEXT NOT NULL,
+    rank                INTEGER NOT NULL,
+    evidence_score      REAL NOT NULL,
+    prior_score         REAL NOT NULL,
+    evidence_json       TEXT NOT NULL DEFAULT '[]',
+    contradictions_json TEXT NOT NULL DEFAULT '[]',
+    data_gaps_json      TEXT NOT NULL DEFAULT '[]',
+    created_at          TEXT NOT NULL,
+    UNIQUE(case_id, analysis_version, cause_code)
+);
+
+CREATE TABLE IF NOT EXISTS diagnostic_case_events (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    case_id             INTEGER NOT NULL REFERENCES diagnostic_cases(id),
+    event_type          TEXT NOT NULL,
+    from_status         TEXT,
+    to_status           TEXT,
+    actor               TEXT NOT NULL,
+    notes               TEXT,
+    payload_json        TEXT NOT NULL DEFAULT '{}',
+    ts                  TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_parts_job ON parts(job_id);
 CREATE INDEX IF NOT EXISTS idx_production_orders_status_due ON production_orders(status, due_at, priority DESC);
 CREATE INDEX IF NOT EXISTS idx_production_order_events_order_ts ON production_order_events(production_order_id, ts DESC);
@@ -1514,6 +1572,10 @@ CREATE INDEX IF NOT EXISTS idx_improvement_recommendations_status ON improvement
 CREATE INDEX IF NOT EXISTS idx_improvement_experiments_recommendation ON improvement_experiments(recommendation_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_improvement_experiments_outcome ON improvement_experiments(outcome, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_improvement_events_recommendation_ts ON improvement_events(recommendation_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_diagnostic_cases_status_time ON diagnostic_cases(status, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_diagnostic_cases_machine_time ON diagnostic_cases(machine_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_diagnostic_hypotheses_case_version ON diagnostic_hypotheses(case_id, analysis_version DESC, rank);
+CREATE INDEX IF NOT EXISTS idx_diagnostic_case_events_case_ts ON diagnostic_case_events(case_id, ts DESC);
 
 -- Seed the 14 in-scope HAEEV machines (aluminium pair excluded, compressors/dust collectors as utility)
 INSERT OR IGNORE INTO machines (name, machine_key, type, brand, model, has_maestro, has_opcua, active) VALUES

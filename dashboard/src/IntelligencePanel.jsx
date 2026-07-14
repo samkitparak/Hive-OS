@@ -1,4 +1,4 @@
-import { FlaskConical, Settings } from "lucide-react";
+import { FlaskConical, SearchCheck, Settings } from "lucide-react";
 
 const STATUS = {
   ready: { color: "#22c55e", label: "Optimization ready" },
@@ -6,7 +6,7 @@ const STATUS = {
   commissioning: { color: "#60a5fa", label: "Commissioning required" },
 };
 
-export function IntelligencePanel({ optimization, quality, learning, routing, twin, onCommission, onReviewActions }) {
+export function IntelligencePanel({ optimization, quality, learning, routing, twin, onCommission, onReviewActions, onDiagnose }) {
   if (!optimization || !quality) return null;
   const status = STATUS[optimization.status] ?? STATUS.commissioning;
   const recommendation = optimization.recommendations?.[0];
@@ -58,6 +58,10 @@ export function IntelligencePanel({ optimization, quality, learning, routing, tw
                 background: "#2563eb", color: "white", border: 0, borderRadius: 6,
                 padding: "8px 11px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
             <FlaskConical size={14} /> Review actions</button>
+          <button onClick={onDiagnose} title="Root-cause diagnostics" style={{ display: "inline-flex", alignItems: "center",
+                justifyContent: "center", background: "#1f2937", color: "#d1d5db",
+                border: "1px solid #374151", borderRadius: 6, width: 32, height: 32, cursor: "pointer" }}>
+            <SearchCheck size={15} /></button>
           <button onClick={onCommission} title="Commission machine" style={{ display: "inline-flex", alignItems: "center",
                 justifyContent: "center", background: "#1f2937", color: "#d1d5db",
                 border: "1px solid #374151", borderRadius: 6, width: 32, height: 32, cursor: "pointer" }}>

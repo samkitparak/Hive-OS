@@ -10,6 +10,7 @@ import yaml
 import inventory
 import improvement
 import procurement
+import root_cause
 
 PLACEHOLDER_HOSTS = {
     *(f"192.168.1.{number}" for number in range(51, 55)),
@@ -159,6 +160,11 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
     promoted_patterns = sum(
         1 for item in improvements["learned_patterns"] if item["promoted"]
     )
+    root_causes = root_cause.snapshot(conn)
+    root_cause_summary = root_causes["summary"]
+    learned_incident_types = sum(
+        item["empirical_prior_active"] for item in root_causes["learning"].values()
+    )
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -187,6 +193,9 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "improvement_actions_evaluable": improvement_summary["evaluable"],
             "validated_improvements": improvement_summary["validated"],
             "promoted_improvement_patterns": promoted_patterns,
+            "open_diagnostic_cases": root_cause_summary["open"],
+            "confirmed_root_causes": root_cause_summary["confirmed"],
+            "diagnostic_models_learning": learned_incident_types,
         },
         "services": [
             {"key": "database", "name": "Database", "status": "online",
@@ -247,6 +256,15 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
                  f"{improvement_summary['evaluable']} ready to evaluate; "
                  f"{improvement_summary['validated']} validated; "
                  f"{promoted_patterns} reusable patterns"
+             )},
+            {"key": "root_cause_diagnostics", "name": "Root-cause diagnostics",
+             "status": "ready" if root_cause_summary["confirmed"] else (
+                 "review" if root_cause_summary["open"] else "needs_site_value"
+             ),
+             "detail": (
+                 f"{root_cause_summary['open']} open cases; "
+                 f"{root_cause_summary['confirmed']} operator-confirmed; "
+                 f"{learned_incident_types}/3 incident models learning from local priors"
              )},
         ],
         "machines": machines,

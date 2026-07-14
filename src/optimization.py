@@ -16,10 +16,13 @@ def _downtime_evidence(conn: sqlite3.Connection, start: str, end: str) -> Option
     row = conn.execute(
         """SELECT dr.code,dr.label,dr.category,m.machine_key,m.name machine_name,
                   COUNT(*) occurrences,
-                  SUM(MAX(0,(julianday(COALESCE(de.ended_at,?))-julianday(de.started_at))*86400)) seconds
+                  SUM(MAX(0,(julianday(COALESCE(de.ended_at,?))-julianday(de.started_at))*86400)) seconds,
+                  MAX(dc.actual_cause_code) confirmed_cause
            FROM downtime_events de
            LEFT JOIN downtime_reasons dr ON dr.id=de.reason_id
            LEFT JOIN machines m ON m.id=de.machine_id
+           LEFT JOIN diagnostic_cases dc ON dc.source_type='downtime' AND dc.source_id=de.id
+                                        AND dc.status='confirmed'
            WHERE de.started_at>=? AND de.started_at<=?
            GROUP BY dr.id,de.machine_id ORDER BY seconds DESC LIMIT 1""",
         (end, start, end),
@@ -33,10 +36,13 @@ def _quality_evidence(conn: sqlite3.Connection, start: str, end: str) -> Optiona
     row = conn.execute(
         """SELECT COALESCE(dt.label,'Unclassified') defect,
                   COALESCE(dt.code,'unclassified') defect_code,
-                  m.machine_key,m.name machine_name,COUNT(*) count
+                  m.machine_key,m.name machine_name,COUNT(*) count,
+                  MAX(dc.actual_cause_code) confirmed_cause
            FROM quality_checks qc
            LEFT JOIN defect_types dt ON dt.id=qc.defect_type_id
            LEFT JOIN machines m ON m.id=qc.machine_id
+           LEFT JOIN diagnostic_cases dc ON dc.source_type='quality_check' AND dc.source_id=qc.id
+                                        AND dc.status='confirmed'
            WHERE qc.result IN ('fail','rework') AND qc.ts>=? AND qc.ts<=?
            GROUP BY dt.id,qc.machine_id ORDER BY count DESC LIMIT 1""",
         (start, end),
@@ -168,6 +174,13 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
 
     downtime = _downtime_evidence(conn, start, end)
     if downtime:
+        confirmed_downtime = downtime.get("confirmed_cause")
+        downtime_evidence = [
+            f"{downtime['occurrences']} events",
+            f"{round(downtime['seconds'] / 60)} recorded minutes",
+        ]
+        if confirmed_downtime:
+            downtime_evidence.append(f"Operator-confirmed cause: {confirmed_downtime}")
         recommendations.append({
             "priority": len(recommendations) + 1,
             "category": "downtime",
@@ -175,13 +188,10 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
             "action": "Run a focused cause review on the largest recorded downtime category.",
             "confidence": "medium",
             "estimated_gain": None,
-            "evidence": [
-                f"{downtime['occurrences']} events",
-                f"{round(downtime['seconds'] / 60)} recorded minutes",
-            ],
+            "evidence": downtime_evidence,
             "target_type": "machine" if downtime.get("machine_key") else "factory",
             "target_key": downtime.get("machine_key") or "factory",
-            "cause_code": {
+            "cause_code": confirmed_downtime or {
                 "maintenance": "reliability", "flow": "material_flow",
                 "labor": "staffing", "quality": "quality_loss", "planned": "setup",
             }.get(downtime.get("category"), downtime.get("code") or "downtime"),
@@ -190,6 +200,9 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
 
     defects = _quality_evidence(conn, start, end)
     if defects:
+        defect_evidence = [f"{defects['count']} failures or rework records"]
+        if defects.get("confirmed_cause"):
+            defect_evidence.append(f"Operator-confirmed cause: {defects['confirmed_cause']}")
         recommendations.append({
             "priority": len(recommendations) + 1,
             "category": "quality",
@@ -197,10 +210,10 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
             "action": "Trace the affected parts to machine, material, and program before the next batch.",
             "confidence": "medium",
             "estimated_gain": None,
-            "evidence": [f"{defects['count']} failures or rework records"],
+            "evidence": defect_evidence,
             "target_type": "machine" if defects.get("machine_key") else "factory",
             "target_key": defects.get("machine_key") or "factory",
-            "cause_code": f"defect:{defects['defect_code']}",
+            "cause_code": defects.get("confirmed_cause") or f"defect:{defects['defect_code']}",
             "metric_hint": "defect_rate", "target_direction": "decrease",
         })
 

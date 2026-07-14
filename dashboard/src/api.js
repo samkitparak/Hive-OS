@@ -38,6 +38,10 @@ export const fetchImprovements = () => request("/improvements");
 export const syncImprovements = (payload = {}) => postJson("/improvements/sync", payload);
 export const actOnImprovement = (id, payload) =>
   postJson(`/improvements/recommendations/${id}/action`, payload);
+export const fetchRootCauses = () => request("/root-causes");
+export const syncRootCauses = (payload = {}) => postJson("/root-causes/sync", payload);
+export const decideRootCause = (id, payload) =>
+  postJson(`/root-causes/${id}/decision`, payload);
 export const fetchLearningStatus = () => request("/learning/status");
 export const fetchRoutingGraph = () => request("/routing/graph");
 export const fetchTwinReadiness = () => request("/digital-twin/readiness");

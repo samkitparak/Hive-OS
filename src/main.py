@@ -50,6 +50,7 @@ import commissioning as commissioning_module
 import event_pipeline
 import optimization as optimization_module
 import improvement as improvement_module
+import root_cause as root_cause_module
 import planning as planning_module
 import production_control as production_control_module
 import resources as resources_module
@@ -83,6 +84,8 @@ from api_models import (
     IndustrialProfileUpdate,
     ImprovementAction,
     ImprovementSyncRequest,
+    RootCauseDecision,
+    RootCauseSyncRequest,
     InventoryItemUpdate,
     InventoryLotBalanceUpdate,
     InventoryRequirementUpdate,
@@ -139,7 +142,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.12.0"
+APP_VERSION = "0.13.0"
 
 
 class ApiPrefixMiddleware:
@@ -516,6 +519,38 @@ def post_improvement_action(recommendation_id: int, payload: ImprovementAction):
     try:
         return improvement_module.act(
             _get_conn(), recommendation_id, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/root-causes")
+def get_root_causes(status: Optional[str] = Query(default=None, pattern="^(open|confirmed|dismissed)$")):
+    return root_cause_module.snapshot(_get_conn(), status=status)
+
+
+@app.post("/root-causes/sync")
+def post_root_cause_sync(payload: RootCauseSyncRequest):
+    return root_cause_module.sync(
+        _get_conn(), lookback_days=payload.lookback_days, actor=payload.actor
+    )
+
+
+@app.get("/root-causes/{case_id}")
+def get_root_cause(case_id: int):
+    try:
+        return root_cause_module.case_detail(_get_conn(), case_id)
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+
+
+@app.post("/root-causes/{case_id}/decision")
+def post_root_cause_decision(case_id: int, payload: RootCauseDecision):
+    try:
+        return root_cause_module.decide(
+            _get_conn(), case_id, payload.model_dump(exclude_none=True)
         )
     except KeyError as error:
         raise HTTPException(404, str(error)) from error

@@ -112,6 +112,22 @@ after at least three decisive outcomes, at least 70% are validated, and the
 implementations span two dates. Promotion changes no schedule and writes no
 machine command.
 
+## Confirmed Root-Cause Feedback
+
+Root-cause analysis is a separate evidence path from optimization. HIVE creates
+diagnostic cases only during an explicit incident synchronization and keeps up
+to five alternatives with their priors, supporting evidence, contradictions,
+and missing data. A correlation never silently becomes a cause.
+
+When a named operator confirms a classified cause for the downtime or quality
+record that generated a recommendation, optimization uses that confirmed cause
+code in the recommendation identity and displays the confirmation as evidence.
+Open and dismissed hypotheses do not alter optimization. This keeps improvement
+experiments tied to reviewed factory truth while preserving all earlier
+analysis versions.
+
+See `ROOT_CAUSE_DIAGNOSTICS.md` for the ranking and learning contract.
+
 This design follows NIST guidance to verify measurement capability and process
 stability, declare experimental factors and responses in advance, and compare
 current behavior with a historical baseline. It also preserves a digital thread
