@@ -51,6 +51,7 @@ import optimization as optimization_module
 import planning as planning_module
 import production_control as production_control_module
 import resources as resources_module
+import execution as execution_module
 import diagnostics as diagnostics_module
 import deployment as deployment_module
 import config_editor as config_editor_module
@@ -63,6 +64,8 @@ from api_models import (
     CloseRequest,
     CommissioningLogRequest,
     DigitalTwinRequest,
+    ExecutionActionRequest,
+    ExecutionExceptionDecision,
     FactoryCalendarUpdate,
     LaborRoleUpdate,
     MachineResourceProfileUpdate,
@@ -92,7 +95,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.5.0"
 
 
 class ApiPrefixMiddleware:
@@ -125,6 +128,7 @@ async def lifespan(app: FastAPI):
     _conn = init_db(DB_PATH, check_same_thread=False)
     production_control_module.sync_all(_conn)
     resources_module.sync_defaults(_conn)
+    execution_module.sync(_conn)
     try:
         _mqtt_client = mqtt_bridge.start(_conn, CONFIG_PATH)
         log.info("MQTT bridge started")
@@ -221,7 +225,8 @@ async def _watch_learning():
             await asyncio.to_thread(routing_module.refresh_observations, conn)
             await asyncio.to_thread(production_control_module.sync_all, conn)
             await asyncio.to_thread(resources_module.sync_defaults, conn)
-            await asyncio.to_thread(production_control_module.reconcile_machine_events, conn)
+            await asyncio.to_thread(execution_module.sync, conn)
+            await asyncio.to_thread(execution_module.reconcile_machine_events, conn)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -448,7 +453,8 @@ def post_digital_twin_compare(payload: DigitalTwinRequest):
 def post_production_sync():
     conn = _get_conn()
     result = production_control_module.sync_all(conn)
-    result["reconciliation"] = production_control_module.reconcile_machine_events(conn)
+    result["execution_sync"] = execution_module.sync(conn)
+    result["reconciliation"] = execution_module.reconcile_machine_events(conn)
     return result
 
 
@@ -465,9 +471,11 @@ def get_production_readiness():
 @app.put("/production/orders/{order_id}")
 def put_production_order(order_id: int, payload: ProductionOrderUpdate):
     try:
-        return production_control_module.update_order(
+        result = production_control_module.update_order(
             _get_conn(), order_id, payload.model_dump(exclude_none=True)
         )
+        execution_module.sync(_get_conn())
+        return result
     except production_control_module.VersionConflict as error:
         raise HTTPException(409, str(error)) from error
     except KeyError as error:
@@ -539,10 +547,12 @@ def get_planning_scenario(scenario_id: int):
 @app.post("/planning/scenarios/{scenario_id}/decision")
 def post_planning_decision(scenario_id: int, payload: PlanningDecision):
     try:
-        return planning_module.decide(
+        result = planning_module.decide(
             _get_conn(), scenario_id, payload.decision, payload.actor,
             payload.selected_policy, payload.notes,
         )
+        execution_module.sync(_get_conn())
+        return result
     except KeyError as error:
         raise HTTPException(404, str(error)) from error
     except ValueError as error:
@@ -552,6 +562,68 @@ def post_planning_decision(scenario_id: int, payload: PlanningDecision):
 @app.get("/planning/active-schedule")
 def get_active_schedule():
     return planning_module.active_schedule(_get_conn())
+
+
+@app.get("/execution/snapshot")
+def get_execution_snapshot():
+    return execution_module.snapshot(_get_conn())
+
+
+@app.post("/execution/sync")
+def post_execution_sync():
+    return execution_module.sync(_get_conn())
+
+
+@app.get("/execution/jobs")
+def get_execution_jobs(machine_key: Optional[str] = None,
+                       include_terminal: bool = False,
+                       limit: int = Query(500, ge=1, le=2000)):
+    return execution_module.list_jobs(_get_conn(), machine_key, include_terminal, limit)
+
+
+@app.post("/execution/jobs/{execution_job_id}/action")
+def post_execution_action(execution_job_id: int, payload: ExecutionActionRequest):
+    try:
+        return execution_module.apply_action(
+            _get_conn(), execution_job_id, payload.model_dump(exclude_none=True)
+        )
+    except execution_module.VersionConflict as error:
+        raise HTTPException(409, str(error)) from error
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/execution/events")
+def get_execution_events(limit: int = Query(100, ge=1, le=1000)):
+    return execution_module.list_events(_get_conn(), limit)
+
+
+@app.get("/execution/exceptions")
+def get_execution_exceptions(status: str = "open",
+                             limit: int = Query(100, ge=1, le=1000)):
+    return execution_module.list_exceptions(_get_conn(), status, limit)
+
+
+@app.post("/execution/exceptions/{exception_id}/resolve")
+def post_execution_exception_resolution(exception_id: int,
+                                        payload: ExecutionExceptionDecision):
+    try:
+        return execution_module.resolve_exception(
+            _get_conn(), exception_id, payload.status, payload.actor, payload.notes
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/traceability/events")
+def get_traceability_events(object_key: Optional[str] = None,
+                            part_id: Optional[int] = None,
+                            limit: int = Query(100, ge=1, le=1000)):
+    return execution_module.list_traceability(_get_conn(), object_key, part_id, limit)
 
 
 @app.get("/resources/snapshot")

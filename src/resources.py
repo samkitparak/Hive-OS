@@ -710,9 +710,10 @@ def reserve_materials(conn: sqlite3.Connection, scenario_id: int, job_names: lis
                 raise ValueError("Material stock changed during approval; generate a fresh scenario")
 
 
-def simulation_context(conn: sqlite3.Connection, jobs: list[dict], simulated_at: datetime) -> dict:
+def simulation_context(conn: sqlite3.Connection, jobs: list[dict], simulated_at: datetime,
+                       sync: bool = True) -> dict:
     job_names = [job["job_name"] for job in jobs]
-    status = snapshot(conn, job_names)
+    status = snapshot(conn, job_names, sync=sync)
     profiles = {row["machine_key"]: dict(row) for row in conn.execute(
         """SELECT m.machine_key, lr.role_key, mrp.labor_qty, tp.pool_key,
                   mrp.tool_qty, mrp.machine_capacity

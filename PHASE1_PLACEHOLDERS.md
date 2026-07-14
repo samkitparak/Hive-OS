@@ -100,8 +100,11 @@ then handles HIVE inserts/updates for `clients`, `jobs`, `parts`, and
 1. External or demo payload arrives at a placeholder endpoint.
 2. Connector adapter maps the payload into HIVE-normalized data.
 3. `operations.py` writes the normalized record into HIVE-native tables.
-4. Related workflow records are created automatically where appropriate.
-5. Dashboard queries the same HIVE APIs regardless of whether data came from a
+4. Route and operation scans reconcile through `execution.py`, which advances
+   station quantities and writes traceability evidence when an approved schedule
+   exists. Otherwise the scan remains valid commissioning route evidence.
+5. Related workflow records are created automatically where appropriate.
+6. Dashboard queries the same HIVE APIs regardless of whether data came from a
    placeholder, manual entry, or the final factory integration.
 
 This keeps the user experience stable while the integration details evolve.

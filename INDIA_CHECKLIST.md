@@ -108,6 +108,12 @@ Planning → **Resources**
 - [ ] Measure safe input WIP capacity and current WIP at each downstream machine
 - [ ] Verify each resource row only after the physical value is checked
 - [ ] Confirm material reservations appear after schedule approval and release after cancellation
+- [ ] Verify each scanner's station key and whether one scan represents one unit or a batch
+- [ ] Name every physical read point, input buffer, hold area, packing area, and dispatch location
+- [ ] Execute one test part through every routed station and compare HIVE actuals with machine logs
+- [ ] Test duplicate, out-of-sequence, scrap, hold/resume, and completion-without-start scans
+- [ ] Confirm live WIP counts match each configured input buffer before approving production
+- [ ] Keep all machine command output disabled until vendor safety interlocks are independently commissioned
 
 ---
 

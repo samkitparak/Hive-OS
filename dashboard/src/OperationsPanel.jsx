@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { ExecutionPanel } from "./ExecutionPanel";
 
 const DOWNTIME_REASONS = [
   ["setup", "Setup / changeover"],
@@ -86,7 +87,7 @@ function jobOptions(jobs) {
 }
 
 export function OperationsPanel({ data, machines = [], jobs = [], onClose, onAction, onDemo }) {
-  const { summary, downtime, workOrders, rework, barcodeEvents } = data;
+  const { summary, downtime, workOrders, rework, barcodeEvents, execution } = data;
   const defaultMachine = machines[0]?.machine_key ?? "";
   const defaultJob = jobs[0]?.job_name ?? "";
   const [busy, setBusy] = useState(false);
@@ -153,14 +154,14 @@ export function OperationsPanel({ data, machines = [], jobs = [], onClose, onAct
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16,
                       alignItems: "center", marginBottom: 18 }}>
           <div>
-            <div style={{ fontSize: 18, fontWeight: 800 }}>Phase 1 Operations</div>
-            <div style={{ color: "#6b7280", fontSize: 11, marginTop: 3 }}>
-              Floor workflows backed by replaceable placeholder integrations.
-            </div>
+            <div style={{ fontSize: 18, fontWeight: 800 }}>Factory operations</div>
+            <div style={{ color: "#6b7280", fontSize: 11, marginTop: 3 }}>Dispatch · actuals · quality · maintenance</div>
           </div>
           <button onClick={onClose} style={{ background: "none", border: 0, color: "#9ca3af",
                                             fontSize: 20, cursor: "pointer" }}>x</button>
         </div>
+
+        <ExecutionPanel data={execution} onAction={onAction} />
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
                       gap: 8, marginBottom: 14 }}>

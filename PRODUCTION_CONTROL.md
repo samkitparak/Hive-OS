@@ -82,6 +82,19 @@ Approved scenarios reserve verified material lots. Completion consumes those
 reservations and cancellation releases them. A replacement schedule must retain
 all released and in-progress work.
 
+## Station Execution
+
+An approved scenario is materialized into one `execution_job` per required part
+route step. Work remains queued until its production order is released and its
+predecessor is complete. Dispatch, acknowledgement, start, partial completion,
+scrap, hold, resume, and cancellation are versioned in an immutable event
+ledger. Machine and barcode evidence use the same state machine as manual
+actions, while violations are retained as execution exceptions.
+
+Good completion moves WIP to the next station buffer. Starting the next step
+removes it. Only final good route completion settles the order and consumes its
+material reservation. See [EXECUTION_CONTROL.md](EXECUTION_CONTROL.md).
+
 The approved sequence remains advisory: HIVE releases and tracks work but does
 not write to PLCs or bypass machine safety controls.
 
@@ -92,7 +105,8 @@ not write to PLCs or bypass machine safety controls.
 3. Set due times and priorities for live jobs.
 4. Review generated part routes; correct product-specific press/sanding/finish steps.
 5. Verify materials, labor, tooling, machine profiles, shift calendar, and WIP buffers.
-6. Move complete orders to `ready`, then `released`.
-7. Commission machine logs and barcode stations.
-8. Run schedule comparisons. Approve only when HIVE marks the scenario production-ready.
-9. Resolve route exceptions as the first real jobs cross the floor.
+6. Move complete orders to `ready` and run schedule comparisons.
+7. Approve only when HIVE marks the scenario production-ready, then release floor work.
+8. Open **Operations**, dispatch the first available station job, and record acknowledgement.
+9. Commission machine logs and barcode stations against the same station job.
+10. Resolve route and execution exceptions as the first real jobs cross the floor.

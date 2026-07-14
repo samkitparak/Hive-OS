@@ -41,7 +41,7 @@ def _validate_datetime(value: str | None, field: str) -> str | None:
     return parsed.astimezone(timezone.utc).isoformat()
 
 
-def sync_orders(conn: sqlite3.Connection) -> dict:
+def sync_orders(conn: sqlite3.Connection, commit: bool = True) -> dict:
     now = _now()
     jobs = conn.execute(
         """SELECT j.id FROM jobs j LEFT JOIN production_orders po ON po.job_id=j.id
@@ -59,11 +59,13 @@ def sync_orders(conn: sqlite3.Connection) -> dict:
                VALUES (?,'created','draft','system',?,?)""",
             (cursor.lastrowid, json.dumps({"source": "cv_import"}), now),
         )
-    conn.commit()
+    if commit:
+        conn.commit()
     return {"created": len(jobs)}
 
 
-def sync_routes(conn: sqlite3.Connection, job_id: int | None = None) -> dict:
+def sync_routes(conn: sqlite3.Connection, job_id: int | None = None,
+                commit: bool = True) -> dict:
     where = "AND p.job_id=?" if job_id is not None else ""
     params = (job_id,) if job_id is not None else ()
     parts = conn.execute(
@@ -94,7 +96,8 @@ def sync_routes(conn: sqlite3.Connection, job_id: int | None = None) -> dict:
                  max(int(part.get("qty") or 1), 1), now, now),
             )
             step_count += 1
-    conn.commit()
+    if commit:
+        conn.commit()
     return {"parts_created": len(parts), "steps_created": step_count}
 
 
@@ -162,7 +165,8 @@ def list_orders(conn: sqlite3.Connection, status: str | None = None) -> list[dic
     return [_order_row(conn, row["id"]) for row in rows]
 
 
-def update_order(conn: sqlite3.Connection, order_id: int, payload: dict) -> dict:
+def update_order(conn: sqlite3.Connection, order_id: int, payload: dict,
+                 commit: bool = True) -> dict:
     current = _order_row(conn, order_id)
     expected_version = payload.get("expected_version")
     if expected_version is not None and expected_version != current["version"]:
@@ -237,7 +241,8 @@ def update_order(conn: sqlite3.Connection, order_id: int, payload: dict) -> dict
         factory_resources.settle_order_reservations(
             conn, order_id, target_status == "completed", actor
         )
-    conn.commit()
+    if commit:
+        conn.commit()
     return _order_row(conn, order_id)
 
 
@@ -332,7 +337,10 @@ def _add_exception(conn: sqlite3.Connection, part_id: int, expected_step_id: int
 
 def confirm_route_step(conn: sqlite3.Connection, part_id: int, machine_key: str,
                        event_type: str, source: str, evidence_id: int,
-                       ts: str, actor: str | None = None) -> dict:
+                       ts: str, actor: str | None = None, quantity: int = 1,
+                       commit: bool = True) -> dict:
+    if quantity < 1:
+        raise ValueError("Route confirmation quantity must be positive")
     machine = conn.execute(
         "SELECT id FROM machines WHERE machine_key=?", (machine_key,)
     ).fetchone()
@@ -341,7 +349,7 @@ def confirm_route_step(conn: sqlite3.Connection, part_id: int, machine_key: str,
     part = conn.execute("SELECT job_id FROM parts WHERE id=?", (part_id,)).fetchone()
     if not part:
         raise ValueError(f"Unknown part {part_id}")
-    sync_routes(conn, part["job_id"])
+    sync_routes(conn, part["job_id"], commit=False)
     steps = conn.execute(
         "SELECT * FROM part_route_steps WHERE part_id=? ORDER BY step_index", (part_id,)
     ).fetchall()
@@ -351,7 +359,8 @@ def confirm_route_step(conn: sqlite3.Connection, part_id: int, machine_key: str,
         _add_exception(conn, part_id, expected["id"] if expected else None, machine["id"],
                        source, evidence_id, "unexpected_machine", ts,
                        f"Observed {machine_key}, which is not in the planned route")
-        conn.commit()
+        if commit:
+            conn.commit()
         return {"matched": False, "exception": "unexpected_machine"}
     if expected and matched["id"] != expected["id"]:
         _add_exception(conn, part_id, expected["id"], machine["id"], source,
@@ -370,7 +379,7 @@ def confirm_route_step(conn: sqlite3.Connection, part_id: int, machine_key: str,
     )
     inserted = conn.total_changes > before
     if inserted:
-        confirmed_qty = matched["confirmed_qty"] + (1 if completion else 0)
+        confirmed_qty = matched["confirmed_qty"] + (quantity if completion else 0)
         status = ("confirmed" if confirmed_qty >= matched["required_qty"]
                   else ("started" if matched["status"] == "planned" else matched["status"]))
         conn.execute(
@@ -383,13 +392,15 @@ def confirm_route_step(conn: sqlite3.Connection, part_id: int, machine_key: str,
              evidence_id if source == "barcode" else None,
              ts if completion else matched["confirmed_at"], actor, _now(), matched["id"]),
         )
-    conn.commit()
-    _refresh_order_state(conn, part["job_id"], actor or "system")
+    if commit:
+        conn.commit()
+    _refresh_order_state(conn, part["job_id"], actor or "system", commit=commit)
     return {"matched": True, "step_id": matched["id"], "event_recorded": inserted,
             "exception": "out_of_sequence" if expected and matched["id"] != expected["id"] else None}
 
 
-def _refresh_order_state(conn: sqlite3.Connection, job_id: int, actor: str) -> None:
+def _refresh_order_state(conn: sqlite3.Connection, job_id: int, actor: str,
+                         commit: bool = True) -> None:
     order = conn.execute("SELECT * FROM production_orders WHERE job_id=?", (job_id,)).fetchone()
     if not order or order["status"] not in ("released", "in_progress"):
         return
@@ -409,7 +420,7 @@ def _refresh_order_state(conn: sqlite3.Connection, job_id: int, actor: str) -> N
         update_order(conn, order["id"], {
             "status": target, "actor": actor, "expected_version": order["version"],
             "notes": "Route evidence advanced the production order automatically",
-        })
+        }, commit=commit)
 
 
 def reconcile_machine_events(conn: sqlite3.Connection) -> dict:

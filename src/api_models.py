@@ -205,6 +205,24 @@ class PlanningDecision(RequestModel):
     notes: Optional[str] = None
 
 
+class ExecutionActionRequest(RequestModel):
+    action: Literal["dispatch", "acknowledge", "start", "complete", "hold", "resume", "cancel"]
+    expected_version: Optional[int] = Field(default=None, ge=1)
+    quantity: Optional[int] = Field(default=None, ge=1)
+    good_qty: Optional[int] = Field(default=None, ge=0)
+    scrap_qty: Optional[int] = Field(default=None, ge=0)
+    assigned_operator: Optional[str] = None
+    actor: str = Field(default="operator", min_length=1)
+    notes: Optional[str] = None
+    idempotency_key: Optional[str] = Field(default=None, min_length=1, max_length=200)
+
+
+class ExecutionExceptionDecision(RequestModel):
+    status: Literal["accepted", "corrected", "ignored"]
+    actor: str = Field(min_length=1)
+    notes: Optional[str] = None
+
+
 class MaterialStockUpdate(RequestModel):
     on_hand_sheets: float = Field(ge=0)
     lot_code: str = Field(default="MANUAL-BALANCE", min_length=1)

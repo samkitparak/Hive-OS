@@ -54,6 +54,10 @@ export const fetchPlanningScenario = (id) => request(`/planning/scenarios/${id}`
 export const createPlanningScenario = (payload) => postJson("/planning/scenarios", payload);
 export const decidePlanningScenario = (id, payload) => postJson(`/planning/scenarios/${id}/decision`, payload);
 export const fetchActiveSchedule = () => request("/planning/active-schedule");
+export const fetchExecutionSnapshot = () => request("/execution/snapshot");
+export const syncExecution = () => postJson("/execution/sync", {});
+export const updateExecutionJob = (id, payload) => postJson(`/execution/jobs/${id}/action`, payload);
+export const resolveExecutionException = (id, payload) => postJson(`/execution/exceptions/${id}/resolve`, payload);
 export const fetchResourceSnapshot = () => request("/resources/snapshot");
 export const updateMaterialStock = (materialKey, payload) => request(`/resources/materials/${encodeURIComponent(materialKey)}`, {
   method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),

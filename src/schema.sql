@@ -513,6 +513,98 @@ CREATE TABLE IF NOT EXISTS resource_change_events (
     ts                  TEXT NOT NULL
 );
 
+-- ISA-95-style station job orders generated from an approved HIVE schedule.
+-- The route remains the work definition; execution_jobs hold dispatch state
+-- and actual quantities for one route step.
+CREATE TABLE IF NOT EXISTS execution_jobs (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    scenario_id         INTEGER NOT NULL REFERENCES planning_scenarios(id),
+    schedule_item_id    INTEGER NOT NULL REFERENCES production_schedule_items(id),
+    production_order_id INTEGER NOT NULL REFERENCES production_orders(id),
+    route_step_id       INTEGER NOT NULL UNIQUE REFERENCES part_route_steps(id),
+    machine_id          INTEGER NOT NULL REFERENCES machines(id),
+    dispatch_sequence   INTEGER NOT NULL,
+    state               TEXT NOT NULL DEFAULT 'queued',
+    resume_state        TEXT,
+    required_qty        INTEGER NOT NULL CHECK(required_qty >= 1),
+    in_process_qty      INTEGER NOT NULL DEFAULT 0 CHECK(in_process_qty >= 0),
+    completed_qty       INTEGER NOT NULL DEFAULT 0 CHECK(completed_qty >= 0),
+    scrap_qty           INTEGER NOT NULL DEFAULT 0 CHECK(scrap_qty >= 0),
+    assigned_operator   TEXT,
+    version             INTEGER NOT NULL DEFAULT 1,
+    dispatched_at       TEXT,
+    acknowledged_at     TEXT,
+    started_at          TEXT,
+    completed_at        TEXT,
+    held_reason         TEXT,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS execution_job_events (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    execution_job_id    INTEGER NOT NULL REFERENCES execution_jobs(id),
+    event_type          TEXT NOT NULL,
+    from_state          TEXT,
+    to_state            TEXT,
+    quantity            INTEGER,
+    good_qty            INTEGER,
+    scrap_qty           INTEGER,
+    source              TEXT NOT NULL,
+    evidence_type       TEXT,
+    evidence_id         INTEGER,
+    actor               TEXT NOT NULL,
+    notes               TEXT,
+    idempotency_key     TEXT UNIQUE,
+    ts                  TEXT NOT NULL
+);
+
+-- EPCIS-inspired physical truth ledger. Intentional schedule/dispatch state is
+-- kept above; this table records what object was observed, where, and in what
+-- resulting disposition.
+CREATE TABLE IF NOT EXISTS traceability_events (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    object_type         TEXT NOT NULL,
+    object_key          TEXT NOT NULL,
+    production_order_id INTEGER REFERENCES production_orders(id),
+    part_id             INTEGER REFERENCES parts(id),
+    material_lot_id     INTEGER REFERENCES material_lots(id),
+    execution_job_id    INTEGER REFERENCES execution_jobs(id),
+    event_type          TEXT NOT NULL,
+    action              TEXT NOT NULL DEFAULT 'observe',
+    quantity            REAL NOT NULL DEFAULT 1,
+    uom                 TEXT NOT NULL DEFAULT 'each',
+    read_point          TEXT,
+    business_location   TEXT,
+    disposition         TEXT,
+    source              TEXT NOT NULL,
+    evidence_type       TEXT,
+    evidence_id         INTEGER,
+    actor               TEXT,
+    idempotency_key     TEXT UNIQUE,
+    event_time          TEXT NOT NULL,
+    recorded_at         TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS execution_exceptions (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    execution_job_id    INTEGER REFERENCES execution_jobs(id),
+    production_order_id INTEGER REFERENCES production_orders(id),
+    part_id             INTEGER REFERENCES parts(id),
+    machine_id          INTEGER REFERENCES machines(id),
+    exception_type      TEXT NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'open',
+    details             TEXT NOT NULL,
+    source              TEXT NOT NULL,
+    evidence_type       TEXT,
+    evidence_id         INTEGER,
+    occurred_at         TEXT NOT NULL,
+    resolved_at         TEXT,
+    resolved_by         TEXT,
+    resolution_notes    TEXT,
+    UNIQUE(source, evidence_type, evidence_id, exception_type)
+);
+
 CREATE TABLE IF NOT EXISTS connector_sync_state (
     connector_key   TEXT PRIMARY KEY,
     status          TEXT NOT NULL DEFAULT 'not_configured',
@@ -552,6 +644,13 @@ CREATE INDEX IF NOT EXISTS idx_material_reservations_status ON material_reservat
 CREATE INDEX IF NOT EXISTS idx_calendar_resource_day ON work_calendar_windows(resource_type, resource_key, weekday);
 CREATE INDEX IF NOT EXISTS idx_resource_unavailability_window ON resource_unavailability(resource_type, resource_key, starts_at, ends_at);
 CREATE INDEX IF NOT EXISTS idx_resource_change_events_key_ts ON resource_change_events(resource_type, resource_key, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_execution_jobs_machine_state_sequence ON execution_jobs(machine_id, state, dispatch_sequence);
+CREATE INDEX IF NOT EXISTS idx_execution_jobs_order_state ON execution_jobs(production_order_id, state);
+CREATE INDEX IF NOT EXISTS idx_execution_events_job_ts ON execution_job_events(execution_job_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_execution_events_evidence ON execution_job_events(evidence_type, evidence_id);
+CREATE INDEX IF NOT EXISTS idx_traceability_object_time ON traceability_events(object_type, object_key, event_time DESC);
+CREATE INDEX IF NOT EXISTS idx_traceability_part_time ON traceability_events(part_id, event_time DESC);
+CREATE INDEX IF NOT EXISTS idx_execution_exceptions_status_time ON execution_exceptions(status, occurred_at DESC);
 
 -- Seed the 14 in-scope HAEEV machines (aluminium pair excluded, compressors/dust collectors as utility)
 INSERT OR IGNORE INTO machines (name, machine_key, type, brand, model, has_maestro, has_opcua, active) VALUES

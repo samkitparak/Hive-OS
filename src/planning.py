@@ -53,6 +53,9 @@ def factory_signature(conn: sqlite3.Connection, job_names: list[str] | None = No
         ("resource_unavailability", "created_at"),
         ("wip_buffers", "updated_at"),
         ("material_reservations", "updated_at"),
+        ("execution_jobs", "updated_at"),
+        ("execution_job_events", "ts"),
+        ("execution_exceptions", "occurred_at"),
     ):
         resource_tables[table] = dict(conn.execute(
             f"SELECT COUNT(*) count, COALESCE(MAX({timestamp}), '') updated FROM {table}"
@@ -215,6 +218,8 @@ def decide(conn: sqlite3.Connection, scenario_id: int, decision: str,
                                              "policy": selected_policy,
                                              "position": position}), now),
         )
+    import execution as execution_control
+    execution_control.sync(conn, commit=False)
     conn.commit()
     return get_scenario(conn, scenario_id)
 

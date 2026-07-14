@@ -297,20 +297,8 @@ def create_barcode_event(conn: sqlite3.Connection, payload: dict) -> dict:
         conn.rollback()
         raise
     result = {"id": cur.lastrowid, **payload, "job_id": job_id, "part_id": part_id, "ts": ts}
-    route_events = {
-        "route_arrival": "operation_start",
-        "operation_start": "operation_start",
-        "operation_complete": "operation_complete",
-        "part_complete": "operation_complete",
-    }
-    if part_id and payload.get("station") and payload.get("event_type") in route_events:
-        machine = conn.execute(
-            "SELECT machine_key FROM machines WHERE machine_key=?", (payload["station"],)
-        ).fetchone()
-        if machine:
-            import production_control
-            result["route_confirmation"] = production_control.confirm_route_step(
-                conn, part_id, machine["machine_key"], route_events[payload["event_type"]],
-                "barcode", cur.lastrowid, ts, payload.get("operator"),
-            )
+    import execution
+    execution_result = execution.reconcile_barcode_event(conn, cur.lastrowid)
+    if execution_result is not None:
+        result["execution"] = execution_result
     return result

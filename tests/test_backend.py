@@ -64,7 +64,7 @@ def test_get_machines_returns_list(client):
 def test_api_prefix_routes_to_backend(client):
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "service": "hive-os", "version": "0.4.0"}
+    assert response.json() == {"status": "ok", "service": "hive-os", "version": "0.5.0"}
     assert client.get("/api/machines").status_code == 200
 
 
@@ -125,6 +125,20 @@ def test_resource_endpoints_expose_defaults_and_validate_capacity(client):
         "reason": "invalid", "actor": "test",
     })
     assert invalid_window.status_code == 400
+
+
+def test_execution_endpoints_wait_safely_without_an_approved_schedule(client):
+    snapshot = client.get("/api/execution/snapshot")
+    assert snapshot.status_code == 200
+    assert snapshot.json()["status"] == "waiting_for_approved_schedule"
+    assert snapshot.json()["jobs"] == []
+    assert client.post("/api/execution/sync").status_code == 200
+    assert client.get("/api/execution/events").json() == []
+    assert client.get("/api/traceability/events").json() == []
+    missing = client.post("/api/execution/jobs/999/action", json={
+        "action": "dispatch", "actor": "test",
+    })
+    assert missing.status_code == 404
 
 def test_machines_have_required_fields(client):
     data = client.get("/machines").json()

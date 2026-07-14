@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchResourceSnapshot, updateMaterialStock, updateLaborRole, updateToolPool, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, postJson, simulateEvent } from "./api";
+import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchResourceSnapshot, updateMaterialStock, updateLaborRole, updateToolPool, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, postJson, simulateEvent } from "./api";
 import { MachineCard } from "./MachineCard";
 import { MachineDetail } from "./MachineDetail";
 import { JobProgress } from "./JobProgress";
@@ -125,6 +125,9 @@ export default function App() {
   const { data: barcodeEvents = [] } = useQuery({
     queryKey: ["barcodeEvents"], queryFn: fetchBarcodeEvents, refetchInterval: 15000,
   });
+  const { data: executionSnapshot = null } = useQuery({
+    queryKey: ["executionSnapshot"], queryFn: fetchExecutionSnapshot, refetchInterval: 10000,
+  });
 
   const onEvent = useCallback((ev) => {
     if (ev._type === "snapshot") {
@@ -145,6 +148,7 @@ export default function App() {
       qc.invalidateQueries({ queryKey: ["twin"] });
       qc.invalidateQueries({ queryKey: ["productionOrders"] });
       qc.invalidateQueries({ queryKey: ["routeExceptions"] });
+      qc.invalidateQueries({ queryKey: ["executionSnapshot"] });
     }
   }, [qc]);
 
@@ -207,7 +211,7 @@ export default function App() {
   };
 
   const refreshOperations = () => {
-    ["operationsSummary", "downtime", "workOrders", "rework", "barcodeEvents", "jobs"].forEach(key => {
+    ["operationsSummary", "downtime", "workOrders", "rework", "barcodeEvents", "executionSnapshot", "productionOrders", "resourceSnapshot", "jobs"].forEach(key => {
       qc.invalidateQueries({ queryKey: [key] });
     });
   };
@@ -258,6 +262,12 @@ export default function App() {
       await postJson(`/rework/${payload.id}/close`, { notes: payload.notes });
     } else if (kind === "workOrder") {
       await postJson("/maintenance/work-orders", payload);
+    } else if (kind === "executionSync") {
+      await syncExecution();
+    } else if (kind === "execution") {
+      await updateExecutionJob(payload.id, payload.payload);
+    } else if (kind === "executionException") {
+      await resolveExecutionException(payload.id, payload.payload);
     }
     refreshOperations();
   };
@@ -554,7 +564,7 @@ export default function App() {
       )}
       {showOperations && (
         <OperationsPanel
-          data={{ summary: operationsSummary, downtime, workOrders, rework, barcodeEvents }}
+          data={{ summary: operationsSummary, downtime, workOrders, rework, barcodeEvents, execution: executionSnapshot }}
           machines={enriched}
           jobs={jobs}
           onClose={() => setShowOperations(false)}

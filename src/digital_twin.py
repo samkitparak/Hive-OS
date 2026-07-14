@@ -356,7 +356,9 @@ def compare(conn: sqlite3.Connection, job_names: list[str] | None = None,
         return {"readiness": readiness_result, "scenarios": [], "recommendation": None}
 
     cfg = _config()
-    simulated_at = datetime.now(timezone.utc)
+    # Factory calendars are minute-granular; removing sub-minute wall-clock noise
+    # keeps identical deterministic comparisons stable.
+    simulated_at = datetime.now(timezone.utc).replace(second=0, microsecond=0)
     resource_context = factory_resources.simulation_context(conn, jobs, simulated_at)
     scenarios = [_single_run(conn, jobs, parts, policy, stochastic, seed, cfg, simulated_at,
                              resource_context)
