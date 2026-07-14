@@ -163,6 +163,28 @@ No spreadsheet is required when machine events identify the part reliably.
 
 ---
 
+## Preventive Maintenance and Spares
+
+Dashboard → **Operations** → **Preventive maintenance**
+
+- [ ] Record exact manufacturer, model, serial number, and OEM manual revision for every machine
+- [ ] Replace each unverified 30-day baseline with the current OEM schedule and site risk assessment
+- [ ] Separate calendar, powered-hour, active-cycle-hour, cycle-count, and condition triggers where the OEM does
+- [ ] Confirm safe shutdown requirements and whether the site procedure requires hazardous-energy isolation
+- [ ] Name the roles authorized to apply and independently verify the site's LOTO procedure
+- [ ] Verify every checklist instruction and acceptance criterion against the exact machine model
+- [ ] Record expected duration and preferred service window for each plan
+- [ ] Confirm maintenance windows appear as machine outages in Planning before schedule approval
+- [ ] Capture condition metric source, sensor ID, unit, normal range, threshold, and comparator
+- [ ] Add real manufacturer spare part numbers; do not commission generic or guessed SKUs
+- [ ] Count each spare by storage location and record reorder point, quantity, supplier, and lead time
+- [ ] Test one spare reservation, cancellation release, issue, and stock-movement audit
+- [ ] Complete one supervised inspection and confirm required checklist and named LOTO evidence are enforced
+- [ ] Fail one non-safety test checklist item and confirm a corrective follow-up work order opens
+- [ ] Review MTBF/MTTR only after breakdown reasons and machine-state evidence are reliable
+
+---
+
 ## Database
 
 - [ ] Decide: keep SQLite or migrate to Postgres (Postgres recommended if >1 user hitting the dashboard)

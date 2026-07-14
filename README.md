@@ -25,6 +25,7 @@ operations are limited to the HIVE database and site configuration.
 - **Factory resource control** — sheet-stock estimates and reservations, labor/tool pools, machine profiles, shift calendars, planned outages, and finite WIP buffers.
 - **Station execution control** — approved schedule dispatch, acknowledgements, partial quantities, holds, machine/scanner actuals, WIP movement, and traceability.
 - **Serialized unit identity** — one auditable identity per physical part, alias-safe scanner resolution, duplicate suppression, browser labels, and native Zebra ZPL.
+- **Preventive maintenance control** — commissioned calendar/usage/condition plans, machine-specific inspections, named LOTO evidence, maintenance-aware schedules, and audited spare reservations.
 - **Phase 1 operations layer** — placeholder-ready downtime, maintenance, quality/rework, barcode, Cabinet Vision SQL, and Ottimo workflows that can be replaced with real formats later.
 - **Live event stream** — SSE feed of all machine events (cycle start/end, alarms, power changes) in real time.
 
@@ -94,7 +95,8 @@ hive-os/
 │   ├── resources.py           # stock, labor, tooling, calendars, WIP, reservations
 │   ├── execution.py           # station dispatch, actuals, WIP flow, traceability
 │   ├── identity.py            # physical units, scanner aliases, QR/ZPL labels
-│   ├── operations.py         # downtime, maintenance, quality/rework, barcode
+│   ├── maintenance.py         # preventive plans, inspections, spares, reliability
+│   ├── operations.py         # downtime, manual work, quality/rework, barcode
 │   ├── cv_sql_connector.py   # Cabinet Vision SQL placeholder adapter
 │   ├── ottimo_connector.py   # Ottimo placeholder barcode adapter
 │   └── main.py               # FastAPI app (REST + SSE)
@@ -107,6 +109,7 @@ hive-os/
 ├── RESOURCE_MODEL.md         # finite-capacity resource model and site workflow
 ├── EXECUTION_CONTROL.md      # station state machine and evidence contracts
 ├── IDENTITY_AND_LABELS.md    # serialized units, scan resolution, print outputs
+├── MAINTENANCE_CONTROL.md    # preventive triggers, safety boundary, spares
 └── INDIA_CHECKLIST.md        # on-site configuration checklist
 ```
 
@@ -279,6 +282,15 @@ unprefixed routes remain available for compatibility and local tooling.
 | POST | `/downtime/{id}/close` | Close a downtime event |
 | GET | `/maintenance/work-orders` | Maintenance work orders, optionally filtered by status |
 | POST | `/maintenance/work-orders` | Create a maintenance work order |
+| GET | `/maintenance/snapshot` | Preventive plans, work orders, spares, and readiness |
+| POST | `/maintenance/sync` | Evaluate verified plan and condition triggers |
+| GET/POST | `/maintenance/plans` | List or create preventive plans |
+| PUT | `/maintenance/plans/{id}` | Configure and verify a preventive plan |
+| POST | `/maintenance/conditions` | Record a normalized condition reading |
+| GET/POST | `/maintenance/spares` | List or create spare catalog entries |
+| PUT | `/maintenance/spares/{key}/stock` | Set and audit spare stock by location |
+| GET/PUT | `/maintenance/work-orders/{id}` | Read, schedule, start, or cancel work |
+| POST | `/maintenance/work-orders/{id}/complete` | Complete checklist, LOTO, and spare issue |
 | GET | `/quality/checks` | Recent quality checks |
 | POST | `/quality/checks` | Create a quality check; failures create rework |
 | GET | `/rework` | Rework tasks, optionally filtered by status |

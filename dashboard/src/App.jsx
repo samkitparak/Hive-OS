@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, updateMaterialStock, updateLaborRole, updateToolPool, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, postJson, simulateEvent } from "./api";
+import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, updateMaterialStock, updateLaborRole, updateToolPool, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, postJson, simulateEvent } from "./api";
 import { MachineCard } from "./MachineCard";
 import { MachineDetail } from "./MachineDetail";
 import { JobProgress } from "./JobProgress";
@@ -119,6 +119,9 @@ export default function App() {
   const { data: workOrders = [] } = useQuery({
     queryKey: ["workOrders"], queryFn: fetchWorkOrders, refetchInterval: 30000,
   });
+  const { data: maintenance = null } = useQuery({
+    queryKey: ["maintenance"], queryFn: fetchMaintenanceSnapshot, refetchInterval: 30000,
+  });
   const { data: rework = [] } = useQuery({
     queryKey: ["rework"], queryFn: fetchRework, refetchInterval: 15000,
   });
@@ -152,6 +155,7 @@ export default function App() {
       qc.invalidateQueries({ queryKey: ["productionOrders"] });
       qc.invalidateQueries({ queryKey: ["routeExceptions"] });
       qc.invalidateQueries({ queryKey: ["executionSnapshot"] });
+      qc.invalidateQueries({ queryKey: ["maintenance"] });
     }
   }, [qc]);
 
@@ -214,7 +218,7 @@ export default function App() {
   };
 
   const refreshOperations = () => {
-    ["operationsSummary", "downtime", "workOrders", "rework", "barcodeEvents", "executionSnapshot", "identitySnapshot", "productionOrders", "resourceSnapshot", "jobs"].forEach(key => {
+    ["operationsSummary", "downtime", "workOrders", "maintenance", "rework", "barcodeEvents", "executionSnapshot", "identitySnapshot", "productionOrders", "resourceSnapshot", "jobs"].forEach(key => {
       qc.invalidateQueries({ queryKey: [key] });
     });
   };
@@ -276,6 +280,20 @@ export default function App() {
       result = await createLabelJob(payload);
     } else if (kind === "labelPrinted") {
       result = await markLabelJobPrinted(payload.id, payload.payload);
+    } else if (kind === "maintenanceSync") {
+      result = await syncMaintenance();
+    } else if (kind === "maintenancePlan") {
+      result = await updateMaintenancePlan(payload.id, payload.payload);
+    } else if (kind === "maintenanceWorkOrderDetail") {
+      return fetchMaintenanceWorkOrder(payload.id);
+    } else if (kind === "maintenanceWorkOrder") {
+      result = await updateMaintenanceWorkOrder(payload.id, payload.payload);
+    } else if (kind === "maintenanceComplete") {
+      result = await completeMaintenanceWorkOrder(payload.id, payload.payload);
+    } else if (kind === "maintenanceSpare") {
+      result = await createSparePart(payload);
+    } else if (kind === "maintenanceStock") {
+      result = await updateSpareStock(payload.key, payload.payload);
     }
     refreshOperations();
     return result;
@@ -573,7 +591,7 @@ export default function App() {
       )}
       {showOperations && (
         <OperationsPanel
-          data={{ summary: operationsSummary, downtime, workOrders, rework, barcodeEvents, execution: executionSnapshot, identity: identitySnapshot }}
+          data={{ summary: operationsSummary, downtime, workOrders, maintenance, rework, barcodeEvents, execution: executionSnapshot, identity: identitySnapshot }}
           machines={enriched}
           jobs={jobs}
           onClose={() => setShowOperations(false)}

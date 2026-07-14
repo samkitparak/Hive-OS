@@ -68,6 +68,11 @@ Scenarios report machine, labor, and tooling utilization; capacity wait;
 calendar wait; completed and blocked parts; and explicit blocked reasons. An
 incomplete scenario is never eligible for recommendation.
 
+Scheduling a preventive work order creates the same `resource_unavailability`
+object used by the simulator. Cancelling the work order removes its future
+window; completing it removes only future time so historical schedule evidence
+is retained. See `MAINTENANCE_CONTROL.md` for trigger and completion rules.
+
 ## Offsite Assumptions
 
 HIVE seeds the following values as `engineering_assumption`, `verified=0`:

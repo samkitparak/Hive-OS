@@ -25,7 +25,7 @@
 2. HIVE unit labels, then Ottimo alias and station-event mapping
 3. Energy meters and utility-cost allocation
 4. Inventory/remnant tracking and purchase alerts
-5. Maintenance work orders and downtime reasons
+5. Commission OEM maintenance plans, condition thresholds, and spare catalogs
 6. Direct Cabinet Vision SQL integration
 7. Environmental, camera, and material-movement automation
 
@@ -49,3 +49,4 @@ Real formats should replace only:
 | Cabinet Vision SQL | `src/cv_sql_connector.py::normalize_placeholder_rows` | Normalized job/part rows |
 
 See `PHASE1_PLACEHOLDERS.md` for payload examples and exact normalized fields.
+See `MAINTENANCE_CONTROL.md` for preventive trigger and evidence contracts.

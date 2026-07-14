@@ -245,6 +245,189 @@ CREATE TABLE IF NOT EXISTS maintenance_work_orders (
     closed_at       TEXT
 );
 
+-- Preventive maintenance is kept beside the original corrective work-order
+-- contract so existing installations migrate without ALTER TABLE operations.
+CREATE TABLE IF NOT EXISTS maintenance_plans (
+    id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_key                    TEXT NOT NULL UNIQUE,
+    machine_id                  INTEGER NOT NULL REFERENCES machines(id),
+    title                       TEXT NOT NULL,
+    description                 TEXT,
+    strategy                    TEXT NOT NULL DEFAULT 'calendar', -- calendar | usage | hybrid | condition
+    runtime_basis               TEXT NOT NULL DEFAULT 'powered', -- powered | cycle
+    interval_days               REAL CHECK(interval_days IS NULL OR interval_days > 0),
+    interval_runtime_h          REAL CHECK(interval_runtime_h IS NULL OR interval_runtime_h > 0),
+    interval_cycles             INTEGER CHECK(interval_cycles IS NULL OR interval_cycles > 0),
+    warning_days                REAL NOT NULL DEFAULT 7 CHECK(warning_days >= 0),
+    warning_runtime_h           REAL NOT NULL DEFAULT 25 CHECK(warning_runtime_h >= 0),
+    warning_cycles              INTEGER NOT NULL DEFAULT 100 CHECK(warning_cycles >= 0),
+    estimated_duration_min      INTEGER NOT NULL DEFAULT 60 CHECK(estimated_duration_min > 0),
+    criticality                 TEXT NOT NULL DEFAULT 'medium', -- low | medium | high | critical
+    requires_shutdown           INTEGER NOT NULL DEFAULT 1,
+    loto_required               INTEGER NOT NULL DEFAULT 1,
+    condition_metric            TEXT,
+    condition_operator          TEXT, -- gt | gte | lt | lte
+    condition_threshold         REAL,
+    active                      INTEGER NOT NULL DEFAULT 1,
+    source                      TEXT NOT NULL DEFAULT 'engineering_assumption',
+    verified                    INTEGER NOT NULL DEFAULT 0,
+    version                     INTEGER NOT NULL DEFAULT 1,
+    anchor_at                   TEXT NOT NULL,
+    last_completed_at           TEXT,
+    last_completed_runtime_h    REAL NOT NULL DEFAULT 0,
+    last_completed_cycles       INTEGER NOT NULL DEFAULT 0,
+    created_at                  TEXT NOT NULL,
+    updated_at                  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS maintenance_plan_tasks (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    maintenance_plan_id INTEGER NOT NULL REFERENCES maintenance_plans(id),
+    task_key            TEXT NOT NULL,
+    sequence            INTEGER NOT NULL CHECK(sequence >= 1),
+    title               TEXT NOT NULL,
+    instructions        TEXT,
+    response_type       TEXT NOT NULL DEFAULT 'check', -- check | pass_fail | number | text
+    unit                TEXT,
+    required            INTEGER NOT NULL DEFAULT 1,
+    active              INTEGER NOT NULL DEFAULT 1,
+    updated_at          TEXT NOT NULL,
+    UNIQUE(maintenance_plan_id, task_key)
+);
+
+CREATE TABLE IF NOT EXISTS spare_parts (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    part_key                TEXT NOT NULL UNIQUE,
+    name                    TEXT NOT NULL,
+    manufacturer            TEXT,
+    manufacturer_part_number TEXT,
+    unit                    TEXT NOT NULL DEFAULT 'each',
+    criticality             TEXT NOT NULL DEFAULT 'medium',
+    reorder_point           REAL NOT NULL DEFAULT 0 CHECK(reorder_point >= 0),
+    reorder_qty             REAL NOT NULL DEFAULT 0 CHECK(reorder_qty >= 0),
+    lead_time_days          INTEGER CHECK(lead_time_days IS NULL OR lead_time_days >= 0),
+    preferred_supplier      TEXT,
+    source                  TEXT NOT NULL DEFAULT 'manual',
+    verified                INTEGER NOT NULL DEFAULT 0,
+    active                  INTEGER NOT NULL DEFAULT 1,
+    created_at              TEXT NOT NULL,
+    updated_at              TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS spare_stock (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    spare_part_id       INTEGER NOT NULL REFERENCES spare_parts(id),
+    location            TEXT NOT NULL DEFAULT 'maintenance_store',
+    on_hand_qty         REAL NOT NULL DEFAULT 0 CHECK(on_hand_qty >= 0),
+    reserved_qty        REAL NOT NULL DEFAULT 0 CHECK(reserved_qty >= 0),
+    unit_cost           REAL CHECK(unit_cost IS NULL OR unit_cost >= 0),
+    source              TEXT NOT NULL DEFAULT 'manual',
+    verified            INTEGER NOT NULL DEFAULT 0,
+    updated_at          TEXT NOT NULL,
+    UNIQUE(spare_part_id, location)
+);
+
+CREATE TABLE IF NOT EXISTS maintenance_plan_spares (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    maintenance_plan_id INTEGER NOT NULL REFERENCES maintenance_plans(id),
+    spare_part_id       INTEGER NOT NULL REFERENCES spare_parts(id),
+    quantity            REAL NOT NULL CHECK(quantity > 0),
+    required            INTEGER NOT NULL DEFAULT 1,
+    active              INTEGER NOT NULL DEFAULT 1,
+    updated_at          TEXT NOT NULL,
+    UNIQUE(maintenance_plan_id, spare_part_id)
+);
+
+CREATE TABLE IF NOT EXISTS maintenance_work_order_links (
+    work_order_id       INTEGER PRIMARY KEY REFERENCES maintenance_work_orders(id),
+    maintenance_plan_id INTEGER NOT NULL REFERENCES maintenance_plans(id),
+    trigger_type        TEXT NOT NULL,
+    trigger_details_json TEXT,
+    generated_at        TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS maintenance_condition_signals (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    machine_id          INTEGER NOT NULL REFERENCES machines(id),
+    maintenance_plan_id INTEGER REFERENCES maintenance_plans(id),
+    metric_key          TEXT NOT NULL,
+    value               REAL NOT NULL,
+    unit                TEXT,
+    threshold           REAL,
+    comparison          TEXT,
+    triggered           INTEGER NOT NULL DEFAULT 0,
+    severity            TEXT NOT NULL DEFAULT 'warning',
+    status              TEXT NOT NULL DEFAULT 'observed', -- observed | open | acknowledged | cleared
+    source              TEXT NOT NULL,
+    evidence_type       TEXT,
+    evidence_id         INTEGER,
+    observed_at         TEXT NOT NULL,
+    recorded_at         TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS maintenance_executions (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    work_order_id           INTEGER NOT NULL UNIQUE REFERENCES maintenance_work_orders(id),
+    maintenance_plan_id     INTEGER REFERENCES maintenance_plans(id),
+    machine_id              INTEGER REFERENCES machines(id),
+    outcome                 TEXT NOT NULL, -- completed | follow_up_required
+    completed_by            TEXT NOT NULL,
+    notes                   TEXT,
+    loto_verified           INTEGER NOT NULL DEFAULT 0,
+    loto_verified_by        TEXT,
+    loto_verified_at        TEXT,
+    completed_at            TEXT NOT NULL,
+    runtime_h_at_completion REAL,
+    cycles_at_completion    INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS maintenance_task_results (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    maintenance_execution_id INTEGER NOT NULL REFERENCES maintenance_executions(id),
+    maintenance_task_id     INTEGER NOT NULL REFERENCES maintenance_plan_tasks(id),
+    result                  TEXT NOT NULL,
+    value_text              TEXT,
+    value_number            REAL,
+    notes                   TEXT,
+    UNIQUE(maintenance_execution_id, maintenance_task_id)
+);
+
+CREATE TABLE IF NOT EXISTS maintenance_spare_reservations (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    work_order_id       INTEGER NOT NULL REFERENCES maintenance_work_orders(id),
+    spare_part_id       INTEGER NOT NULL REFERENCES spare_parts(id),
+    spare_stock_id      INTEGER REFERENCES spare_stock(id),
+    quantity_required   REAL NOT NULL CHECK(quantity_required > 0),
+    quantity_reserved   REAL NOT NULL DEFAULT 0 CHECK(quantity_reserved >= 0),
+    required            INTEGER NOT NULL DEFAULT 1,
+    status              TEXT NOT NULL, -- reserved | shortage | issued | released
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS spare_stock_movements (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    spare_stock_id      INTEGER NOT NULL REFERENCES spare_stock(id),
+    work_order_id       INTEGER REFERENCES maintenance_work_orders(id),
+    movement_type       TEXT NOT NULL, -- receipt | adjustment | reservation | release | issue
+    on_hand_delta       REAL NOT NULL DEFAULT 0,
+    reserved_delta      REAL NOT NULL DEFAULT 0,
+    actor               TEXT NOT NULL,
+    notes               TEXT,
+    ts                  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS maintenance_work_order_events (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    work_order_id       INTEGER NOT NULL REFERENCES maintenance_work_orders(id),
+    event_type          TEXT NOT NULL,
+    from_status         TEXT,
+    to_status           TEXT,
+    actor               TEXT NOT NULL,
+    details_json        TEXT,
+    ts                  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS defect_types (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     code        TEXT NOT NULL UNIQUE,
@@ -709,6 +892,14 @@ CREATE INDEX IF NOT EXISTS idx_route_observations_edge ON route_observations(fro
 CREATE INDEX IF NOT EXISTS idx_oee_snapshots_machine_window ON oee_snapshots(machine_id, window_end DESC);
 CREATE INDEX IF NOT EXISTS idx_downtime_status_started ON downtime_events(status, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_work_orders_status_created ON maintenance_work_orders(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_maintenance_plans_machine_active ON maintenance_plans(machine_id, active, verified);
+CREATE INDEX IF NOT EXISTS idx_maintenance_tasks_plan_active ON maintenance_plan_tasks(maintenance_plan_id, active, sequence);
+CREATE INDEX IF NOT EXISTS idx_maintenance_links_plan ON maintenance_work_order_links(maintenance_plan_id, generated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_maintenance_signals_plan_status ON maintenance_condition_signals(maintenance_plan_id, status, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_maintenance_events_order_ts ON maintenance_work_order_events(work_order_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_spare_stock_part_location ON spare_stock(spare_part_id, location);
+CREATE INDEX IF NOT EXISTS idx_spare_reservations_order_status ON maintenance_spare_reservations(work_order_id, status);
+CREATE INDEX IF NOT EXISTS idx_spare_movements_stock_ts ON spare_stock_movements(spare_stock_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_quality_checks_result_ts ON quality_checks(result, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_rework_status_created ON rework_tasks(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_barcode_events_ts ON barcode_events(ts DESC);

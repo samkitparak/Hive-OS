@@ -33,6 +33,136 @@ class WorkOrderCreate(RequestModel):
     due_date: Optional[str] = None
 
 
+class MaintenanceTaskInput(RequestModel):
+    task_key: str = Field(min_length=1, pattern=r"^[a-z0-9_]+$")
+    title: str = Field(min_length=1)
+    instructions: Optional[str] = None
+    response_type: Literal["check", "pass_fail", "number", "text"] = "check"
+    unit: Optional[str] = None
+    required: bool = True
+
+
+class MaintenancePlanSpareInput(RequestModel):
+    part_key: str = Field(min_length=1)
+    quantity: float = Field(gt=0)
+    required: bool = True
+
+
+class MaintenancePlanCreate(RequestModel):
+    plan_key: str = Field(min_length=1, pattern=r"^[a-z0-9_]+$")
+    machine_key: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    description: Optional[str] = None
+    strategy: Literal["calendar", "usage", "hybrid", "condition"] = "calendar"
+    runtime_basis: Literal["powered", "cycle"] = "powered"
+    interval_days: Optional[float] = Field(default=None, gt=0)
+    interval_runtime_h: Optional[float] = Field(default=None, gt=0)
+    interval_cycles: Optional[int] = Field(default=None, gt=0)
+    warning_days: float = Field(default=7, ge=0)
+    warning_runtime_h: float = Field(default=25, ge=0)
+    warning_cycles: int = Field(default=100, ge=0)
+    estimated_duration_min: int = Field(default=60, gt=0)
+    criticality: Literal["low", "medium", "high", "critical"] = "medium"
+    requires_shutdown: bool = True
+    loto_required: bool = True
+    condition_metric: Optional[str] = None
+    condition_operator: Optional[Literal["gt", "gte", "lt", "lte"]] = None
+    condition_threshold: Optional[float] = None
+    active: bool = True
+    verified: bool = False
+    anchor_at: Optional[str] = None
+    source: str = "manual"
+    tasks: list[MaintenanceTaskInput] = Field(default_factory=list)
+    spares: list[MaintenancePlanSpareInput] = Field(default_factory=list)
+
+
+class MaintenancePlanUpdate(RequestModel):
+    expected_version: Optional[int] = Field(default=None, ge=1)
+    title: Optional[str] = Field(default=None, min_length=1)
+    description: Optional[str] = None
+    strategy: Optional[Literal["calendar", "usage", "hybrid", "condition"]] = None
+    runtime_basis: Optional[Literal["powered", "cycle"]] = None
+    interval_days: Optional[float] = Field(default=None, gt=0)
+    interval_runtime_h: Optional[float] = Field(default=None, gt=0)
+    interval_cycles: Optional[int] = Field(default=None, gt=0)
+    warning_days: Optional[float] = Field(default=None, ge=0)
+    warning_runtime_h: Optional[float] = Field(default=None, ge=0)
+    warning_cycles: Optional[int] = Field(default=None, ge=0)
+    estimated_duration_min: Optional[int] = Field(default=None, gt=0)
+    criticality: Optional[Literal["low", "medium", "high", "critical"]] = None
+    requires_shutdown: Optional[bool] = None
+    loto_required: Optional[bool] = None
+    condition_metric: Optional[str] = None
+    condition_operator: Optional[Literal["gt", "gte", "lt", "lte"]] = None
+    condition_threshold: Optional[float] = None
+    active: Optional[bool] = None
+    verified: Optional[bool] = None
+    anchor_at: Optional[str] = None
+    actor: str = Field(default="operator", min_length=1)
+    tasks: Optional[list[MaintenanceTaskInput]] = None
+    spares: Optional[list[MaintenancePlanSpareInput]] = None
+
+
+class MaintenanceConditionCreate(RequestModel):
+    machine_key: str = Field(min_length=1)
+    metric_key: str = Field(min_length=1)
+    value: float
+    unit: Optional[str] = None
+    severity: Literal["info", "warning", "critical"] = "warning"
+    source: str = Field(default="manual", min_length=1)
+    evidence_type: Optional[str] = None
+    evidence_id: Optional[int] = None
+    observed_at: Optional[str] = None
+
+
+class SparePartCreate(RequestModel):
+    part_key: str = Field(min_length=1, pattern=r"^[a-zA-Z0-9_.-]+$")
+    name: str = Field(min_length=1)
+    manufacturer: Optional[str] = None
+    manufacturer_part_number: Optional[str] = None
+    unit: str = Field(default="each", min_length=1)
+    criticality: Literal["low", "medium", "high", "critical"] = "medium"
+    reorder_point: float = Field(default=0, ge=0)
+    reorder_qty: float = Field(default=0, ge=0)
+    lead_time_days: Optional[int] = Field(default=None, ge=0)
+    preferred_supplier: Optional[str] = None
+    source: str = "manual"
+    verified: bool = False
+
+
+class SpareStockUpdate(RequestModel):
+    on_hand_qty: float = Field(ge=0)
+    location: str = Field(default="maintenance_store", min_length=1)
+    unit_cost: Optional[float] = Field(default=None, ge=0)
+    verified: bool = False
+    actor: str = Field(default="operator", min_length=1)
+    notes: Optional[str] = None
+
+
+class MaintenanceWorkOrderUpdate(RequestModel):
+    status: Optional[Literal["open", "in_progress", "cancelled"]] = None
+    scheduled_start_at: Optional[str] = None
+    scheduled_end_at: Optional[str] = None
+    actor: str = Field(default="operator", min_length=1)
+
+
+class MaintenanceTaskResult(RequestModel):
+    task_id: int = Field(ge=1)
+    result: str = Field(min_length=1)
+    value_text: Optional[str] = None
+    value_number: Optional[float] = None
+    notes: Optional[str] = None
+
+
+class MaintenanceCompletion(RequestModel):
+    completed_by: str = Field(min_length=1)
+    completed_at: Optional[str] = None
+    notes: Optional[str] = None
+    loto_verified: bool = False
+    loto_verified_by: Optional[str] = None
+    task_results: list[MaintenanceTaskResult] = Field(default_factory=list)
+
+
 class QualityCheckCreate(RequestModel):
     result: Literal["pass", "fail", "rework"]
     job_name: Optional[str] = None

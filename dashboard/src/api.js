@@ -101,6 +101,22 @@ export const fetchRemoteSetupPlan = (machineKey) =>
 export const fetchOperationsSummary = () => request("/operations/summary");
 export const fetchDowntime = () => request("/downtime?status=open");
 export const fetchWorkOrders = () => request("/maintenance/work-orders");
+export const fetchMaintenanceSnapshot = () => request("/maintenance/snapshot");
+export const syncMaintenance = () => postJson("/maintenance/sync", {});
+export const updateMaintenancePlan = (id, payload) => request(`/maintenance/plans/${id}`, {
+  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+});
+export const fetchMaintenanceWorkOrder = id => request(`/maintenance/work-orders/${id}`);
+export const updateMaintenanceWorkOrder = (id, payload) => request(`/maintenance/work-orders/${id}`, {
+  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+});
+export const completeMaintenanceWorkOrder = (id, payload) =>
+  postJson(`/maintenance/work-orders/${id}/complete`, payload);
+export const createSparePart = payload => postJson("/maintenance/spares", payload);
+export const updateSpareStock = (partKey, payload) =>
+  request(`/maintenance/spares/${encodeURIComponent(partKey)}/stock`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+  });
 export const fetchRework = () => request("/rework?status=open");
 export const fetchBarcodeEvents = () => request("/barcode/events?limit=8");
 

@@ -106,6 +106,17 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
         and cv_folder != r"C:\CabinetVision\Export"
         and "TODO" not in str(cv_folder)
     )
+    maintenance = conn.execute(
+        """SELECT COUNT(*) plans,
+                  COUNT(DISTINCT CASE WHEN verified=1 AND active=1 THEN machine_id END) verified
+           FROM maintenance_plans"""
+    ).fetchone()
+    spare_shortages = conn.execute(
+        """SELECT COUNT(*) count FROM maintenance_spare_reservations
+           WHERE required=1 AND status='shortage'"""
+    ).fetchone()["count"]
+    verified_plans = int(maintenance["verified"] or 0)
+    maintenance_ready = verified_plans >= len(machines) and not spare_shortages
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -115,6 +126,8 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "attention_needed": sum(
                 1 for machine in machines if machine["status"] in ("stale", "offline")
             ),
+            "verified_maintenance_plans": verified_plans,
+            "maintenance_spare_shortages": int(spare_shortages),
         },
         "services": [
             {"key": "database", "name": "Database", "status": "online",
@@ -127,6 +140,12 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
                  "offline" if cv_configured else "not_configured"
              ),
              "detail": cv_folder or "No export folder configured"},
+            {"key": "maintenance", "name": "Preventive maintenance",
+             "status": "ready" if maintenance_ready else "needs_site_value",
+             "detail": (
+                 f"{verified_plans}/{len(machines)} machines covered; "
+                 f"{spare_shortages} required spare shortages"
+             )},
         ],
         "machines": machines,
     }

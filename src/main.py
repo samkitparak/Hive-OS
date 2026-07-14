@@ -58,6 +58,7 @@ import deployment as deployment_module
 import config_editor as config_editor_module
 import remote_setup as remote_setup_module
 import operations as operations_module
+import maintenance as maintenance_module
 import ottimo_connector
 import cv_sql_connector
 from api_models import (
@@ -73,6 +74,11 @@ from api_models import (
     FactoryCalendarUpdate,
     LaborRoleUpdate,
     MachineResourceProfileUpdate,
+    MaintenanceCompletion,
+    MaintenanceConditionCreate,
+    MaintenancePlanCreate,
+    MaintenancePlanUpdate,
+    MaintenanceWorkOrderUpdate,
     MaterialStockUpdate,
     PartRouteUpdate,
     PlanningDecision,
@@ -87,6 +93,8 @@ from api_models import (
     ResourceUnavailabilityCreate,
     RouteExceptionDecision,
     SiteConfigUpdate,
+    SparePartCreate,
+    SpareStockUpdate,
     ToolPoolUpdate,
     UnitAliasCreate,
     WipBufferUpdate,
@@ -100,7 +108,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.6.0"
+APP_VERSION = "0.7.0"
 
 
 class ApiPrefixMiddleware:
@@ -135,6 +143,8 @@ async def lifespan(app: FastAPI):
     resources_module.sync_defaults(_conn)
     identity_module.sync_controlled_orders(_conn)
     execution_module.sync(_conn)
+    maintenance_module.sync_defaults(_conn)
+    maintenance_module.sync(_conn)
     try:
         _mqtt_client = mqtt_bridge.start(_conn, CONFIG_PATH)
         log.info("MQTT bridge started")
@@ -233,6 +243,7 @@ async def _watch_learning():
             await asyncio.to_thread(resources_module.sync_defaults, conn)
             await asyncio.to_thread(execution_module.sync, conn)
             await asyncio.to_thread(execution_module.reconcile_machine_events, conn)
+            await asyncio.to_thread(maintenance_module.sync, conn)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -971,15 +982,127 @@ def close_downtime(downtime_id: int, payload: CloseRequest | None = None):
 
 @app.get("/maintenance/work-orders")
 def get_work_orders(status: Optional[str] = None):
-    return operations_module.list_work_orders(_get_conn(), status)
+    return maintenance_module.list_work_orders(_get_conn(), status)
 
 
 @app.post("/maintenance/work-orders")
 def post_work_order(payload: WorkOrderCreate):
     try:
-        return operations_module.create_work_order(
+        created = operations_module.create_work_order(
             _get_conn(), payload.model_dump(exclude_none=True)
         )
+        return maintenance_module.get_work_order(_get_conn(), created["id"])
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/maintenance/snapshot")
+def get_maintenance_snapshot():
+    return maintenance_module.snapshot(_get_conn())
+
+
+@app.post("/maintenance/sync")
+def post_maintenance_sync():
+    result = maintenance_module.sync(_get_conn())
+    return {**result, "snapshot": maintenance_module.snapshot(_get_conn(), ensure_defaults=False)}
+
+
+@app.get("/maintenance/plans")
+def get_maintenance_plans():
+    return maintenance_module.list_plans(_get_conn())
+
+
+@app.post("/maintenance/plans")
+def post_maintenance_plan(payload: MaintenancePlanCreate):
+    try:
+        return maintenance_module.create_plan(
+            _get_conn(), payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.put("/maintenance/plans/{plan_id}")
+def put_maintenance_plan(plan_id: int, payload: MaintenancePlanUpdate):
+    try:
+        return maintenance_module.update_plan(
+            _get_conn(), plan_id, payload.model_dump(exclude_unset=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/maintenance/conditions")
+def post_maintenance_condition(payload: MaintenanceConditionCreate):
+    try:
+        return maintenance_module.record_condition_signal(
+            _get_conn(), payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/maintenance/spares")
+def get_maintenance_spares():
+    return maintenance_module.list_spares(_get_conn())
+
+
+@app.post("/maintenance/spares")
+def post_maintenance_spare(payload: SparePartCreate):
+    try:
+        return maintenance_module.create_spare_part(
+            _get_conn(), payload.model_dump(exclude_none=True)
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.put("/maintenance/spares/{part_key}/stock")
+def put_maintenance_spare_stock(part_key: str, payload: SpareStockUpdate):
+    try:
+        return maintenance_module.set_spare_stock(
+            _get_conn(), part_key, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/maintenance/work-orders/{work_order_id}")
+def get_maintenance_work_order(work_order_id: int):
+    try:
+        return maintenance_module.get_work_order(_get_conn(), work_order_id)
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+
+
+@app.put("/maintenance/work-orders/{work_order_id}")
+def put_maintenance_work_order(work_order_id: int, payload: MaintenanceWorkOrderUpdate):
+    try:
+        return maintenance_module.update_work_order(
+            _get_conn(), work_order_id, payload.model_dump(exclude_unset=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/maintenance/work-orders/{work_order_id}/complete")
+def complete_maintenance_work_order(work_order_id: int, payload: MaintenanceCompletion):
+    try:
+        return maintenance_module.complete_work_order(
+            _get_conn(), work_order_id, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
 
