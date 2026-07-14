@@ -701,3 +701,45 @@ class RootCauseDecision(RequestModel):
     corrective_action: Optional[str] = Field(default=None, max_length=2000)
     notes: Optional[str] = Field(default=None, max_length=2000)
     actor: str = Field(min_length=1, max_length=120)
+
+
+class AlertSyncRequest(RequestModel):
+    actor: str = Field(min_length=1, max_length=120)
+
+
+class AlertAction(RequestModel):
+    action: Literal["acknowledge", "snooze", "resolve", "reopen"]
+    expected_version: Optional[int] = Field(default=None, ge=1)
+    actor: str = Field(min_length=1, max_length=120)
+    owner: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    notes: Optional[str] = Field(default=None, max_length=2000)
+    snooze_minutes: Optional[int] = Field(default=None, ge=5, le=1440)
+
+
+class AlertDestinationUpsert(RequestModel):
+    name: str = Field(min_length=1, max_length=120)
+    channel: Literal["webhook"] = "webhook"
+    endpoint: str = Field(min_length=8, max_length=2000)
+    secret_env: Optional[str] = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]*$", max_length=120)
+    min_severity: Literal["info", "warning", "critical"] = "warning"
+    enabled: bool = False
+    expected_version: Optional[int] = Field(default=None, ge=1)
+    actor: str = Field(min_length=1, max_length=120)
+
+
+class AlertDestinationTest(RequestModel):
+    live: bool = False
+    actor: str = Field(min_length=1, max_length=120)
+
+
+class AlertDispatchRequest(RequestModel):
+    limit: int = Field(default=50, ge=1, le=500)
+    actor: str = Field(min_length=1, max_length=120)
+
+
+class AlertSettingsUpdate(RequestModel):
+    auto_sync: bool
+    auto_dispatch: bool
+    interval_seconds: int = Field(default=60, ge=15, le=3600)
+    expected_version: Optional[int] = Field(default=None, ge=1)
+    actor: str = Field(min_length=1, max_length=120)

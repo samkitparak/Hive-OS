@@ -42,6 +42,19 @@ export const fetchRootCauses = () => request("/root-causes");
 export const syncRootCauses = (payload = {}) => postJson("/root-causes/sync", payload);
 export const decideRootCause = (id, payload) =>
   postJson(`/root-causes/${id}/decision`, payload);
+export const fetchAlerts = () => request("/alerts");
+export const syncAlerts = (payload) => postJson("/alerts/sync", payload);
+export const actOnAlert = (id, payload) => postJson(`/alerts/${id}/action`, payload);
+export const updateAlertDestination = (key, payload) => request(
+  `/alerts/destinations/${encodeURIComponent(key)}`,
+  { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+);
+export const testAlertDestination = (key, payload) =>
+  postJson(`/alerts/destinations/${encodeURIComponent(key)}/test`, payload);
+export const dispatchAlerts = (payload) => postJson("/alerts/deliveries/dispatch", payload);
+export const updateAlertSettings = (payload) => request("/alerts/settings", {
+  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+});
 export const fetchLearningStatus = () => request("/learning/status");
 export const fetchRoutingGraph = () => request("/routing/graph");
 export const fetchTwinReadiness = () => request("/digital-twin/readiness");

@@ -51,6 +51,7 @@ import event_pipeline
 import optimization as optimization_module
 import improvement as improvement_module
 import root_cause as root_cause_module
+import alerting as alerting_module
 import planning as planning_module
 import production_control as production_control_module
 import resources as resources_module
@@ -86,6 +87,12 @@ from api_models import (
     ImprovementSyncRequest,
     RootCauseDecision,
     RootCauseSyncRequest,
+    AlertAction,
+    AlertDestinationTest,
+    AlertDestinationUpsert,
+    AlertDispatchRequest,
+    AlertSettingsUpdate,
+    AlertSyncRequest,
     InventoryItemUpdate,
     InventoryLotBalanceUpdate,
     InventoryRequirementUpdate,
@@ -142,7 +149,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.13.0"
+APP_VERSION = "0.14.0"
 
 
 class ApiPrefixMiddleware:
@@ -166,13 +173,14 @@ _cv_observer = None
 _event_watch_task = None
 _learning_watch_task = None
 _industrial_watch_task = None
+_alert_watch_task = None
 _route_conn_override = None
 _route_connections = threading.local()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _mqtt_client, _conn, _cv_observer, _event_watch_task, _learning_watch_task, _industrial_watch_task
+    global _mqtt_client, _conn, _cv_observer, _event_watch_task, _learning_watch_task, _industrial_watch_task, _alert_watch_task
     _conn = init_db(DB_PATH, check_same_thread=False)
     production_control_module.sync_all(_conn)
     resources_module.sync_defaults(_conn)
@@ -191,7 +199,14 @@ async def lifespan(app: FastAPI):
     _event_watch_task = asyncio.create_task(_watch_events())
     _learning_watch_task = asyncio.create_task(_watch_learning())
     _industrial_watch_task = asyncio.create_task(_watch_industrial_io())
+    _alert_watch_task = asyncio.create_task(_watch_alerts())
     yield
+    if _alert_watch_task:
+        _alert_watch_task.cancel()
+        try:
+            await _alert_watch_task
+        except asyncio.CancelledError:
+            pass
     if _industrial_watch_task:
         _industrial_watch_task.cancel()
         try:
@@ -310,6 +325,24 @@ async def _watch_industrial_io():
             raise
         except Exception:
             log.exception("industrial I/O poll failed")
+
+
+async def _watch_alerts():
+    """Run only the alert automation explicitly commissioned by the site."""
+    while True:
+        try:
+            settings = alerting_module.runtime_settings(_get_conn())
+            await asyncio.sleep(max(15, int(settings["interval_seconds"])))
+            conn = _get_conn()
+            settings = alerting_module.runtime_settings(conn)
+            if settings["auto_sync"]:
+                await asyncio.to_thread(alerting_module.sync, conn, "hive-alert-worker")
+            if settings["auto_dispatch"]:
+                await asyncio.to_thread(alerting_module.dispatch, conn, 50, "hive-alert-worker")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("alert automation failed")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -551,6 +584,83 @@ def post_root_cause_decision(case_id: int, payload: RootCauseDecision):
     try:
         return root_cause_module.decide(
             _get_conn(), case_id, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/alerts")
+def get_alerts(status: Optional[str] = Query(default=None, pattern="^(open|acknowledged|snoozed|resolved)$")):
+    return alerting_module.snapshot(_get_conn(), status=status)
+
+
+@app.post("/alerts/sync")
+def post_alert_sync(payload: AlertSyncRequest):
+    try:
+        return alerting_module.sync(_get_conn(), actor=payload.actor)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.put("/alerts/settings")
+def put_alert_settings(payload: AlertSettingsUpdate):
+    try:
+        return alerting_module.update_settings(
+            _get_conn(), payload.model_dump(exclude_none=True)
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.put("/alerts/destinations/{destination_key}")
+def put_alert_destination(destination_key: str, payload: AlertDestinationUpsert):
+    try:
+        return alerting_module.upsert_destination(
+            _get_conn(), destination_key, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/alerts/destinations/{destination_key}/test")
+def post_alert_destination_test(destination_key: str, payload: AlertDestinationTest):
+    try:
+        return alerting_module.test_destination(
+            _get_conn(), destination_key, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/alerts/deliveries/dispatch")
+def post_alert_dispatch(payload: AlertDispatchRequest):
+    try:
+        return alerting_module.dispatch(
+            _get_conn(), limit=payload.limit, actor=payload.actor
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/alerts/{alert_id}")
+def get_alert(alert_id: int):
+    try:
+        return alerting_module.alert_detail(_get_conn(), alert_id)
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+
+
+@app.post("/alerts/{alert_id}/action")
+def post_alert_action(alert_id: int, payload: AlertAction):
+    try:
+        return alerting_module.act(
+            _get_conn(), alert_id, payload.model_dump(exclude_none=True)
         )
     except KeyError as error:
         raise HTTPException(404, str(error)) from error

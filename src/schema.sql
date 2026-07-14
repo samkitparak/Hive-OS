@@ -1502,6 +1502,116 @@ CREATE TABLE IF NOT EXISTS diagnostic_case_events (
     ts                  TEXT NOT NULL
 );
 
+-- Rationalized operator alarms are derived from actionable HIVE conditions.
+-- Source events remain immutable; this layer owns acknowledgement, escalation,
+-- resolution, and commissioned external delivery.
+CREATE TABLE IF NOT EXISTS alert_instances (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    alert_key           TEXT NOT NULL UNIQUE,
+    rule_key            TEXT NOT NULL,
+    source_type         TEXT NOT NULL,
+    source_id           TEXT NOT NULL,
+    machine_id          INTEGER REFERENCES machines(id),
+    domain              TEXT NOT NULL,
+    severity            TEXT NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'open', -- open | acknowledged | snoozed | resolved
+    title               TEXT NOT NULL,
+    detail              TEXT NOT NULL,
+    required_action     TEXT NOT NULL,
+    consequence         TEXT NOT NULL,
+    owner_role          TEXT NOT NULL,
+    owner               TEXT,
+    evidence_token      TEXT NOT NULL,
+    evidence_json       TEXT NOT NULL DEFAULT '{}',
+    occurred_at         TEXT NOT NULL,
+    first_seen_at       TEXT NOT NULL,
+    last_seen_at        TEXT NOT NULL,
+    response_due_at     TEXT NOT NULL,
+    occurrence_count    INTEGER NOT NULL DEFAULT 1,
+    escalation_level    INTEGER NOT NULL DEFAULT 0,
+    escalated_at        TEXT,
+    acknowledged_at     TEXT,
+    acknowledged_by     TEXT,
+    snoozed_until       TEXT,
+    resolved_at         TEXT,
+    resolved_by         TEXT,
+    resolution_notes    TEXT,
+    version             INTEGER NOT NULL DEFAULT 1,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS alert_events (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    alert_id            INTEGER NOT NULL REFERENCES alert_instances(id),
+    event_type          TEXT NOT NULL,
+    from_status         TEXT,
+    to_status           TEXT NOT NULL,
+    actor               TEXT NOT NULL,
+    notes               TEXT,
+    payload_json        TEXT NOT NULL DEFAULT '{}',
+    ts                  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS alert_destinations (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    destination_key     TEXT NOT NULL UNIQUE,
+    name                TEXT NOT NULL,
+    channel             TEXT NOT NULL DEFAULT 'webhook',
+    endpoint            TEXT NOT NULL,
+    secret_env          TEXT,
+    min_severity        TEXT NOT NULL DEFAULT 'warning',
+    enabled             INTEGER NOT NULL DEFAULT 0,
+    verified_at         TEXT,
+    last_tested_at      TEXT,
+    last_error          TEXT,
+    version             INTEGER NOT NULL DEFAULT 1,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS alert_deliveries (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    alert_id            INTEGER REFERENCES alert_instances(id),
+    alert_event_id      INTEGER REFERENCES alert_events(id),
+    destination_id      INTEGER NOT NULL REFERENCES alert_destinations(id),
+    delivery_key        TEXT NOT NULL UNIQUE,
+    event_type          TEXT NOT NULL,
+    payload_json        TEXT NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'pending', -- pending | delivered | failed
+    attempts            INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at     TEXT,
+    response_code       INTEGER,
+    response_body       TEXT,
+    last_error          TEXT,
+    created_at          TEXT NOT NULL,
+    delivered_at        TEXT,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS alert_runtime_settings (
+    id                  INTEGER PRIMARY KEY CHECK(id=1),
+    auto_sync           INTEGER NOT NULL DEFAULT 0,
+    auto_dispatch       INTEGER NOT NULL DEFAULT 0,
+    interval_seconds    INTEGER NOT NULL DEFAULT 60,
+    version             INTEGER NOT NULL DEFAULT 1,
+    updated_by          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS alert_admin_events (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_type         TEXT NOT NULL,
+    target_key          TEXT NOT NULL,
+    event_type          TEXT NOT NULL,
+    actor               TEXT NOT NULL,
+    payload_json        TEXT NOT NULL DEFAULT '{}',
+    ts                  TEXT NOT NULL
+);
+
+INSERT OR IGNORE INTO alert_runtime_settings
+    (id,auto_sync,auto_dispatch,interval_seconds,updated_by,updated_at)
+VALUES (1,0,0,60,'schema','1970-01-01T00:00:00+00:00');
+
 CREATE INDEX IF NOT EXISTS idx_parts_job ON parts(job_id);
 CREATE INDEX IF NOT EXISTS idx_production_orders_status_due ON production_orders(status, due_at, priority DESC);
 CREATE INDEX IF NOT EXISTS idx_production_order_events_order_ts ON production_order_events(production_order_id, ts DESC);
@@ -1576,6 +1686,11 @@ CREATE INDEX IF NOT EXISTS idx_diagnostic_cases_status_time ON diagnostic_cases(
 CREATE INDEX IF NOT EXISTS idx_diagnostic_cases_machine_time ON diagnostic_cases(machine_id, occurred_at DESC);
 CREATE INDEX IF NOT EXISTS idx_diagnostic_hypotheses_case_version ON diagnostic_hypotheses(case_id, analysis_version DESC, rank);
 CREATE INDEX IF NOT EXISTS idx_diagnostic_case_events_case_ts ON diagnostic_case_events(case_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_alert_instances_status_severity ON alert_instances(status, severity, first_seen_at);
+CREATE INDEX IF NOT EXISTS idx_alert_instances_source ON alert_instances(source_type, source_id);
+CREATE INDEX IF NOT EXISTS idx_alert_events_alert_ts ON alert_events(alert_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_alert_deliveries_status_due ON alert_deliveries(status, next_attempt_at, id);
+CREATE INDEX IF NOT EXISTS idx_alert_admin_events_target_ts ON alert_admin_events(target_type, target_key, ts DESC);
 
 -- Seed the 14 in-scope HAEEV machines (aluminium pair excluded, compressors/dust collectors as utility)
 INSERT OR IGNORE INTO machines (name, machine_key, type, brand, model, has_maestro, has_opcua, active) VALUES

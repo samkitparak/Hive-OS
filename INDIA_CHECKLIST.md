@@ -268,6 +268,28 @@ See `ROOT_CAUSE_DIAGNOSTICS.md` for evidence weights, learning thresholds, and A
 
 ---
 
+## Alert Management and Escalation
+
+Dashboard → **Alerts**
+
+- [ ] Rationalize each OEM alarm code: required operator action, consequence, priority, owner, and duplicate/deadband behavior
+- [ ] Confirm the 12 HIVE rule classes create an alert only when a person must respond
+- [ ] Assign primary and backup roles for every shift and approve initial response times
+- [ ] Run repeated condition synchronization against one shift of evidence and remove nuisance or chattering conditions
+- [ ] Verify acknowledgment, snooze expiry, manual resolution, source-clear resolution, recurrence, and escalation history
+- [ ] Approve the site webhook gateway URL; do not target arbitrary public URLs
+- [ ] Put the signing secret in a Windows machine environment variable and record only its name in HIVE
+- [ ] Save the destination disabled, run local simulation, then run one explicit live test
+- [ ] Verify the receiver rejects a bad signature and deduplicates the same `X-HIVE-Delivery` value
+- [ ] Enable the verified destination and dispatch pending current state once
+- [ ] Enable automatic sync for one supervised shift before enabling automatic dispatch
+- [ ] Run an alarm-flood drill and confirm the dashboard remains usable and operators know the escalation route
+- [ ] Review alert counts, response-overdue counts, failed deliveries, and rationalization changes after each commissioning shift
+
+See `ALARM_MANAGEMENT.md` for the rule catalog, lifecycle, security, and delivery contract.
+
+---
+
 ## Preventive Maintenance and Spares
 
 Dashboard → **Operations** → **Preventive maintenance**
@@ -316,6 +338,7 @@ Dashboard → **Operations** → **Preventive maintenance**
 8. Open **Planning** — set one real due time, verify routes, and release only the test job
 9. Scan/start/complete one routed part — confirm quantity advances and no route exception remains
 10. Open **Root-cause diagnostics**, synchronize incidents, and review one case without confirming unsupported evidence
+11. Open **Alerts**, synchronize conditions with a named operator, and verify automatic sync and dispatch are still off
 
 ---
 

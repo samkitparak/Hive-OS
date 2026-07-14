@@ -49,6 +49,7 @@ $checks += Test-Http "API data quality" "http://$HostName`:$ApiPort/api/data-qua
 $checks += Test-Http "API optimization" "http://$HostName`:$ApiPort/api/optimization"
 $checks += Test-Http "API improvement learning" "http://$HostName`:$ApiPort/api/improvements"
 $checks += Test-Http "API root-cause diagnostics" "http://$HostName`:$ApiPort/api/root-causes"
+$checks += Test-Http "API alert management" "http://$HostName`:$ApiPort/api/alerts"
 $checks += Test-Http "API connectors" "http://$HostName`:$ApiPort/api/connectors/snapshot"
 $checks += Test-Http "API industrial I/O" "http://$HostName`:$ApiPort/api/industrial/snapshot"
 $checks += Test-Http "API warehouse" "http://$HostName`:$ApiPort/api/inventory/snapshot"

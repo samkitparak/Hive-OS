@@ -26,7 +26,7 @@ def conn():
 
 def test_diagnostics_reports_services_and_machines(conn):
     result = diagnostics.build(conn, CFG, mqtt_connected=False, cv_watcher_running=False)
-    assert len(result["services"]) == 10
+    assert len(result["services"]) == 11
     assert result["summary"]["verified_maintenance_plans"] == 0
     maintenance_service = next(item for item in result["services"]
                                if item["key"] == "maintenance")
@@ -49,6 +49,9 @@ def test_diagnostics_reports_services_and_machines(conn):
     root_cause_service = next(item for item in result["services"]
                               if item["key"] == "root_cause_diagnostics")
     assert root_cause_service["status"] == "needs_site_value"
+    alert_service = next(item for item in result["services"]
+                         if item["key"] == "alert_management")
+    assert alert_service["status"] == "needs_site_value"
     assert result["summary"]["total_machines"] == 15
     assert len(result["machines"]) == 15
 

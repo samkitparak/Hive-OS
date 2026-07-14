@@ -40,7 +40,7 @@ After installation, run:
 .\deploy\windows\test-hive-install.ps1
 ```
 
-This checks the dashboard, API, connector, industrial, warehouse, and procurement registries, MQTT port,
+This checks the dashboard, API, alert, connector, industrial, warehouse, and procurement registries, MQTT port,
 ODBC driver, Modbus/OPC-UA client libraries, install folder, logs folder, and
 startup task.
 
@@ -136,6 +136,12 @@ real probe approval, follow `INDUSTRIAL_TELEMETRY.md`.
 
 For sheet counts, edge rolls, hardware BOMs, remnants, reservations, and
 purchase suggestions, follow `WAREHOUSE_INTELLIGENCE.md`.
+
+For alert rationalization, response roles, webhook verification, HMAC secrets,
+and escalation drills, follow `ALARM_MANAGEMENT.md`. Put any webhook signing
+secret in a Windows machine environment variable, restart the HIVE scheduled
+task, and store only that variable's name in the Alert Center. Automatic alert
+sync and external dispatch remain disabled after installation.
 
 ## Capturing Maestro Evidence
 

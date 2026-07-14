@@ -19,6 +19,7 @@ operations are limited to the HIVE database and site configuration.
 - **Explainable optimization engine** — ranks dynamic constraints using active periods, queue depth, inferred downstream starvation, alarms, and a separate telemetry-confidence gate.
 - **Closed-loop improvement learning** — turns priorities into owned experiments with frozen baselines, minimum sample gates, confidence intervals, guardrails, immutable outcomes, and conservative advisory promotion.
 - **Evidence-backed root-cause diagnostics** — correlates alarms, downtime, quality, programs, maintenance, spares, and utility telemetry; preserves ranked alternatives and learns local priors only from named operator confirmations.
+- **Industrial alert management** — rationalized actionable conditions, evidence-token deduplication, acknowledgment/snooze/resolve history, response escalation, and commissioned CloudEvents webhooks with HMAC signing.
 - **Connector commissioning** — browse for real Cabinet Vision, Ottimo, or Maestro evidence; map and validate it; explicitly approve a version; then enable repeat-safe imports.
 - **Data trust layer** — normalizes India-local timestamps, suppresses duplicate MQTT delivery, isolates heartbeats, audits rejected events, and scores each machine's evidence quality.
 - **Automatic cycle learning** — pairs validated part cycles, robustly fits versioned nonnegative models, and protects active models from weak candidates.
@@ -97,6 +98,7 @@ hive-os/
 │   ├── optimization.py       # explainable, confidence-gated priorities
 │   ├── improvement.py        # recommendation lifecycle, experiments, outcome learning
 │   ├── root_cause.py         # incident evidence, hypotheses, confirmation learning
+│   ├── alerting.py            # alarm rationalization, lifecycle, escalation, delivery
 │   ├── learning.py           # automatic cycle observations + model validation
 │   ├── routing.py            # observed same-part process transitions
 │   ├── digital_twin.py       # SimPy schedule-policy comparison
@@ -127,6 +129,7 @@ hive-os/
 ├── PROCUREMENT_INTEGRATION.md # supplier, PO, receipt, and ERP adapter contract
 ├── IMPROVEMENT_LEARNING.md   # recommendation experiments and promotion guardrails
 ├── ROOT_CAUSE_DIAGNOSTICS.md  # diagnostic evidence, decisions, and learning contract
+├── ALARM_MANAGEMENT.md        # alert rules, lifecycle, escalation, and webhook contract
 └── INDIA_CHECKLIST.md        # on-site configuration checklist
 ```
 
@@ -252,6 +255,13 @@ unprefixed routes remain available for compatibility and local tooling.
 | POST | `/root-causes/sync` | Explicitly materialize and reanalyze recent alarms, downtime, and quality incidents |
 | GET | `/root-causes/{id}` | One diagnostic case with current hypotheses and immutable event history |
 | POST | `/root-causes/{id}/decision` | Confirm, dismiss, or reopen a case with optimistic version protection |
+| GET | `/alerts` | Alert lifecycle snapshot, destinations, deliveries, runtime settings, and rule catalog |
+| POST | `/alerts/sync` | Explicitly synchronize rationalized actionable conditions |
+| POST | `/alerts/{id}/action` | Acknowledge, snooze, resolve, or reopen with a named actor and version check |
+| PUT | `/alerts/destinations/{key}` | Save or enable a commissioned webhook contract |
+| POST | `/alerts/destinations/{key}/test` | Simulate locally or explicitly send a live verification request |
+| POST | `/alerts/deliveries/dispatch` | Dispatch eligible queued deliveries and record retries |
+| PUT | `/alerts/settings` | Enable or disable automatic synchronization and dispatch |
 | GET | `/learning/status` | Cycle observations and candidate/active model evidence |
 | POST | `/learning/refresh` | Derive observations, train candidates, and refresh route evidence |
 | GET | `/routing/graph` | Observed part-flow edges with support and confidence |

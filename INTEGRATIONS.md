@@ -18,6 +18,7 @@
 | Attendance and labor | Staffing versus output and skill coverage | Attendance API / CSV |
 | Cameras | Safety, queue counts, manual-process cycle detection | Edge CV events |
 | AMRs and forklifts | Material movement and dispatching | Fleet API / MQTT |
+| Notifications and incident systems | Owned abnormal-condition response and escalation | Commissioned CloudEvents webhook |
 
 ## Recommended Sequence
 
@@ -67,3 +68,12 @@ acknowledges delivery; queueing alone never marks a PO sent.
 
 See `PROCUREMENT_INTEGRATION.md` for the exact master data, lifecycle, CSV, and
 adapter contracts.
+
+## Alert Delivery Boundary
+
+HIVE rationalizes actionable conditions internally, then sends a vendor-neutral
+CloudEvents webhook to a site-approved gateway. The gateway owns Teams, Slack,
+email, SMS, WhatsApp, or incident-platform credentials and channel routing.
+HIVE stores only the HTTPS endpoint and optional HMAC environment-variable name.
+Simulation, live verification, enabling, and automatic dispatch are separate
+named-operator decisions. See `ALARM_MANAGEMENT.md`.

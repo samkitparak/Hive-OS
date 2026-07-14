@@ -11,6 +11,7 @@ import inventory
 import improvement
 import procurement
 import root_cause
+import alerting
 
 PLACEHOLDER_HOSTS = {
     *(f"192.168.1.{number}" for number in range(51, 55)),
@@ -165,6 +166,15 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
     learned_incident_types = sum(
         item["empirical_prior_active"] for item in root_causes["learning"].values()
     )
+    alerts = alerting.snapshot(conn)
+    alert_summary = alerts["summary"]
+    alert_settings = alerts["settings"]
+    verified_alert_destinations = sum(
+        bool(item["verified_at"]) for item in alerts["destinations"]
+    )
+    enabled_alert_destinations = sum(
+        bool(item["enabled"]) for item in alerts["destinations"]
+    )
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -196,6 +206,10 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "open_diagnostic_cases": root_cause_summary["open"],
             "confirmed_root_causes": root_cause_summary["confirmed"],
             "diagnostic_models_learning": learned_incident_types,
+            "active_alerts": alert_summary["active"],
+            "critical_unacknowledged_alerts": alert_summary["critical_unacknowledged"],
+            "failed_alert_deliveries": alert_summary["failed_deliveries"],
+            "verified_alert_destinations": verified_alert_destinations,
         },
         "services": [
             {"key": "database", "name": "Database", "status": "online",
@@ -265,6 +279,18 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
                  f"{root_cause_summary['open']} open cases; "
                  f"{root_cause_summary['confirmed']} operator-confirmed; "
                  f"{learned_incident_types}/3 incident models learning from local priors"
+             )},
+            {"key": "alert_management", "name": "Alarm and escalation management",
+             "status": "offline" if alert_summary["failed_deliveries"] else (
+                 "ready" if alert_settings["auto_sync"] and (
+                     not alert_settings["auto_dispatch"] or enabled_alert_destinations
+                 ) else "needs_site_value"
+             ),
+             "detail": (
+                 f"{alert_summary['active']} active; {alert_summary['critical_unacknowledged']} critical unacknowledged; "
+                 f"{verified_alert_destinations} destinations verified; auto sync "
+                 f"{'on' if alert_settings['auto_sync'] else 'off'}; dispatch "
+                 f"{'on' if alert_settings['auto_dispatch'] else 'off'}"
              )},
         ],
         "machines": machines,

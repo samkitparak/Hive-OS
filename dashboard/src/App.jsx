@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, fetchProcurementSnapshot, updateProcurementSupplier, updateProcurementMapping, createPurchaseOrder, draftProcurementRecommendations, actOnPurchaseOrder, createGoodsReceipt, importProcurementCsv, updateMaterialStock, updateInventoryItem, updateInventoryLot, updateInventoryRequirement, createInventoryRemnant, updateInventoryRemnant, updateLaborRole, updateToolPool, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, fetchConnectorSnapshot, analyzeConnector, approveConnector, importConnectorRecords, updateConnectorProfile, discoverCabinetVisionSql, syncCabinetVisionSql, fetchIndustrialSnapshot, updateIndustrialProfile, simulateIndustrialProfile, probeIndustrialProfile, probeIndustrialMqtt, approveIndustrialProfile, pollIndustrialProfile, browseIndustrialOpcua, fetchImprovements, syncImprovements, actOnImprovement, fetchRootCauses, syncRootCauses, decideRootCause, postJson, simulateEvent } from "./api";
+import { Bell } from "lucide-react";
+import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, fetchProcurementSnapshot, updateProcurementSupplier, updateProcurementMapping, createPurchaseOrder, draftProcurementRecommendations, actOnPurchaseOrder, createGoodsReceipt, importProcurementCsv, updateMaterialStock, updateInventoryItem, updateInventoryLot, updateInventoryRequirement, createInventoryRemnant, updateInventoryRemnant, updateLaborRole, updateToolPool, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, fetchConnectorSnapshot, analyzeConnector, approveConnector, importConnectorRecords, updateConnectorProfile, discoverCabinetVisionSql, syncCabinetVisionSql, fetchIndustrialSnapshot, updateIndustrialProfile, simulateIndustrialProfile, probeIndustrialProfile, probeIndustrialMqtt, approveIndustrialProfile, pollIndustrialProfile, browseIndustrialOpcua, fetchImprovements, syncImprovements, actOnImprovement, fetchRootCauses, syncRootCauses, decideRootCause, fetchAlerts, syncAlerts, actOnAlert, updateAlertDestination, testAlertDestination, dispatchAlerts, updateAlertSettings, postJson, simulateEvent } from "./api";
 import { MachineCard } from "./MachineCard";
 import { MachineDetail } from "./MachineDetail";
 import { JobProgress } from "./JobProgress";
@@ -13,6 +14,7 @@ import { SetupPanel } from "./SetupPanel";
 import { IntelligencePanel } from "./IntelligencePanel";
 import { ImprovementPanel } from "./ImprovementPanel";
 import { RootCausePanel } from "./RootCausePanel";
+import { AlertCenter } from "./AlertCenter";
 import { CommissioningPanel } from "./CommissioningPanel";
 import { PlanningPanel } from "./PlanningPanel";
 import { useSSE } from "./useSSE";
@@ -49,6 +51,7 @@ export default function App() {
   const [showPlanning, setShowPlanning] = useState(false);
   const [showImprovements, setShowImprovements] = useState(false);
   const [showRootCauses, setShowRootCauses] = useState(false);
+  const [showAlerts, setShowAlerts] = useState(false);
   const demoRef = useRef(null);
 
   const { data: machines = [] } = useQuery({
@@ -83,6 +86,9 @@ export default function App() {
   });
   const { data: rootCauses = null } = useQuery({
     queryKey: ["rootCauses"], queryFn: fetchRootCauses, refetchInterval: 30000,
+  });
+  const { data: alerts = null } = useQuery({
+    queryKey: ["alerts"], queryFn: fetchAlerts, refetchInterval: 15000,
   });
   const { data: learning = null } = useQuery({
     queryKey: ["learning"], queryFn: fetchLearningStatus, refetchInterval: 30000,
@@ -175,6 +181,7 @@ export default function App() {
       qc.invalidateQueries({ queryKey: ["routeExceptions"] });
       qc.invalidateQueries({ queryKey: ["executionSnapshot"] });
       qc.invalidateQueries({ queryKey: ["maintenance"] });
+      qc.invalidateQueries({ queryKey: ["alerts"] });
     }
   }, [qc]);
 
@@ -402,6 +409,23 @@ export default function App() {
     return result;
   };
 
+  const refreshAlerts = () => {
+    qc.invalidateQueries({ queryKey: ["alerts"] });
+    qc.invalidateQueries({ queryKey: ["diagnostics"] });
+  };
+
+  const runAlertOperation = async (kind, key, payload = {}) => {
+    let result;
+    if (kind === "sync") result = await syncAlerts(payload);
+    else if (kind === "action") result = await actOnAlert(key, payload);
+    else if (kind === "destination") result = await updateAlertDestination(key, payload);
+    else if (kind === "test") result = await testAlertDestination(key, payload);
+    else if (kind === "dispatch") result = await dispatchAlerts(payload);
+    else if (kind === "settings") result = await updateAlertSettings(payload);
+    refreshAlerts();
+    return result;
+  };
+
   const refreshPlanning = () => {
     ["productionOrders", "productionReadiness", "planningScenarios", "activeSchedule", "resourceSnapshot", "procurementSnapshot", "routeExceptions", "executionSnapshot", "identitySnapshot", "sequence", "twin", "jobs", "optimization", "diagnostics"].forEach(key => {
       qc.invalidateQueries({ queryKey: [key] });
@@ -482,6 +506,14 @@ export default function App() {
         )}
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={() => setShowAlerts(true)} title="Open alert center" style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            background: alerts?.summary.critical_unacknowledged ? "#7f1d1d" : alerts?.summary.active ? "#78350f" : "#1f2937",
+            border: `1px solid ${alerts?.summary.critical_unacknowledged ? "#ef4444" : alerts?.summary.active ? "#f59e0b" : "#374151"}`,
+            color: "#f9fafb", padding: "7px 12px", borderRadius: 6, fontSize: 12, cursor: "pointer",
+          }}>
+            <Bell size={14} /> Alerts{alerts?.summary.active ? ` (${alerts.summary.active})` : ""}
+          </button>
           <button onClick={() => setShowCommissioning(true)} style={{
             background: "#1d4ed8", border: "1px solid #3b82f6", color: "#f9fafb",
             padding: "7px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
@@ -712,6 +744,16 @@ export default function App() {
         <RootCausePanel data={rootCauses} onSync={runRootCauseSync}
                         onDecision={runRootCauseDecision}
                         onClose={() => setShowRootCauses(false)} />
+      )}
+      {showAlerts && alerts && (
+        <AlertCenter data={alerts}
+          onSync={payload => runAlertOperation("sync", null, payload)}
+          onAction={(id, payload) => runAlertOperation("action", id, payload)}
+          onDestination={(key, payload) => runAlertOperation("destination", key, payload)}
+          onTestDestination={(key, payload) => runAlertOperation("test", key, payload)}
+          onDispatch={payload => runAlertOperation("dispatch", null, payload)}
+          onSettings={payload => runAlertOperation("settings", null, payload)}
+          onClose={() => setShowAlerts(false)} />
       )}
 
       <style>{`
