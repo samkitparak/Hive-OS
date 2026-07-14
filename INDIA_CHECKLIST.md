@@ -80,22 +80,31 @@ File to edit: `config/machines.yaml` → `cv_watch_folder`
 
 ---
 
-## Cycle Time Calibration (Tier 2 — do after system is stable)
+## Production Planning — Before First Live Job
 
-File to edit: `config/cycle_times.yaml`
+Dashboard → **Planning**
 
-**Takes ~1 hour per machine. Do this after the system has been running for a few days.**
+- [ ] Cancel historical/demo jobs that should not enter the live queue
+- [ ] Set a timezone-aware due time and priority for each live job
+- [ ] Review the generated Gabbiani → Morbidelli → Stefani route per part
+- [ ] Add press, sanding, paint, boxing, or alternate-machine steps where the product requires them
+- [ ] Move complete orders to `ready`, then have the supervisor move them to `released`
+- [ ] Confirm the readiness strip shows work, due dates, and routes passing
+- [ ] Run schedule comparison; leave it commissioning-only until models and route evidence pass
+- [ ] Resolve every route exception produced by the first physical job
 
-For each machine, time 20 parts with a stopwatch — vary the sizes and operation types.
-Record in a spreadsheet: `length_mm, width_mm, eb1/2/3/4, cnc_file_back, cnc_file_front, actual_seconds`
+---
 
-Then send the table to Claude and run:
-```
-POST /cycle-times/calibrate?machine_key=gabbiani_pt80
-Body: [list of timed parts]
-```
-Paste the returned coefficients into `config/cycle_times.yaml` for that machine.
-Once calibrated, job ETAs, the sequencer, and bottleneck detection all get real numbers.
+## Automatic Cycle Time Learning (After Telemetry Is Stable)
+
+HIVE pairs linked cycle starts/ends and trains candidate models automatically.
+No spreadsheet is required when machine events identify the part reliably.
+
+- [ ] Collect at least 20 varied, linked cycles per modeled feature set
+- [ ] Open **Planning** and verify cycle-model coverage in commissioning readiness
+- [ ] Check rejected observations and fix clocks/part links rather than hand-editing data
+- [ ] Confirm a candidate reaches medium/high validation confidence before it activates
+- [ ] Use stopwatch records only as an independent validation sample or manual fallback
 
 **Priority order for calibration** (most impact first):
 - [ ] `morbidelli_cx100` — CNC Driller (most variable, grooves vs no grooves)
@@ -139,8 +148,10 @@ Once calibrated, job ETAs, the sequencer, and bottleneck detection all get real 
 5. Open dashboard — confirm all machines show live state
 6. Open **Commission** — analyze one real log and confirm telemetry confidence begins increasing
 7. Open `/api/optimization` — confirm low-confidence data is gated and no unsupported gain estimate is shown
+8. Open **Planning** — set one real due time, verify routes, and release only the test job
+9. Scan/start/complete one routed part — confirm quantity advances and no route exception remains
 
 ---
 
-*Last updated: 2026-06-04*
+*Last updated: 2026-07-14*
 *Update this file whenever a new component is built.*

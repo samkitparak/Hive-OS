@@ -37,7 +37,7 @@ export function JobQueue({ plan }) {
           border: "1px solid #92400e", borderRadius: 4,
           padding: "4px 8px", marginBottom: 10,
         }}>
-          ⚠ Cycle times uncalibrated — sequence uses due dates only. Set coefficients in cycle_times.yaml for time-based ordering.
+          Cycle models are not active yet. Queue order uses controlled due times, priority, and part count.
         </div>
       )}
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import random
 import sqlite3
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 import simpy
@@ -29,9 +30,16 @@ def _load_jobs(conn: sqlite3.Connection, job_names: list[str] | None = None) -> 
     if job_names:
         where = f"WHERE j.job_name IN ({','.join('?' for _ in job_names)})"
         params = job_names
+    else:
+        controlled = conn.execute("SELECT COUNT(*) count FROM production_orders").fetchone()["count"]
+        if controlled:
+            where = "WHERE po.status IN ('ready','released','in_progress')"
     jobs = [dict(row) for row in conn.execute(
-        f"""SELECT j.id, j.job_name, j.job_date, j.imported_at, j.total_parts
-            FROM jobs j {where} ORDER BY j.id""", params
+        f"""SELECT j.id, j.job_name, j.job_date, j.imported_at, j.total_parts,
+                   po.id production_order_id, po.status order_status,
+                   po.due_at, po.priority, po.release_sequence
+            FROM jobs j LEFT JOIN production_orders po ON po.job_id=j.id
+            {where} ORDER BY COALESCE(po.release_sequence, 999999), j.id""", params
     ).fetchall()]
     for job in jobs:
         job["parts"] = [dict(row) for row in conn.execute(
@@ -67,7 +75,7 @@ def _operation_plan(conn: sqlite3.Connection, jobs: list[dict]) -> tuple[list[di
                     modeled_count += quantity
                 operations.append({"machine_key": machine_key, **prediction})
             for unit in range(quantity):
-                observed_routes += route_info["source"] == "part_history"
+                observed_routes += route_info["confidence"] in ("high", "confirmed")
                 parts.append({
                     "id": part["id"], "unit": unit + 1,
                     "job_name": job["job_name"],
@@ -114,16 +122,17 @@ def _order_jobs(conn: sqlite3.Connection, jobs: list[dict], parts: list[dict], p
     if policy == "fifo":
         return sorted(jobs, key=lambda job: (job["imported_at"] or "", job["id"]))
     if policy == "edd":
-        return sorted(jobs, key=lambda job: (job["job_date"] or "9999-12-31", job["id"]))
+        return sorted(jobs, key=lambda job: (job["due_at"] or "9999-12-31", job["id"]))
     if policy == "spt":
         return sorted(jobs, key=lambda job: (_job_processing_time(parts, job["job_name"]), job["id"]))
     if policy == "material_batch":
-        return sorted(jobs, key=lambda job: (job["primary_material"], job["job_date"] or "", job["id"]))
+        return sorted(jobs, key=lambda job: (job["primary_material"], job["due_at"] or "", job["id"]))
     raise ValueError(f"unknown simulation policy: {policy}")
 
 
 def _single_run(conn: sqlite3.Connection, jobs: list[dict], parts: list[dict],
-                policy: str, stochastic: bool, seed: int, cfg: dict) -> dict:
+                policy: str, stochastic: bool, seed: int, cfg: dict,
+                simulated_at: datetime) -> dict:
     randomizer = random.Random(seed)
     env = simpy.Environment()
     machine_keys = sorted({operation["machine_key"] for part in parts for operation in part["operations"]})
@@ -176,6 +185,18 @@ def _single_run(conn: sqlite3.Connection, jobs: list[dict], parts: list[dict],
         env.process(run_part(part))
     env.run()
     makespan = float(env.now)
+    due_offsets = {}
+    for job in jobs:
+        if not job.get("due_at"):
+            continue
+        due = datetime.fromisoformat(job["due_at"].replace("Z", "+00:00"))
+        if due.tzinfo is None:
+            due = due.replace(tzinfo=timezone.utc)
+        due_offsets[job["job_name"]] = (due.astimezone(timezone.utc) - simulated_at).total_seconds()
+    tardiness = {
+        name: max(0.0, job_completion.get(name, makespan) - offset)
+        for name, offset in due_offsets.items()
+    }
     utilization = {key: round(value / makespan, 4) if makespan else 0
                    for key, value in busy.items()}
     return {
@@ -186,6 +207,10 @@ def _single_run(conn: sqlite3.Connection, jobs: list[dict], parts: list[dict],
         "average_flow_time_s": round(sum(flow_times) / len(flow_times), 1) if flow_times else None,
         "setup_count": setup_count,
         "setup_time_s": round(setup_time, 1),
+        "jobs_with_due_dates": len(due_offsets),
+        "late_jobs": sum(value > 0 for value in tardiness.values()),
+        "total_tardiness_s": round(sum(tardiness.values()), 1),
+        "maximum_tardiness_s": round(max(tardiness.values()), 1) if tardiness else 0,
         "machine_utilization": utilization,
         "job_completion_s": {key: round(value, 1) for key, value in job_completion.items()},
     }
@@ -206,23 +231,28 @@ def compare(conn: sqlite3.Connection, job_names: list[str] | None = None,
         return {"readiness": readiness_result, "scenarios": [], "recommendation": None}
 
     cfg = _config()
-    scenarios = [_single_run(conn, jobs, parts, policy, stochastic, seed, cfg)
+    simulated_at = datetime.now(timezone.utc)
+    scenarios = [_single_run(conn, jobs, parts, policy, stochastic, seed, cfg, simulated_at)
                  for policy in selected]
-    ranked = sorted(scenarios, key=lambda result: (result["makespan_s"], result["setup_time_s"]))
+    ranked = sorted(scenarios, key=lambda result: (
+        result["total_tardiness_s"], result["late_jobs"],
+        result["makespan_s"], result["setup_time_s"]
+    ))
     recommendation = None
     if readiness_result["operational_recommendation"] and ranked:
         recommendation = {
             "policy": ranked[0]["policy"],
-            "basis": "lowest simulated makespan, then setup time",
+            "basis": "lowest total tardiness, late-job count, makespan, then setup time",
         }
     return {
         "readiness": readiness_result,
         "mode": "stochastic" if stochastic else "deterministic",
+        "simulated_at": simulated_at.isoformat(),
         "seed": seed,
         "assumptions": {
             "transfer_time_s": cfg.get("transfer_time_s", 30),
             "material_changeover_s": cfg.get("material_changeover_s", 600),
-            "due_dates": "job_date is not treated as a contractual due date",
+            "due_dates": "Only production_order.due_at is treated as contractual",
         },
         "scenarios": scenarios,
         "recommendation": recommendation,

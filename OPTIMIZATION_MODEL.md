@@ -112,6 +112,12 @@ material-batching policies. Results remain commissioning what-if scenarios
 until every simulated operation has a cycle model and at least 80% of selected
 part routes have direct historical evidence.
 
+Live planning uses only explicit production-order `due_at` timestamps. Cabinet
+Vision `job_date` remains source metadata and cannot create a false overdue job.
+Policies are ranked by total tardiness, late-job count, makespan, and setup time.
+Every scenario is persisted and must pass readiness plus stale-input checks
+before a named operator can approve it.
+
 This structure follows NIST guidance that production simulation starts with
 explicit requirements and validated input data, and research that combines
 live physical state with discrete-event models before using the model for

@@ -38,6 +38,22 @@ export const fetchLearningStatus = () => request("/learning/status");
 export const fetchRoutingGraph = () => request("/routing/graph");
 export const fetchTwinReadiness = () => request("/digital-twin/readiness");
 export const compareTwinSchedules = (payload = {}) => postJson("/digital-twin/compare", payload);
+export const fetchProductionOrders = () => request("/production/orders");
+export const fetchProductionReadiness = () => request("/production/readiness");
+export const updateProductionOrder = (id, payload) => request(`/production/orders/${id}`, {
+  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+});
+export const fetchProductionRoutes = (jobName) => request(`/production/routes/${encodeURIComponent(jobName)}`);
+export const replacePartRoute = (partId, payload) => request(`/production/routes/parts/${partId}`, {
+  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+});
+export const fetchRouteExceptions = () => request("/production/route-exceptions?status=open");
+export const resolveRouteException = (id, payload) => postJson(`/production/route-exceptions/${id}/resolve`, payload);
+export const fetchPlanningScenarios = () => request("/planning/scenarios");
+export const fetchPlanningScenario = (id) => request(`/planning/scenarios/${id}`);
+export const createPlanningScenario = (payload) => postJson("/planning/scenarios", payload);
+export const decidePlanningScenario = (id, payload) => postJson(`/planning/scenarios/${id}/decision`, payload);
+export const fetchActiveSchedule = () => request("/planning/active-schedule");
 export const fetchDiagnostics = () => request("/diagnostics");
 export const fetchDeployment = () => request("/deployment");
 export const fetchConfig = () => request("/config");

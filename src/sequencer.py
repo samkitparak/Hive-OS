@@ -78,7 +78,7 @@ def _due_date_factor(due_date: Optional[str]) -> tuple[float, str]:
     if not due_date:
         return 1.0, "unknown"
     try:
-        due = date.fromisoformat(due_date)
+        due = datetime.fromisoformat(due_date.replace("Z", "+00:00")).date()
         today = datetime.now(timezone.utc).date()
         days_left = (due - today).days
         if days_left < 0:
@@ -121,12 +121,15 @@ def sequence(conn: sqlite3.Connection,
     shift_hours = raw_cfg.get("shift_hours", 9)
 
     # Load jobs
+    controlled = conn.execute("SELECT COUNT(*) count FROM production_orders").fetchone()["count"]
     if job_names:
         placeholders = ",".join("?" * len(job_names))
         rows = conn.execute(
             f"""SELECT j.id, j.job_name, j.job_date, j.total_parts,
-                       c.name as client_name
+                       c.name as client_name, po.due_at, po.priority,
+                       po.status order_status, po.release_sequence
                 FROM jobs j LEFT JOIN clients c ON j.client_id=c.id
+                LEFT JOIN production_orders po ON po.job_id=j.id
                 WHERE j.job_name IN ({placeholders})""",
             job_names
         ).fetchall()
@@ -134,9 +137,13 @@ def sequence(conn: sqlite3.Connection,
         # All jobs not fully completed
         rows = conn.execute(
             """SELECT j.id, j.job_name, j.job_date, j.total_parts,
-                      c.name as client_name
+                      c.name as client_name, po.due_at, po.priority,
+                      po.status order_status, po.release_sequence
                FROM jobs j LEFT JOIN clients c ON j.client_id=c.id
-               ORDER BY j.job_date ASC, j.id ASC"""
+               LEFT JOIN production_orders po ON po.job_id=j.id
+               WHERE ?=0 OR po.status IN ('ready','released','in_progress')
+               ORDER BY COALESCE(po.release_sequence, 999999), po.due_at, j.id""",
+            (controlled,),
         ).fetchall()
 
     if not rows:
@@ -154,7 +161,8 @@ def sequence(conn: sqlite3.Connection,
         job_id      = row["id"]
         job_name    = row["job_name"]
         total_parts = row["total_parts"] or 0
-        due_date    = row["job_date"]    # job_date is the production date, closest proxy for due date
+        due_date    = row["due_at"] if controlled else row["job_date"]
+        priority    = row["priority"] or 50
         client_name = row["client_name"] or ""
 
         primary_mat = _primary_material(conn, job_id)
@@ -173,10 +181,10 @@ def sequence(conn: sqlite3.Connection,
         # WSPT score: higher = run earlier
         # When uncalibrated: use total_parts as proxy for job size
         if bottleneck_time_s and bottleneck_time_s > 0:
-            base_score = due_factor / bottleneck_time_s * 10000
+            base_score = due_factor * (priority / 50) / bottleneck_time_s * 10000
         else:
             # No cycle time data — use due date only, tie-break by part count
-            base_score = due_factor / max(total_parts, 1) * 100
+            base_score = due_factor * (priority / 50) / max(total_parts, 1) * 100
 
         scored.append((base_score, {
             "job_name":         job_name,

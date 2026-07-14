@@ -20,6 +20,38 @@ CREATE TABLE IF NOT EXISTS jobs (
     imported_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- ISA-95-inspired work requests. Imported CV jobs are source definitions;
+-- production_orders carry the operator-controlled scheduling and release state.
+CREATE TABLE IF NOT EXISTS production_orders (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id              INTEGER NOT NULL UNIQUE REFERENCES jobs(id),
+    external_order_id   TEXT,
+    status              TEXT NOT NULL DEFAULT 'draft',
+    due_at              TEXT,
+    priority            INTEGER NOT NULL DEFAULT 50 CHECK(priority BETWEEN 1 AND 100),
+    planned_start_at    TEXT,
+    release_sequence    INTEGER,
+    source              TEXT NOT NULL DEFAULT 'hive',
+    notes               TEXT,
+    version             INTEGER NOT NULL DEFAULT 1,
+    released_by         TEXT,
+    released_at         TEXT,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS production_order_events (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    production_order_id INTEGER NOT NULL REFERENCES production_orders(id),
+    event_type          TEXT NOT NULL,
+    from_status         TEXT,
+    to_status           TEXT,
+    actor               TEXT NOT NULL,
+    notes               TEXT,
+    payload_json        TEXT,
+    ts                  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS assemblies (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     job_id          INTEGER NOT NULL REFERENCES jobs(id),
@@ -260,6 +292,92 @@ CREATE TABLE IF NOT EXISTS barcode_events (
     ts              TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS part_route_steps (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    part_id             INTEGER NOT NULL REFERENCES parts(id),
+    step_index          INTEGER NOT NULL,
+    machine_id          INTEGER NOT NULL REFERENCES machines(id),
+    source              TEXT NOT NULL, -- cv_feature | observed | manual
+    confidence          TEXT NOT NULL, -- low | medium | high | confirmed
+    required            INTEGER NOT NULL DEFAULT 1,
+    required_qty        INTEGER NOT NULL DEFAULT 1,
+    confirmed_qty       INTEGER NOT NULL DEFAULT 0,
+    status              TEXT NOT NULL DEFAULT 'planned', -- planned | started | confirmed | skipped | exception
+    confirmed_event_id  INTEGER REFERENCES machine_events(id),
+    confirmed_barcode_id INTEGER REFERENCES barcode_events(id),
+    confirmed_at        TEXT,
+    confirmed_by        TEXT,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    UNIQUE(part_id, step_index)
+);
+
+CREATE TABLE IF NOT EXISTS route_step_events (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    route_step_id       INTEGER NOT NULL REFERENCES part_route_steps(id),
+    event_type          TEXT NOT NULL,
+    from_status         TEXT,
+    to_status           TEXT,
+    source              TEXT NOT NULL,
+    evidence_id         INTEGER,
+    actor               TEXT,
+    notes               TEXT,
+    ts                  TEXT NOT NULL,
+    UNIQUE(route_step_id, source, evidence_id, event_type)
+);
+
+CREATE TABLE IF NOT EXISTS route_exceptions (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    part_id             INTEGER NOT NULL REFERENCES parts(id),
+    expected_step_id    INTEGER REFERENCES part_route_steps(id),
+    observed_machine_id INTEGER REFERENCES machines(id),
+    machine_event_id    INTEGER REFERENCES machine_events(id),
+    barcode_event_id    INTEGER REFERENCES barcode_events(id),
+    exception_type      TEXT NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'open', -- open | accepted | ignored | corrected
+    details             TEXT,
+    ts                  TEXT NOT NULL,
+    resolved_at         TEXT,
+    resolved_by         TEXT
+);
+
+CREATE TABLE IF NOT EXISTS planning_scenarios (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    name                TEXT,
+    created_by          TEXT NOT NULL,
+    request_json        TEXT NOT NULL,
+    result_json         TEXT NOT NULL,
+    readiness_json      TEXT NOT NULL,
+    input_signature     TEXT NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'draft', -- draft | approved | rejected | expired
+    selected_policy     TEXT,
+    approved_by         TEXT,
+    approved_at         TEXT,
+    rejection_reason    TEXT,
+    created_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS planning_decisions (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    scenario_id         INTEGER NOT NULL REFERENCES planning_scenarios(id),
+    decision            TEXT NOT NULL,
+    actor               TEXT NOT NULL,
+    selected_policy     TEXT,
+    notes               TEXT,
+    ts                  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS production_schedule_items (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    scenario_id         INTEGER NOT NULL REFERENCES planning_scenarios(id),
+    production_order_id INTEGER NOT NULL REFERENCES production_orders(id),
+    position            INTEGER NOT NULL,
+    planned_start_s     REAL,
+    planned_end_s       REAL,
+    UNIQUE(scenario_id, production_order_id),
+    UNIQUE(scenario_id, position)
+);
+
 CREATE TABLE IF NOT EXISTS connector_sync_state (
     connector_key   TEXT PRIMARY KEY,
     status          TEXT NOT NULL DEFAULT 'not_configured',
@@ -270,6 +388,8 @@ CREATE TABLE IF NOT EXISTS connector_sync_state (
 );
 
 CREATE INDEX IF NOT EXISTS idx_parts_job ON parts(job_id);
+CREATE INDEX IF NOT EXISTS idx_production_orders_status_due ON production_orders(status, due_at, priority DESC);
+CREATE INDEX IF NOT EXISTS idx_production_order_events_order_ts ON production_order_events(production_order_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_parts_cnc_back ON parts(cnc_file_back);
 CREATE INDEX IF NOT EXISTS idx_parts_cnc_front ON parts(cnc_file_front);
 CREATE INDEX IF NOT EXISTS idx_machine_events_machine_ts ON machine_events(machine_id, ts DESC);
@@ -287,6 +407,10 @@ CREATE INDEX IF NOT EXISTS idx_work_orders_status_created ON maintenance_work_or
 CREATE INDEX IF NOT EXISTS idx_quality_checks_result_ts ON quality_checks(result, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_rework_status_created ON rework_tasks(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_barcode_events_ts ON barcode_events(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_route_steps_part_status ON part_route_steps(part_id, status, step_index);
+CREATE INDEX IF NOT EXISTS idx_route_step_events_step_ts ON route_step_events(route_step_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_route_exceptions_status_ts ON route_exceptions(status, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_planning_scenarios_status_created ON planning_scenarios(status, created_at DESC);
 
 -- Seed the 14 in-scope HAEEV machines (aluminium pair excluded, compressors/dust collectors as utility)
 INSERT OR IGNORE INTO machines (name, machine_key, type, brand, model, has_maestro, has_opcua, active) VALUES

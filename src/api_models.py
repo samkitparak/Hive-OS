@@ -55,7 +55,8 @@ class BarcodeEventCreate(RequestModel):
     part_name: Optional[str] = None
     station: Optional[str] = None
     event_type: Literal[
-        "part_complete", "qc_pass", "qc_fail", "packed", "dispatched", "unknown"
+        "route_arrival", "operation_start", "operation_complete", "part_complete",
+        "qc_pass", "qc_fail", "packed", "dispatched", "unknown"
     ] = "unknown"
     operator: Optional[str] = None
     source: str = "manual"
@@ -161,3 +162,44 @@ class DigitalTwinRequest(RequestModel):
     policies: Optional[list[str]] = None
     stochastic: bool = False
     seed: int = Field(default=1, ge=0, le=2_147_483_647)
+
+
+class ProductionOrderUpdate(RequestModel):
+    expected_version: Optional[int] = Field(default=None, ge=1)
+    status: Optional[Literal[
+        "draft", "ready", "released", "in_progress", "hold", "completed", "cancelled"
+    ]] = None
+    due_at: Optional[str] = None
+    priority: Optional[int] = Field(default=None, ge=1, le=100)
+    planned_start_at: Optional[str] = None
+    external_order_id: Optional[str] = None
+    notes: Optional[str] = None
+    actor: str = Field(default="operator", min_length=1)
+
+
+class PartRouteUpdate(RequestModel):
+    machine_keys: list[str] = Field(min_length=1)
+    actor: str = Field(default="operator", min_length=1)
+    notes: Optional[str] = None
+
+
+class RouteExceptionDecision(RequestModel):
+    status: Literal["accepted", "ignored", "corrected"]
+    actor: str = Field(min_length=1)
+    notes: Optional[str] = None
+
+
+class PlanningScenarioCreate(RequestModel):
+    name: Optional[str] = None
+    created_by: str = Field(default="operator", min_length=1)
+    job_names: Optional[list[str]] = None
+    policies: Optional[list[Literal["current", "fifo", "edd", "spt", "material_batch"]]] = None
+    stochastic: bool = False
+    seed: int = Field(default=1, ge=0, le=2_147_483_647)
+
+
+class PlanningDecision(RequestModel):
+    decision: Literal["approve", "reject"]
+    actor: str = Field(min_length=1)
+    selected_policy: Optional[Literal["current", "fifo", "edd", "spt", "material_batch"]] = None
+    notes: Optional[str] = None

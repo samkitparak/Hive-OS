@@ -21,6 +21,7 @@ operations are limited to the HIVE database and site configuration.
 - **Data trust layer** — normalizes India-local timestamps, suppresses duplicate MQTT delivery, isolates heartbeats, audits rejected events, and scores each machine's evidence quality.
 - **Automatic cycle learning** — pairs validated part cycles, robustly fits versioned nonnegative models, and protects active models from weak candidates.
 - **Production digital twin** — compares dispatch policies with discrete-event machine queues and material changeovers, gated by model and route coverage.
+- **Production control** — explicit work releases, contractual due times, quantity-aware routes, exception reconciliation, and audited human schedule approval.
 - **Phase 1 operations layer** — placeholder-ready downtime, maintenance, quality/rework, barcode, Cabinet Vision SQL, and Ottimo workflows that can be replaced with real formats later.
 - **Live event stream** — SSE feed of all machine events (cycle start/end, alarms, power changes) in real time.
 
@@ -85,6 +86,8 @@ hive-os/
 │   ├── learning.py           # automatic cycle observations + model validation
 │   ├── routing.py            # observed same-part process transitions
 │   ├── digital_twin.py       # SimPy schedule-policy comparison
+│   ├── production_control.py  # order lifecycle + planned/observed route control
+│   ├── planning.py            # persisted scenarios + approval ledger
 │   ├── operations.py         # downtime, maintenance, quality/rework, barcode
 │   ├── cv_sql_connector.py   # Cabinet Vision SQL placeholder adapter
 │   ├── ottimo_connector.py   # Ottimo placeholder barcode adapter
@@ -217,6 +220,15 @@ unprefixed routes remain available for compatibility and local tooling.
 | GET | `/routing/graph` | Observed part-flow edges with support and confidence |
 | GET | `/digital-twin/readiness` | Cycle-model and observed-route coverage gate |
 | POST | `/digital-twin/compare` | Compare deterministic or seeded schedule scenarios |
+| GET | `/production/readiness` | Day-one work, route, model, exception, and schedule gates |
+| GET | `/production/orders` | Controlled production orders and route coverage |
+| PUT | `/production/orders/{id}` | Versioned due-date, priority, and lifecycle update |
+| GET | `/production/routes/{job_name}` | Planned route steps and confirmation quantities |
+| PUT | `/production/routes/parts/{part_id}` | Replace an off-line part route with operator confirmation |
+| GET | `/production/route-exceptions` | Unexpected or out-of-sequence floor evidence |
+| GET/POST | `/planning/scenarios` | List or generate persisted twin comparisons |
+| POST | `/planning/scenarios/{id}/decision` | Approve or reject a non-stale ready scenario |
+| GET | `/planning/active-schedule` | Current approved dispatch sequence |
 | POST | `/commissioning/log/analyze` | Dry-run or import a validated Maestro log sample |
 | GET | `/diagnostics` | Service and machine-agent connection health |
 | GET | `/deployment` | Windows install package readiness and commands |
@@ -248,6 +260,8 @@ unprefixed routes remain available for compatibility and local tooling.
 
 See [OPTIMIZATION_MODEL.md](OPTIMIZATION_MODEL.md) for the evidence model,
 research basis, assumptions, confidence gate, and learning stages.
+See [PRODUCTION_CONTROL.md](PRODUCTION_CONTROL.md) for order lifecycle, route
+reconciliation, schedule approval, and the day-one operator workflow.
 
 ---
 

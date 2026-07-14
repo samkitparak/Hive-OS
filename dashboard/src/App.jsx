@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, postJson, simulateEvent } from "./api";
+import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, postJson, simulateEvent } from "./api";
 import { MachineCard } from "./MachineCard";
 import { MachineDetail } from "./MachineDetail";
 import { JobProgress } from "./JobProgress";
@@ -12,6 +12,7 @@ import { OperationsPanel } from "./OperationsPanel";
 import { SetupPanel } from "./SetupPanel";
 import { IntelligencePanel } from "./IntelligencePanel";
 import { CommissioningPanel } from "./CommissioningPanel";
+import { PlanningPanel } from "./PlanningPanel";
 import { useSSE } from "./useSSE";
 
 const GROUPS = [
@@ -43,6 +44,7 @@ export default function App() {
   const [showOperations, setShowOperations] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
   const [showCommissioning, setShowCommissioning] = useState(false);
+  const [showPlanning, setShowPlanning] = useState(false);
   const demoRef = useRef(null);
 
   const { data: machines = [] } = useQuery({
@@ -80,6 +82,21 @@ export default function App() {
   });
   const { data: twin = null } = useQuery({
     queryKey: ["twin"], queryFn: fetchTwinReadiness, refetchInterval: 60000,
+  });
+  const { data: productionOrders = [] } = useQuery({
+    queryKey: ["productionOrders"], queryFn: fetchProductionOrders, refetchInterval: 30000,
+  });
+  const { data: productionReadiness = null } = useQuery({
+    queryKey: ["productionReadiness"], queryFn: fetchProductionReadiness, refetchInterval: 30000,
+  });
+  const { data: planningScenarios = [] } = useQuery({
+    queryKey: ["planningScenarios"], queryFn: fetchPlanningScenarios, refetchInterval: 30000,
+  });
+  const { data: activeSchedule = null } = useQuery({
+    queryKey: ["activeSchedule"], queryFn: fetchActiveSchedule, refetchInterval: 30000,
+  });
+  const { data: routeExceptions = [] } = useQuery({
+    queryKey: ["routeExceptions"], queryFn: fetchRouteExceptions, refetchInterval: 15000,
   });
   const { data: diagnostics = null } = useQuery({
     queryKey: ["diagnostics"], queryFn: fetchDiagnostics, refetchInterval: 30000,
@@ -123,6 +140,8 @@ export default function App() {
       qc.invalidateQueries({ queryKey: ["learning"] });
       qc.invalidateQueries({ queryKey: ["routing"] });
       qc.invalidateQueries({ queryKey: ["twin"] });
+      qc.invalidateQueries({ queryKey: ["productionOrders"] });
+      qc.invalidateQueries({ queryKey: ["routeExceptions"] });
     }
   }, [qc]);
 
@@ -270,6 +289,24 @@ export default function App() {
     return result;
   };
 
+  const refreshPlanning = () => {
+    ["productionOrders", "productionReadiness", "planningScenarios", "activeSchedule", "routeExceptions", "sequence", "twin", "jobs"].forEach(key => {
+      qc.invalidateQueries({ queryKey: [key] });
+    });
+  };
+
+  const runPlanningAction = async (kind, data) => {
+    let result;
+    if (kind === "order") result = await updateProductionOrder(data.id, data.payload);
+    else if (kind === "routes") return fetchProductionRoutes(data.job_name);
+    else if (kind === "saveRoute") result = await replacePartRoute(data.part_id, data.payload);
+    else if (kind === "scenario") result = await createPlanningScenario(data);
+    else if (kind === "decision") result = await decidePlanningScenario(data.id, data.payload);
+    else if (kind === "exception") result = await resolveRouteException(data.id, data.payload);
+    refreshPlanning();
+    return result;
+  };
+
   return (
     <div style={{ minHeight: "100vh", background: "#0d1117", color: "#f9fafb",
                   fontFamily: "'Inter', system-ui, sans-serif", padding: "20px 24px" }}>
@@ -329,6 +366,13 @@ export default function App() {
             padding: "7px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
           }}>
             Operations
+          </button>
+          <button onClick={() => setShowPlanning(true)} style={{
+            background: routeExceptions.length ? "#78350f" : "#1f2937",
+            border: `1px solid ${routeExceptions.length ? "#f59e0b" : "#374151"}`,
+            color: "#f9fafb", padding: "7px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
+          }}>
+            Planning{routeExceptions.length ? ` (${routeExceptions.length})` : ""}
           </button>
           <button onClick={() => setShowDiagnostics(true)} style={{
             background: "#1f2937", border: "1px solid #374151", color: "#f9fafb",
@@ -510,6 +554,14 @@ export default function App() {
       {showCommissioning && (
         <CommissioningPanel machines={enriched} onAnalyze={runCommissioningAnalysis}
                             onClose={() => setShowCommissioning(false)} />
+      )}
+      {showPlanning && (
+        <PlanningPanel
+          data={{ orders: productionOrders, readiness: productionReadiness, scenarios: planningScenarios, activeSchedule, exceptions: routeExceptions }}
+          machines={enriched}
+          onAction={runPlanningAction}
+          onClose={() => setShowPlanning(false)}
+        />
       )}
 
       <style>{`

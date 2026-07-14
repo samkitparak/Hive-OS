@@ -84,6 +84,25 @@ def test_twin_rejects_unknown_policy(client):
     response = client.post("/api/digital-twin/compare", json={"policies": ["magic"]})
     assert response.status_code == 400
 
+
+def test_production_control_and_planning_endpoints(client):
+    assert client.get("/api/production/orders").status_code == 200
+    readiness = client.get("/api/production/readiness")
+    assert readiness.status_code == 200
+    assert "checks" in readiness.json()
+    assert client.get("/api/production/route-exceptions").status_code == 200
+    assert client.get("/api/planning/scenarios").status_code == 200
+    assert client.get("/api/planning/active-schedule").status_code == 200
+    scenario = client.post("/api/planning/scenarios", json={
+        "created_by": "test", "policies": ["fifo"], "seed": 1,
+    })
+    assert scenario.status_code == 200
+    assert "readiness" in scenario.json()
+
+
+def test_unknown_production_route_is_404(client):
+    assert client.get("/api/production/routes/NOT-A-JOB").status_code == 404
+
 def test_machines_have_required_fields(client):
     data = client.get("/machines").json()
     required = {"machine_key", "name", "type", "state", "last_event", "last_seen"}

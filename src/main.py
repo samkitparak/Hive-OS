@@ -48,6 +48,8 @@ import routing as routing_module
 import commissioning as commissioning_module
 import event_pipeline
 import optimization as optimization_module
+import planning as planning_module
+import production_control as production_control_module
 import diagnostics as diagnostics_module
 import deployment as deployment_module
 import config_editor as config_editor_module
@@ -60,12 +62,17 @@ from api_models import (
     CloseRequest,
     CommissioningLogRequest,
     DigitalTwinRequest,
+    PartRouteUpdate,
+    PlanningDecision,
+    PlanningScenarioCreate,
+    ProductionOrderUpdate,
     CvSqlRow,
     DowntimeCreate,
     OttimoPlaceholder,
     QualityCheckCreate,
     RemoteConnectionRequest,
     RemoteMachineRequest,
+    RouteExceptionDecision,
     SiteConfigUpdate,
     WorkOrderCreate,
 )
@@ -108,6 +115,7 @@ _route_connections = threading.local()
 async def lifespan(app: FastAPI):
     global _mqtt_client, _conn, _cv_observer, _event_watch_task, _learning_watch_task
     _conn = init_db(DB_PATH, check_same_thread=False)
+    production_control_module.sync_all(_conn)
     try:
         _mqtt_client = mqtt_bridge.start(_conn, CONFIG_PATH)
         log.info("MQTT bridge started")
@@ -202,6 +210,8 @@ async def _watch_learning():
             conn = _get_conn()
             await asyncio.to_thread(learning_module.refresh_all, conn)
             await asyncio.to_thread(routing_module.refresh_observations, conn)
+            await asyncio.to_thread(production_control_module.sync_all, conn)
+            await asyncio.to_thread(production_control_module.reconcile_machine_events, conn)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -279,8 +289,10 @@ def get_jobs(limit: int = Query(50, le=200)):
     conn = _get_conn()
     rows = conn.execute(
         """SELECT j.job_name, j.room_name, j.job_date, j.beamsaw_run_id,
-                  j.total_parts, c.name as client_name
+                  j.total_parts, c.name as client_name, po.id production_order_id,
+                  po.status order_status, po.due_at, po.priority, po.release_sequence
            FROM jobs j LEFT JOIN clients c ON j.client_id=c.id
+           LEFT JOIN production_orders po ON po.job_id=j.id
            ORDER BY j.job_date DESC, j.id DESC LIMIT ?""",
         (limit,)
     ).fetchall()
@@ -420,6 +432,116 @@ def post_digital_twin_compare(payload: DigitalTwinRequest):
         )
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
+
+
+@app.post("/production/sync")
+def post_production_sync():
+    conn = _get_conn()
+    result = production_control_module.sync_all(conn)
+    result["reconciliation"] = production_control_module.reconcile_machine_events(conn)
+    return result
+
+
+@app.get("/production/orders")
+def get_production_orders(status: Optional[str] = None):
+    return production_control_module.list_orders(_get_conn(), status)
+
+
+@app.get("/production/readiness")
+def get_production_readiness():
+    return production_control_module.readiness(_get_conn())
+
+
+@app.put("/production/orders/{order_id}")
+def put_production_order(order_id: int, payload: ProductionOrderUpdate):
+    try:
+        return production_control_module.update_order(
+            _get_conn(), order_id, payload.model_dump(exclude_none=True)
+        )
+    except production_control_module.VersionConflict as error:
+        raise HTTPException(409, str(error)) from error
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/production/routes/{job_name}")
+def get_production_routes(job_name: str):
+    try:
+        return production_control_module.get_job_routes(_get_conn(), job_name)
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+
+
+@app.put("/production/routes/parts/{part_id}")
+def put_part_route(part_id: int, payload: PartRouteUpdate):
+    try:
+        return production_control_module.replace_part_route(
+            _get_conn(), part_id, payload.machine_keys, payload.actor, payload.notes
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/production/route-exceptions")
+def get_route_exceptions(status: str = "open"):
+    return production_control_module.list_exceptions(_get_conn(), status)
+
+
+@app.post("/production/route-exceptions/{exception_id}/resolve")
+def post_route_exception_resolution(exception_id: int, payload: RouteExceptionDecision):
+    try:
+        return production_control_module.resolve_exception(
+            _get_conn(), exception_id, payload.status, payload.actor, payload.notes
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/planning/scenarios")
+def get_planning_scenarios(limit: int = Query(20, ge=1, le=100)):
+    return planning_module.list_scenarios(_get_conn(), limit)
+
+
+@app.post("/planning/scenarios")
+def post_planning_scenario(payload: PlanningScenarioCreate):
+    try:
+        return planning_module.create_scenario(
+            _get_conn(), payload.model_dump(exclude_none=True)
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/planning/scenarios/{scenario_id}")
+def get_planning_scenario(scenario_id: int):
+    try:
+        return planning_module.get_scenario(_get_conn(), scenario_id)
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+
+
+@app.post("/planning/scenarios/{scenario_id}/decision")
+def post_planning_decision(scenario_id: int, payload: PlanningDecision):
+    try:
+        return planning_module.decide(
+            _get_conn(), scenario_id, payload.decision, payload.actor,
+            payload.selected_policy, payload.notes,
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/planning/active-schedule")
+def get_active_schedule():
+    return planning_module.active_schedule(_get_conn())
 
 
 @app.post("/commissioning/log/analyze")

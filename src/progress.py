@@ -9,7 +9,7 @@ on any machine. When cycle times are zero (not yet measured), ETA is None.
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -29,6 +29,7 @@ class JobProgress:
     active_machines: list[str]     # machine_keys currently running this job
     eta_seconds:   Optional[int]   # None when cycle times unknown
     on_time:       Optional[str]   # "on_time" | "at_risk" | "late" | None
+    due_at:         Optional[str] = None
 
 
 def _eta_for_job(conn: sqlite3.Connection, job_name: str, total: int,
@@ -42,8 +43,22 @@ def _eta_for_job(conn: sqlite3.Connection, job_name: str, total: int,
     return round(critical_path_s * (left / total))
 
 
-def _on_time_status(eta_s: Optional[int], cfg_path: Path) -> Optional[str]:
+def _on_time_status(eta_s: Optional[int], cfg_path: Path,
+                    due_at: Optional[str] = None,
+                    controlled: bool = False) -> Optional[str]:
     if eta_s is None:
+        return None
+    if due_at:
+        due = datetime.fromisoformat(due_at.replace("Z", "+00:00"))
+        if due.tzinfo is None:
+            due = due.replace(tzinfo=timezone.utc)
+        finish = datetime.now(timezone.utc) + timedelta(seconds=eta_s)
+        if finish > due.astimezone(timezone.utc):
+            return "late"
+        if finish + timedelta(hours=1) > due.astimezone(timezone.utc):
+            return "at_risk"
+        return "on_time"
+    if controlled:
         return None
     with open(cfg_path) as f:
         cfg = yaml.safe_load(f)
@@ -86,7 +101,10 @@ def get_active_jobs(conn: sqlite3.Connection,
     results = []
     for (job_id,) in active_job_ids:
         job = conn.execute(
-            "SELECT job_name, total_parts FROM jobs WHERE id=?", (job_id,)
+            """SELECT j.job_name, j.total_parts, po.due_at,
+                      CASE WHEN po.id IS NULL THEN 0 ELSE 1 END controlled
+               FROM jobs j LEFT JOIN production_orders po ON po.job_id=j.id
+               WHERE j.id=?""", (job_id,)
         ).fetchone()
         if not job:
             continue
@@ -95,7 +113,7 @@ def get_active_jobs(conn: sqlite3.Connection,
 
         # Parts done = distinct parts with a cycle_end today
         done_row = conn.execute(
-            """SELECT COUNT(DISTINCT me.part_id)
+            """SELECT COUNT(*)
                FROM machine_events me
                JOIN parts p ON me.part_id = p.id
                WHERE p.job_id = ?
@@ -103,7 +121,7 @@ def get_active_jobs(conn: sqlite3.Connection,
                  AND me.ts >= ?""",
             (job_id, today)
         ).fetchone()
-        done = done_row[0] if done_row else 0
+        done = min(total, done_row[0] if done_row else 0)
         left = max(0, total - done)
         pct  = (done / total) if total > 0 else 0.0
 
@@ -122,7 +140,7 @@ def get_active_jobs(conn: sqlite3.Connection,
         active_machines = [r["machine_key"] for r in active_rows]
 
         eta_s = _eta_for_job(conn, job["job_name"], total, left, cfg_path)
-        on_time = _on_time_status(eta_s, cfg_path)
+        on_time = _on_time_status(eta_s, cfg_path, job["due_at"], bool(job["controlled"]))
 
         results.append(JobProgress(
             job_name        = job["job_name"],
@@ -133,6 +151,7 @@ def get_active_jobs(conn: sqlite3.Connection,
             active_machines = active_machines,
             eta_seconds     = eta_s,
             on_time         = on_time,
+            due_at          = job["due_at"],
         ))
 
     return results
@@ -141,7 +160,10 @@ def get_active_jobs(conn: sqlite3.Connection,
 def get_job_progress(conn: sqlite3.Connection, job_name: str,
                      cfg_path: Path = CONFIG_PATH) -> Optional[JobProgress]:
     job = conn.execute(
-        "SELECT id, job_name, total_parts FROM jobs WHERE job_name=?", (job_name,)
+        """SELECT j.id, j.job_name, j.total_parts, po.due_at,
+                  CASE WHEN po.id IS NULL THEN 0 ELSE 1 END controlled
+           FROM jobs j LEFT JOIN production_orders po ON po.job_id=j.id
+           WHERE j.job_name=?""", (job_name,)
     ).fetchone()
     if not job:
         return None
@@ -149,13 +171,13 @@ def get_job_progress(conn: sqlite3.Connection, job_name: str,
     total = job["total_parts"] or 0
 
     done_row = conn.execute(
-        """SELECT COUNT(DISTINCT me.part_id)
+        """SELECT COUNT(*)
            FROM machine_events me
            JOIN parts p ON me.part_id = p.id
            WHERE p.job_id = ? AND me.event_type = 'cycle_end'""",
         (job["id"],)
     ).fetchone()
-    done = done_row[0] if done_row else 0
+    done = min(total, done_row[0] if done_row else 0)
     left = max(0, total - done)
     pct  = (done / total) if total > 0 else 0.0
 
@@ -172,7 +194,7 @@ def get_job_progress(conn: sqlite3.Connection, job_name: str,
     active_machines = [r["machine_key"] for r in active_rows]
 
     eta_s = _eta_for_job(conn, job["job_name"], total, left, cfg_path)
-    on_time = _on_time_status(eta_s, cfg_path)
+    on_time = _on_time_status(eta_s, cfg_path, job["due_at"], bool(job["controlled"]))
 
     return JobProgress(
         job_name        = job["job_name"],
@@ -183,4 +205,5 @@ def get_job_progress(conn: sqlite3.Connection, job_name: str,
         active_machines = active_machines,
         eta_seconds     = eta_s,
         on_time         = on_time,
+        due_at          = job["due_at"],
     )

@@ -94,6 +94,23 @@ def graph(conn: sqlite3.Connection) -> dict:
 
 def part_route(conn: sqlite3.Connection, part: dict) -> dict:
     """Use this part's observed route, otherwise a minimal CV-derived route."""
+    planned = conn.execute(
+        """SELECT m.machine_key, prs.source, prs.confidence
+           FROM part_route_steps prs JOIN machines m ON m.id=prs.machine_id
+           WHERE prs.part_id=? AND prs.required=1 ORDER BY prs.step_index""",
+        (part.get("id"),),
+    ).fetchall() if part.get("id") else []
+    if planned:
+        confidences = {row["confidence"] for row in planned}
+        confidence = ("confirmed" if "confirmed" in confidences or all(
+            row["source"] == "manual" for row in planned)
+            else "high" if confidences == {"high"} else "low")
+        return {
+            "machines": [row["machine_key"] for row in planned],
+            "source": "planned_route",
+            "evidence": sorted({row["source"] for row in planned}),
+            "confidence": confidence,
+        }
     observed = conn.execute(
         """SELECT m.machine_key FROM machine_events me
            JOIN machines m ON m.id=me.machine_id
