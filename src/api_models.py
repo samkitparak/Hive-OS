@@ -225,6 +225,40 @@ class CvSqlRow(BaseModel):
     has_cnc: Optional[bool] = None
 
 
+class ConnectorProfileUpdate(RequestModel):
+    expected_version: Optional[int] = Field(default=None, ge=1)
+    enabled: Optional[bool] = None
+    credential_env: Optional[str] = Field(default=None, max_length=128)
+    settings: Optional[dict[str, Any]] = None
+    actor: str = Field(default="operator", min_length=1)
+
+
+class ConnectorAnalyzeRequest(RequestModel):
+    records: list[dict[str, Any]] = Field(default_factory=list, max_length=10000)
+    mapping: Optional[dict[str, Any]] = None
+    log_text: Optional[str] = Field(default=None, max_length=5_000_000)
+    file_name: Optional[str] = Field(default=None, max_length=255)
+    scope_key: Optional[str] = Field(default=None, max_length=128)
+    actor: str = Field(default="operator", min_length=1)
+
+
+class ConnectorApprovalRequest(RequestModel):
+    run_id: int = Field(ge=1)
+    expected_version: int = Field(ge=1)
+    actor: str = Field(default="operator", min_length=1)
+    enable: bool = False
+
+
+class ConnectorImportRequest(RequestModel):
+    records: list[dict[str, Any]] = Field(min_length=1, max_length=10000)
+    file_name: Optional[str] = Field(default=None, max_length=255)
+    actor: str = Field(default="operator", min_length=1)
+
+
+class ConnectorSyncRequest(RequestModel):
+    actor: str = Field(default="operator", min_length=1)
+
+
 class RemoteMachineRequest(RequestModel):
     machine_key: str = Field(min_length=1, pattern=r"^[a-z0-9_]+$")
     host: Optional[str] = None

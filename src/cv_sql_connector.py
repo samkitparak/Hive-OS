@@ -1,9 +1,8 @@
-"""
-Cabinet Vision SQL placeholder connector.
+"""Normalized Cabinet Vision job/part upsert boundary.
 
-The production version should replace normalize_placeholder_rows() with a real
-read-only SQL Server query/mapping. It must keep returning the normalized row
-shape used here so the rest of HIVE does not change.
+The commissioned SQL connector validates and maps vendor rows before calling
+this module. The legacy placeholder endpoint also uses the same normalized
+shape for demo compatibility.
 """
 
 from datetime import datetime, timezone

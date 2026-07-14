@@ -117,6 +117,15 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
     ).fetchone()["count"]
     verified_plans = int(maintenance["verified"] or 0)
     maintenance_ready = verified_plans >= len(machines) and not spare_shortages
+    connector_counts = conn.execute(
+        """SELECT COUNT(*) total,
+                  SUM(CASE WHEN verified=1 THEN 1 ELSE 0 END) verified,
+                  SUM(CASE WHEN enabled=1 THEN 1 ELSE 0 END) enabled
+           FROM connector_profiles"""
+    ).fetchone()
+    connector_total = int(connector_counts["total"] or 0)
+    connector_verified = int(connector_counts["verified"] or 0)
+    connector_enabled = int(connector_counts["enabled"] or 0)
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -128,6 +137,8 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             ),
             "verified_maintenance_plans": verified_plans,
             "maintenance_spare_shortages": int(spare_shortages),
+            "verified_connectors": connector_verified,
+            "enabled_connectors": connector_enabled,
         },
         "services": [
             {"key": "database", "name": "Database", "status": "online",
@@ -145,6 +156,12 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
              "detail": (
                  f"{verified_plans}/{len(machines)} machines covered; "
                  f"{spare_shortages} required spare shortages"
+             )},
+            {"key": "connectors", "name": "Factory data connectors",
+             "status": "ready" if connector_total and connector_verified == connector_total else "needs_site_value",
+             "detail": (
+                 f"{connector_verified}/{connector_total} approved; "
+                 f"{connector_enabled} enabled"
              )},
         ],
         "machines": machines,

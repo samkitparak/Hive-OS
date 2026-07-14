@@ -875,6 +875,81 @@ CREATE TABLE IF NOT EXISTS connector_sync_state (
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Factory-specific formats are commissioned at this boundary. Profiles contain
+-- no credentials: credential_env names an environment variable held by the OS.
+CREATE TABLE IF NOT EXISTS connector_profiles (
+    connector_key       TEXT PRIMARY KEY,
+    name                TEXT NOT NULL,
+    record_type         TEXT NOT NULL,
+    transport           TEXT NOT NULL,
+    enabled             INTEGER NOT NULL DEFAULT 0,
+    verified            INTEGER NOT NULL DEFAULT 0,
+    status              TEXT NOT NULL DEFAULT 'commissioning_required',
+    credential_env      TEXT,
+    settings_json       TEXT NOT NULL DEFAULT '{}',
+    active_mapping_id   INTEGER,
+    version             INTEGER NOT NULL DEFAULT 1,
+    last_test_at        TEXT,
+    last_error          TEXT,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS connector_mapping_versions (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    connector_key       TEXT NOT NULL REFERENCES connector_profiles(connector_key),
+    version             INTEGER NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'approved',
+    mapping_json        TEXT NOT NULL,
+    source_columns_json TEXT NOT NULL DEFAULT '[]',
+    sample_sha256       TEXT NOT NULL,
+    coverage            REAL NOT NULL,
+    approved_by         TEXT NOT NULL,
+    approved_at         TEXT NOT NULL,
+    created_at          TEXT NOT NULL,
+    UNIQUE(connector_key, version)
+);
+
+CREATE TABLE IF NOT EXISTS connector_commissioning_runs (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    connector_key       TEXT NOT NULL REFERENCES connector_profiles(connector_key),
+    scope_key           TEXT,
+    mapping_version_id  INTEGER REFERENCES connector_mapping_versions(id),
+    mode                TEXT NOT NULL,
+    source_sha256       TEXT NOT NULL,
+    file_name           TEXT,
+    status              TEXT NOT NULL,
+    records_seen        INTEGER NOT NULL DEFAULT 0,
+    records_accepted    INTEGER NOT NULL DEFAULT 0,
+    records_rejected    INTEGER NOT NULL DEFAULT 0,
+    records_imported    INTEGER NOT NULL DEFAULT 0,
+    records_duplicate   INTEGER NOT NULL DEFAULT 0,
+    summary_json        TEXT NOT NULL DEFAULT '{}',
+    actor               TEXT NOT NULL,
+    started_at          TEXT NOT NULL,
+    completed_at        TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS connector_run_issues (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id              INTEGER NOT NULL REFERENCES connector_commissioning_runs(id),
+    record_index        INTEGER,
+    field_key           TEXT,
+    code                TEXT NOT NULL,
+    severity            TEXT NOT NULL,
+    detail              TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS connector_import_batches (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    connector_key       TEXT NOT NULL REFERENCES connector_profiles(connector_key),
+    source_sha256       TEXT NOT NULL,
+    mapping_version_id  INTEGER NOT NULL REFERENCES connector_mapping_versions(id),
+    run_id              INTEGER NOT NULL REFERENCES connector_commissioning_runs(id),
+    imported_at         TEXT NOT NULL,
+    UNIQUE(connector_key, source_sha256)
+);
+
 CREATE INDEX IF NOT EXISTS idx_parts_job ON parts(job_id);
 CREATE INDEX IF NOT EXISTS idx_production_orders_status_due ON production_orders(status, due_at, priority DESC);
 CREATE INDEX IF NOT EXISTS idx_production_order_events_order_ts ON production_order_events(production_order_id, ts DESC);
@@ -927,6 +1002,9 @@ CREATE INDEX IF NOT EXISTS idx_barcode_resolutions_status ON barcode_event_resol
 CREATE INDEX IF NOT EXISTS idx_unit_progress_step_state ON unit_route_progress(route_step_id, state);
 CREATE INDEX IF NOT EXISTS idx_label_jobs_order_created ON label_print_jobs(production_order_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_label_items_unit_printed ON label_print_items(unit_id, printed_count);
+CREATE INDEX IF NOT EXISTS idx_connector_mappings_key_status ON connector_mapping_versions(connector_key, status, version DESC);
+CREATE INDEX IF NOT EXISTS idx_connector_runs_key_time ON connector_commissioning_runs(connector_key, completed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_connector_issues_run ON connector_run_issues(run_id, severity);
 
 -- Seed the 14 in-scope HAEEV machines (aluminium pair excluded, compressors/dust collectors as utility)
 INSERT OR IGNORE INTO machines (name, machine_key, type, brand, model, has_maestro, has_opcua, active) VALUES
@@ -968,4 +1046,11 @@ INSERT OR IGNORE INTO defect_types (code, label, process) VALUES
 
 INSERT OR IGNORE INTO connector_sync_state (connector_key, status) VALUES
     ('cabinet_vision_sql', 'not_configured'),
-    ('ottimo_barcode',    'not_configured');
+    ('ottimo_barcode',    'not_configured'),
+    ('maestro_logs',      'not_configured');
+
+INSERT OR IGNORE INTO connector_profiles
+    (connector_key,name,record_type,transport,created_at,updated_at) VALUES
+    ('cabinet_vision_sql','Cabinet Vision SQL','job_part_row','sql_server',datetime('now'),datetime('now')),
+    ('ottimo_barcode','Ottimo barcode','barcode_event','file_or_api',datetime('now'),datetime('now')),
+    ('maestro_logs','SCM Maestro logs','machine_log','file_tail',datetime('now'),datetime('now'));

@@ -78,6 +78,25 @@ File to edit: `config/machines.yaml` → `cv_watch_folder`
 
 > The auto-watcher (`src/cv_watcher.py`) debounces rapid file writes so even if CV drops multiple files at once, only one ingest runs. Already-ingested jobs are skipped so re-exporting the same job is safe.
 
+### Cabinet Vision SQL commissioning
+
+Dashboard → **Commission** → **Data connectors**
+
+- [ ] Confirm the exact Cabinet Vision version and SQL Server instance with the reseller or site DBA
+- [ ] Create an approved read-only view with one row per part; do not guess internal table names
+- [ ] Grant the HIVE service identity `SELECT` only on that view
+- [ ] Set `HIVE_CV_SQL_CONNECTION` as a Windows machine environment variable and restart HIVE
+- [ ] Save the credential variable name and view name, then run **Test metadata**
+- [ ] Analyze 10-100 representative rows, verify every mapping, approve, and enable
+- [ ] Run one SQL sync and reconcile job, part, quantity, material, and CNC program counts
+
+### Ottimo connector commissioning
+
+- [ ] Export representative scan events for completion, QC pass/fail, packing, and dispatch
+- [ ] Map barcode, station, timestamp, operator, external event ID, and every event value
+- [ ] Approve only after all sample rows pass; import once and reconcile with Ottimo totals
+- [ ] Repeat a batch and confirm HIVE reports it as duplicate without writing again
+
 ---
 
 ## Production Planning — Before First Live Job

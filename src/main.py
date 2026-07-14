@@ -59,12 +59,18 @@ import config_editor as config_editor_module
 import remote_setup as remote_setup_module
 import operations as operations_module
 import maintenance as maintenance_module
+import connectors as connectors_module
 import ottimo_connector
 import cv_sql_connector
 from api_models import (
     BarcodeEventCreate,
     CloseRequest,
     CommissioningLogRequest,
+    ConnectorAnalyzeRequest,
+    ConnectorApprovalRequest,
+    ConnectorImportRequest,
+    ConnectorProfileUpdate,
+    ConnectorSyncRequest,
     DigitalTwinRequest,
     ExecutionActionRequest,
     ExecutionExceptionDecision,
@@ -108,7 +114,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.7.0"
+APP_VERSION = "0.8.0"
 
 
 class ApiPrefixMiddleware:
@@ -145,6 +151,7 @@ async def lifespan(app: FastAPI):
     execution_module.sync(_conn)
     maintenance_module.sync_defaults(_conn)
     maintenance_module.sync(_conn)
+    connectors_module.sync_defaults(_conn)
     try:
         _mqtt_client = mqtt_bridge.start(_conn, CONFIG_PATH)
         log.info("MQTT bridge started")
@@ -870,6 +877,88 @@ def post_commissioning_log_analysis(payload: CommissioningLogRequest):
             persist=payload.persist, site_timezone=payload.site_timezone,
         )
     except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/connectors/snapshot")
+def get_connector_snapshot():
+    return connectors_module.snapshot(_get_conn())
+
+
+@app.put("/connectors/{connector_key}")
+def put_connector_profile(connector_key: str, payload: ConnectorProfileUpdate):
+    try:
+        return connectors_module.update_profile(
+            _get_conn(), connector_key, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/connectors/{connector_key}/analyze")
+def post_connector_analysis(connector_key: str, payload: ConnectorAnalyzeRequest):
+    try:
+        if connector_key == "maestro_logs":
+            if not payload.scope_key or not payload.log_text:
+                raise ValueError("Maestro analysis requires scope_key and log_text")
+            return connectors_module.analyze_maestro(
+                _get_conn(), payload.scope_key, payload.log_text,
+                file_name=payload.file_name, actor=payload.actor,
+            )
+        return connectors_module.analyze_records(
+            _get_conn(), connector_key, payload.records, mapping=payload.mapping,
+            file_name=payload.file_name, actor=payload.actor,
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/connectors/{connector_key}/approve")
+def post_connector_approval(connector_key: str, payload: ConnectorApprovalRequest):
+    try:
+        return connectors_module.approve_run(
+            _get_conn(), connector_key, payload.run_id,
+            expected_version=payload.expected_version, actor=payload.actor,
+            enable=payload.enable,
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/connectors/{connector_key}/import")
+def post_connector_import(connector_key: str, payload: ConnectorImportRequest):
+    try:
+        return connectors_module.import_records(
+            _get_conn(), connector_key, payload.records,
+            file_name=payload.file_name, actor=payload.actor,
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/connectors/cabinet_vision_sql/discover")
+def post_cv_sql_discovery():
+    try:
+        return connectors_module.discover_sql(_get_conn())
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/connectors/cabinet_vision_sql/sync")
+def post_cv_sql_sync(payload: ConnectorSyncRequest | None = None):
+    try:
+        return connectors_module.sync_sql(
+            _get_conn(), actor=payload.actor if payload else "operator"
+        )
+    except (RuntimeError, ValueError) as error:
         raise HTTPException(400, str(error)) from error
 
 

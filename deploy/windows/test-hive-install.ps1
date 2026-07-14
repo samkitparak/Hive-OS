@@ -47,7 +47,16 @@ $checks += Test-Http "API machines" "http://$HostName`:$ApiPort/api/machines"
 $checks += Test-Http "API diagnostics" "http://$HostName`:$ApiPort/api/diagnostics"
 $checks += Test-Http "API data quality" "http://$HostName`:$ApiPort/api/data-quality"
 $checks += Test-Http "API optimization" "http://$HostName`:$ApiPort/api/optimization"
+$checks += Test-Http "API connectors" "http://$HostName`:$ApiPort/api/connectors/snapshot"
 $checks += Test-Port "MQTT" $HostName $MqttPort
+
+$odbc = Get-OdbcDriver -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "ODBC Driver 18 for SQL Server*" }
+if ($odbc) {
+    Write-Host "[OK] Microsoft ODBC Driver 18 installed" -ForegroundColor Green
+    $checks += $true
+} else {
+    Write-Host "[WARN] Microsoft ODBC Driver 18 not found; Cabinet Vision SQL will remain unavailable" -ForegroundColor Yellow
+}
 
 if (Test-Path "C:\HIVE-OS") {
     Write-Host "[OK] C:\HIVE-OS exists" -ForegroundColor Green

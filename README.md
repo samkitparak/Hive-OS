@@ -17,7 +17,7 @@ operations are limited to the HIVE database and site configuration.
 - **OEE** — Availability × Performance × Quality per machine, updated every shift.
 - **Daily score + streak** — gamified production score (0–100) combining OEE and on-time job completion. Streak tracks consecutive days beating the 7-day rolling average.
 - **Explainable optimization engine** — ranks dynamic constraints using active periods, queue depth, inferred downstream starvation, alarms, and a separate telemetry-confidence gate.
-- **Machine commissioning** — browse for a real Maestro log, validate parser coverage and cycle integrity, then opt in to an idempotent historical replay.
+- **Connector commissioning** — browse for real Cabinet Vision, Ottimo, or Maestro evidence; map and validate it; explicitly approve a version; then enable repeat-safe imports.
 - **Data trust layer** — normalizes India-local timestamps, suppresses duplicate MQTT delivery, isolates heartbeats, audits rejected events, and scores each machine's evidence quality.
 - **Automatic cycle learning** — pairs validated part cycles, robustly fits versioned nonnegative models, and protects active models from weak candidates.
 - **Production digital twin** — compares dispatch policies with finite machine, labor, tooling, calendar, maintenance, material, and WIP capacity.
@@ -26,7 +26,7 @@ operations are limited to the HIVE database and site configuration.
 - **Station execution control** — approved schedule dispatch, acknowledgements, partial quantities, holds, machine/scanner actuals, WIP movement, and traceability.
 - **Serialized unit identity** — one auditable identity per physical part, alias-safe scanner resolution, duplicate suppression, browser labels, and native Zebra ZPL.
 - **Preventive maintenance control** — commissioned calendar/usage/condition plans, machine-specific inspections, named LOTO evidence, maintenance-aware schedules, and audited spare reservations.
-- **Phase 1 operations layer** — placeholder-ready downtime, maintenance, quality/rework, barcode, Cabinet Vision SQL, and Ottimo workflows that can be replaced with real formats later.
+- **Factory integration boundary** — versioned mappings, read-only SQL discovery, credential references, sample fingerprints, issue audits, and idempotent import batches.
 - **Live event stream** — SSE feed of all machine events (cycle start/end, alarms, power changes) in real time.
 
 ---
@@ -97,6 +97,7 @@ hive-os/
 │   ├── identity.py            # physical units, scanner aliases, QR/ZPL labels
 │   ├── maintenance.py         # preventive plans, inspections, spares, reliability
 │   ├── operations.py         # downtime, manual work, quality/rework, barcode
+│   ├── connectors.py         # versioned connector commissioning + imports
 │   ├── cv_sql_connector.py   # Cabinet Vision SQL placeholder adapter
 │   ├── ottimo_connector.py   # Ottimo placeholder barcode adapter
 │   └── main.py               # FastAPI app (REST + SSE)
@@ -110,6 +111,7 @@ hive-os/
 ├── EXECUTION_CONTROL.md      # station state machine and evidence contracts
 ├── IDENTITY_AND_LABELS.md    # serialized units, scan resolution, print outputs
 ├── MAINTENANCE_CONTROL.md    # preventive triggers, safety boundary, spares
+├── CONNECTOR_COMMISSIONING.md # CV SQL, Ottimo, and Maestro site workflow
 └── INDIA_CHECKLIST.md        # on-site configuration checklist
 ```
 
@@ -266,6 +268,13 @@ unprefixed routes remain available for compatibility and local tooling.
 | GET | `/labels/jobs/{id}/print`, `/zpl` | Browser-print or Zebra-native label output |
 | POST | `/labels/jobs/{id}/printed` | Confirm physical label printing |
 | POST | `/commissioning/log/analyze` | Dry-run or import a validated Maestro log sample |
+| GET | `/connectors/snapshot` | Connector profiles, mappings, evidence, and status |
+| PUT | `/connectors/{key}` | Configure or enable a connector without storing secrets |
+| POST | `/connectors/{key}/analyze` | Analyze a sample and suggest/validate its mapping |
+| POST | `/connectors/{key}/approve` | Approve one passing evidence run as a mapping version |
+| POST | `/connectors/{key}/import` | Import an approved row batch idempotently |
+| POST | `/connectors/cabinet_vision_sql/discover` | Read-only SQL view metadata test |
+| POST | `/connectors/cabinet_vision_sql/sync` | Import from the approved read-only SQL view |
 | GET | `/diagnostics` | Service and machine-agent connection health |
 | GET | `/deployment` | Windows install package readiness and commands |
 | GET | `/config` | Current editable site setup configuration |

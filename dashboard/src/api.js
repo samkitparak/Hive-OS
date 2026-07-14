@@ -130,6 +130,22 @@ export const postJson = (path, payload) =>
 export const analyzeCommissioningLog = (payload) =>
   postJson("/commissioning/log/analyze", payload);
 
+export const fetchConnectorSnapshot = () => request("/connectors/snapshot");
+export const analyzeConnector = (key, payload) =>
+  postJson(`/connectors/${encodeURIComponent(key)}/analyze`, payload);
+export const approveConnector = (key, payload) =>
+  postJson(`/connectors/${encodeURIComponent(key)}/approve`, payload);
+export const importConnectorRecords = (key, payload) =>
+  postJson(`/connectors/${encodeURIComponent(key)}/import`, payload);
+export const updateConnectorProfile = (key, payload) => request(
+  `/connectors/${encodeURIComponent(key)}`,
+  { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+);
+export const discoverCabinetVisionSql = () =>
+  postJson("/connectors/cabinet_vision_sql/discover", {});
+export const syncCabinetVisionSql = (payload = {}) =>
+  postJson("/connectors/cabinet_vision_sql/sync", payload);
+
 export const fetchDailyScore = () => request("/score/daily");
 
 export const simulateEvent = (machineKey, eventType, extras = {}) => {

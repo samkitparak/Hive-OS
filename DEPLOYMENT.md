@@ -24,7 +24,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 The installer:
 
 - Copies HIVE OS to `C:\HIVE-OS`
-- Installs Python, Node.js, and Mosquitto if missing
+- Installs Python, Node.js, Mosquitto, and Microsoft ODBC Driver 18 if missing
 - Creates the Python virtual environment and dashboard build
 - Asks for the Cabinet Vision export folder
 - Creates a startup task
@@ -40,8 +40,8 @@ After installation, run:
 .\deploy\windows\test-hive-install.ps1
 ```
 
-This checks the dashboard, API, MQTT port, install folder, logs folder, and
-startup task.
+This checks the dashboard, API, connector registry, MQTT port, ODBC driver,
+install folder, logs folder, and startup task.
 
 Firewall rules are limited to `LocalSubnet`; HIVE does not expose its API or
 MQTT broker intentionally beyond the factory LAN.
@@ -97,6 +97,7 @@ Then open **Diagnostics**. The view shows both live system health and deployment
 package readiness:
 
 - Database, MQTT bridge, and Cabinet Vision watcher status
+- Approved and enabled factory connector counts
 - Configured versus unconfigured machines
 - Online, stale, and offline agents
 - Last report age
@@ -112,6 +113,10 @@ Status thresholds:
 - `offline`: no report for more than 15 minutes
 - `waiting`: configured but has never reported
 - `not configured`: no usable connection configuration
+
+For Cabinet Vision SQL, Ottimo, and Maestro evidence approval, follow
+`CONNECTOR_COMMISSIONING.md`. SQL credentials are machine environment variables;
+they are never written to HIVE configuration or SQLite.
 
 ## Capturing Maestro Evidence
 

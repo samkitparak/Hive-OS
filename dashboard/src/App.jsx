@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, updateMaterialStock, updateLaborRole, updateToolPool, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, postJson, simulateEvent } from "./api";
+import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, updateMaterialStock, updateLaborRole, updateToolPool, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, fetchConnectorSnapshot, analyzeConnector, approveConnector, importConnectorRecords, updateConnectorProfile, discoverCabinetVisionSql, syncCabinetVisionSql, postJson, simulateEvent } from "./api";
 import { MachineCard } from "./MachineCard";
 import { MachineDetail } from "./MachineDetail";
 import { JobProgress } from "./JobProgress";
@@ -133,6 +133,9 @@ export default function App() {
   });
   const { data: identitySnapshot = null } = useQuery({
     queryKey: ["identitySnapshot"], queryFn: fetchIdentitySnapshot, refetchInterval: 10000,
+  });
+  const { data: connectorSnapshot = null } = useQuery({
+    queryKey: ["connectorSnapshot"], queryFn: fetchConnectorSnapshot, refetchInterval: 30000,
   });
 
   const onEvent = useCallback((ev) => {
@@ -326,6 +329,19 @@ export default function App() {
         qc.invalidateQueries({ queryKey: [key] });
       });
     }
+    return result;
+  };
+
+  const runConnectorAction = async (kind, connectorKey, payload = {}) => {
+    let result;
+    if (kind === "analyze") result = await analyzeConnector(connectorKey, payload);
+    else if (kind === "approve") result = await approveConnector(connectorKey, payload);
+    else if (kind === "import") result = await importConnectorRecords(connectorKey, payload);
+    else if (kind === "profile") result = await updateConnectorProfile(connectorKey, payload);
+    else if (kind === "discover") result = await discoverCabinetVisionSql();
+    else if (kind === "sync") result = await syncCabinetVisionSql(payload);
+    qc.invalidateQueries({ queryKey: ["connectorSnapshot"] });
+    if (["import", "sync"].includes(kind)) refreshOperations();
     return result;
   };
 
@@ -600,7 +616,9 @@ export default function App() {
         />
       )}
       {showCommissioning && (
-        <CommissioningPanel machines={enriched} onAnalyze={runCommissioningAnalysis}
+        <CommissioningPanel machines={enriched} connectors={connectorSnapshot}
+                            onAnalyze={runCommissioningAnalysis}
+                            onConnectorAction={runConnectorAction}
                             onClose={() => setShowCommissioning(false)} />
       )}
       {showPlanning && (
@@ -623,6 +641,9 @@ export default function App() {
           .constraint-recommendation { grid-column: 1 / -1; }
           .intelligence-grid { grid-template-columns: 1fr 1fr !important; }
           .commission-controls { grid-template-columns: 1fr !important; }
+          .connector-layout { grid-template-columns: 1fr !important; }
+          .connector-layout > div:first-child { border-right: 0 !important; border-bottom: 1px solid #1f2937; padding-right: 0 !important; padding-bottom: 10px; display: grid; grid-template-columns: 1fr 1fr; }
+          .sql-config, .mapping-grid { grid-template-columns: 1fr !important; }
         }
       `}</style>
     </div>

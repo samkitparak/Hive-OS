@@ -1,9 +1,9 @@
 # Phase 1 Placeholder Integrations
 
-Phase 1 gives HIVE OS real product surfaces before the exact factory formats are
-known. The database, API, dashboard, and tests use HIVE-native normalized data.
-When the real systems are available, replace only the adapter functions listed
-below.
+Phase 1 gave HIVE real product surfaces before the exact factory formats were
+known. These endpoints remain for demos and compatibility, but production data
+now uses the versioned workflow in `CONNECTOR_COMMISSIONING.md`. No source-code
+replacement is required for ordinary field or event-value differences.
 
 ## What Exists Now
 
@@ -18,11 +18,13 @@ below.
 | Ottimo | `/connectors/ottimo/placeholder` | Demo scanner payloads |
 | Cabinet Vision SQL | `/connectors/cabinet-vision-sql/placeholder` | Demo SQL-like job/part rows |
 
-## Replacement Points
+## Legacy Adapter Points
 
 ### Ottimo
 
-Replace `parse_placeholder_event()` in `src/ottimo_connector.py`.
+`parse_placeholder_event()` in `src/ottimo_connector.py` serves only the legacy
+demo endpoint. Production formats are mapped in the commissioning UI and do not
+require changes to this function.
 
 Current demo payload:
 
@@ -64,8 +66,9 @@ Supported HIVE event types today:
 
 ### Cabinet Vision SQL Server
 
-Replace `normalize_placeholder_rows()` in `src/cv_sql_connector.py` with a real
-read-only SQL Server query/mapping.
+`normalize_placeholder_rows()` in `src/cv_sql_connector.py` remains the shared
+normalized upsert boundary for the legacy demo endpoint. Production SQL source
+and field mappings are configured in the commissioning UI.
 
 Current demo row:
 

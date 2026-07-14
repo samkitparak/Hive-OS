@@ -29,6 +29,11 @@ Require-Admin
 Ensure-WingetPackage "Python.Python.3.12" "python"
 Ensure-WingetPackage "OpenJS.NodeJS.LTS" "node"
 Ensure-WingetPackage "EclipseMosquitto.Mosquitto" "mosquitto"
+if (-not (Get-OdbcDriver -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "ODBC Driver 18 for SQL Server*" })) {
+    Write-Host "Installing Microsoft ODBC Driver 18 for SQL Server..."
+    winget install --id Microsoft.msodbcsql.18 --exact --silent `
+        --accept-package-agreements --accept-source-agreements
+}
 Refresh-Path
 
 $CvFolder = Read-Host "Cabinet Vision export folder [C:\CabinetVision\Export]"

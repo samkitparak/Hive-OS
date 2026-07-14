@@ -34,19 +34,21 @@
 Prefer read-only integrations first. HIVE OS should observe, reconcile, and
 recommend before it is allowed to write schedules or control equipment.
 
-## Phase 1 Placeholder Strategy
+## Commissioned Connector Strategy
 
-The first operations integrations are implemented as replaceable adapters. HIVE
-OS already owns the normalized workflows for downtime, maintenance, quality,
-rework, barcode scans, Cabinet Vision job/part imports, and Ottimo scanner
-events.
+HIVE owns normalized workflows for downtime, maintenance, quality, rework,
+barcode scans, Cabinet Vision job/part imports, and Ottimo scanner events. Real
+vendor formats are now learned through versioned connector mappings rather than
+source-code replacements.
 
-Real formats should replace only:
+Production formats enter through:
 
-| System | Replacement function | Stable downstream contract |
+| System | Commissioning route | Stable downstream contract |
 |---|---|---|
-| Ottimo | `src/ottimo_connector.py::parse_placeholder_event` | Normalized barcode event |
-| Cabinet Vision SQL | `src/cv_sql_connector.py::normalize_placeholder_rows` | Normalized job/part rows |
+| Ottimo | `/connectors/ottimo_barcode/analyze` then approve/import | Normalized barcode event |
+| Cabinet Vision SQL | read-only view discovery then analyze/approve/sync | Normalized job/part rows |
+| SCM Maestro | per-machine log evidence analyze/approve/replay | Normalized machine event |
 
-See `PHASE1_PLACEHOLDERS.md` for payload examples and exact normalized fields.
+See `CONNECTOR_COMMISSIONING.md` for credentials, evidence, mappings, and exact on-site steps.
+Legacy placeholder endpoints remain available for demo/test compatibility only.
 See `MAINTENANCE_CONTROL.md` for preventive trigger and evidence contracts.
