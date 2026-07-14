@@ -664,3 +664,26 @@ class ResourceUnavailabilityCreate(RequestModel):
     source: str = "manual"
     work_order_id: Optional[int] = Field(default=None, ge=1)
     actor: str = Field(default="operator", min_length=1)
+
+
+class ImprovementSyncRequest(RequestModel):
+    window_hours: int = Field(default=8, ge=1, le=24)
+    actor: str = Field(default="operator", min_length=1)
+
+
+class ImprovementAction(RequestModel):
+    action: Literal["accept", "reject", "implement", "evaluate", "complete", "cancel"]
+    expected_version: Optional[int] = Field(default=None, ge=1)
+    actor: str = Field(default="operator", min_length=1)
+    owner: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    notes: Optional[str] = Field(default=None, max_length=2000)
+    hypothesis: Optional[str] = Field(default=None, min_length=1, max_length=1000)
+    primary_metric: Optional[Literal[
+        "throughput_per_hour", "downtime_minutes_per_hour", "defect_rate", "median_cycle_time_s"
+    ]] = None
+    target_direction: Optional[Literal["increase", "decrease"]] = None
+    target_delta_pct: float = Field(default=5, ge=0, le=1000)
+    baseline_hours: int = Field(default=8, ge=1, le=720)
+    evaluation_hours: int = Field(default=8, ge=1, le=720)
+    min_samples: int = Field(default=4, ge=2, le=10000)
+    confounders: list[str] = Field(default_factory=list, max_length=50)

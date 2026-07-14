@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, fetchProcurementSnapshot, updateProcurementSupplier, updateProcurementMapping, createPurchaseOrder, draftProcurementRecommendations, actOnPurchaseOrder, createGoodsReceipt, importProcurementCsv, updateMaterialStock, updateInventoryItem, updateInventoryLot, updateInventoryRequirement, createInventoryRemnant, updateInventoryRemnant, updateLaborRole, updateToolPool, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, fetchConnectorSnapshot, analyzeConnector, approveConnector, importConnectorRecords, updateConnectorProfile, discoverCabinetVisionSql, syncCabinetVisionSql, fetchIndustrialSnapshot, updateIndustrialProfile, simulateIndustrialProfile, probeIndustrialProfile, probeIndustrialMqtt, approveIndustrialProfile, pollIndustrialProfile, browseIndustrialOpcua, postJson, simulateEvent } from "./api";
+import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, fetchProcurementSnapshot, updateProcurementSupplier, updateProcurementMapping, createPurchaseOrder, draftProcurementRecommendations, actOnPurchaseOrder, createGoodsReceipt, importProcurementCsv, updateMaterialStock, updateInventoryItem, updateInventoryLot, updateInventoryRequirement, createInventoryRemnant, updateInventoryRemnant, updateLaborRole, updateToolPool, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, fetchConnectorSnapshot, analyzeConnector, approveConnector, importConnectorRecords, updateConnectorProfile, discoverCabinetVisionSql, syncCabinetVisionSql, fetchIndustrialSnapshot, updateIndustrialProfile, simulateIndustrialProfile, probeIndustrialProfile, probeIndustrialMqtt, approveIndustrialProfile, pollIndustrialProfile, browseIndustrialOpcua, fetchImprovements, syncImprovements, actOnImprovement, postJson, simulateEvent } from "./api";
 import { MachineCard } from "./MachineCard";
 import { MachineDetail } from "./MachineDetail";
 import { JobProgress } from "./JobProgress";
@@ -11,6 +11,7 @@ import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { OperationsPanel } from "./OperationsPanel";
 import { SetupPanel } from "./SetupPanel";
 import { IntelligencePanel } from "./IntelligencePanel";
+import { ImprovementPanel } from "./ImprovementPanel";
 import { CommissioningPanel } from "./CommissioningPanel";
 import { PlanningPanel } from "./PlanningPanel";
 import { useSSE } from "./useSSE";
@@ -45,6 +46,7 @@ export default function App() {
   const [showSetup, setShowSetup] = useState(false);
   const [showCommissioning, setShowCommissioning] = useState(false);
   const [showPlanning, setShowPlanning] = useState(false);
+  const [showImprovements, setShowImprovements] = useState(false);
   const demoRef = useRef(null);
 
   const { data: machines = [] } = useQuery({
@@ -73,6 +75,9 @@ export default function App() {
   });
   const { data: optimization = null } = useQuery({
     queryKey: ["optimization"], queryFn: fetchOptimization, refetchInterval: 30000,
+  });
+  const { data: improvements = null } = useQuery({
+    queryKey: ["improvements"], queryFn: fetchImprovements, refetchInterval: 30000,
   });
   const { data: learning = null } = useQuery({
     queryKey: ["learning"], queryFn: fetchLearningStatus, refetchInterval: 30000,
@@ -368,6 +373,18 @@ export default function App() {
     return result;
   };
 
+  const runImprovementSync = async () => {
+    const result = await syncImprovements({ actor: "improvement-console", window_hours: 8 });
+    ["improvements", "diagnostics"].forEach(key => qc.invalidateQueries({ queryKey: [key] }));
+    return result;
+  };
+
+  const runImprovementAction = async (id, payload) => {
+    const result = await actOnImprovement(id, payload);
+    ["improvements", "diagnostics"].forEach(key => qc.invalidateQueries({ queryKey: [key] }));
+    return result;
+  };
+
   const refreshPlanning = () => {
     ["productionOrders", "productionReadiness", "planningScenarios", "activeSchedule", "resourceSnapshot", "procurementSnapshot", "routeExceptions", "executionSnapshot", "identitySnapshot", "sequence", "twin", "jobs", "optimization", "diagnostics"].forEach(key => {
       qc.invalidateQueries({ queryKey: [key] });
@@ -497,7 +514,8 @@ export default function App() {
 
       <IntelligencePanel optimization={optimization} quality={dataQuality}
                          learning={learning} routing={routing} twin={twin}
-                         onCommission={() => setShowCommissioning(true)} />
+                         onCommission={() => setShowCommissioning(true)}
+                         onReviewActions={() => setShowImprovements(true)} />
 
       {/* ── Daily Score ── */}
       <div style={{ background: "#111827", border: "1px solid #1f2937",
@@ -666,6 +684,11 @@ export default function App() {
           onAction={runPlanningAction}
           onClose={() => setShowPlanning(false)}
         />
+      )}
+      {showImprovements && improvements && (
+        <ImprovementPanel data={improvements} onSync={runImprovementSync}
+                          onAction={runImprovementAction}
+                          onClose={() => setShowImprovements(false)} />
       )}
 
       <style>{`

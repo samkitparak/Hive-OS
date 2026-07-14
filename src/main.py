@@ -49,6 +49,7 @@ import routing as routing_module
 import commissioning as commissioning_module
 import event_pipeline
 import optimization as optimization_module
+import improvement as improvement_module
 import planning as planning_module
 import production_control as production_control_module
 import resources as resources_module
@@ -80,6 +81,8 @@ from api_models import (
     IndustrialMqttProbeRequest,
     IndustrialProbeRequest,
     IndustrialProfileUpdate,
+    ImprovementAction,
+    ImprovementSyncRequest,
     InventoryItemUpdate,
     InventoryLotBalanceUpdate,
     InventoryRequirementUpdate,
@@ -136,7 +139,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.11.0"
+APP_VERSION = "0.12.0"
 
 
 class ApiPrefixMiddleware:
@@ -486,6 +489,38 @@ def get_data_quality(window_hours: int = Query(8, ge=1, le=168)):
 @app.get("/optimization")
 def get_optimization(window_hours: int = Query(8, ge=1, le=24)):
     return optimization_module.build(_get_conn(), window_hours)
+
+
+@app.get("/improvements")
+def get_improvements():
+    return improvement_module.snapshot(_get_conn())
+
+
+@app.post("/improvements/sync")
+def post_improvement_sync(payload: ImprovementSyncRequest):
+    return improvement_module.sync(
+        _get_conn(), actor=payload.actor, window_hours=payload.window_hours
+    )
+
+
+@app.get("/improvements/recommendations/{recommendation_id}")
+def get_improvement_recommendation(recommendation_id: int):
+    try:
+        return improvement_module.recommendation_detail(_get_conn(), recommendation_id)
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+
+
+@app.post("/improvements/recommendations/{recommendation_id}/action")
+def post_improvement_action(recommendation_id: int, payload: ImprovementAction):
+    try:
+        return improvement_module.act(
+            _get_conn(), recommendation_id, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
 
 
 @app.get("/learning/status")

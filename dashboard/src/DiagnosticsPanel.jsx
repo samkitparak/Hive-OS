@@ -1,6 +1,7 @@
 const STATUS_COLOR = {
   online: "#22c55e",
   ready: "#22c55e",
+  learning: "#f59e0b",
   waiting: "#60a5fa",
   stale: "#f59e0b",
   offline: "#ef4444",

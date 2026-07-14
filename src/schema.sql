@@ -1373,6 +1373,77 @@ CREATE TABLE IF NOT EXISTS industrial_profile_state (
     updated_at          TEXT NOT NULL
 );
 
+-- Human-approved continuous-improvement loop. Recommendations are stable,
+-- experiments freeze their baseline before implementation, and every state
+-- change is retained as immutable evidence.
+CREATE TABLE IF NOT EXISTS improvement_recommendations (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    recommendation_key  TEXT NOT NULL UNIQUE,
+    category            TEXT NOT NULL,
+    title               TEXT NOT NULL,
+    action              TEXT NOT NULL,
+    target_type         TEXT NOT NULL DEFAULT 'factory',
+    target_key          TEXT NOT NULL DEFAULT 'factory',
+    cause_code          TEXT NOT NULL DEFAULT 'unclassified',
+    confidence          TEXT NOT NULL,
+    metric_hint         TEXT,
+    target_direction    TEXT,
+    evidence_json       TEXT NOT NULL DEFAULT '[]',
+    source_window_start TEXT,
+    source_window_end   TEXT,
+    source_generated_at TEXT NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'proposed',
+    owner               TEXT,
+    resolution_notes    TEXT,
+    version             INTEGER NOT NULL DEFAULT 1,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS improvement_experiments (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    recommendation_id   INTEGER NOT NULL REFERENCES improvement_recommendations(id),
+    status              TEXT NOT NULL DEFAULT 'accepted',
+    owner               TEXT NOT NULL,
+    hypothesis          TEXT NOT NULL,
+    primary_metric      TEXT NOT NULL,
+    target_direction    TEXT NOT NULL,
+    target_delta_pct    REAL NOT NULL,
+    baseline_hours      INTEGER NOT NULL,
+    evaluation_hours    INTEGER NOT NULL,
+    min_samples         INTEGER NOT NULL,
+    design_type         TEXT NOT NULL DEFAULT 'before_after',
+    confounders_json    TEXT NOT NULL DEFAULT '[]',
+    baseline_start      TEXT,
+    baseline_end        TEXT,
+    implemented_at      TEXT,
+    evaluation_due_at   TEXT,
+    baseline_json       TEXT,
+    evaluation_json     TEXT,
+    guardrails_json     TEXT,
+    outcome             TEXT,
+    effect_pct          REAL,
+    ci_lower_pct        REAL,
+    ci_upper_pct        REAL,
+    notes               TEXT,
+    version             INTEGER NOT NULL DEFAULT 1,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS improvement_events (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    recommendation_id   INTEGER NOT NULL REFERENCES improvement_recommendations(id),
+    experiment_id       INTEGER REFERENCES improvement_experiments(id),
+    event_type          TEXT NOT NULL,
+    from_status         TEXT,
+    to_status           TEXT,
+    actor               TEXT NOT NULL,
+    notes               TEXT,
+    payload_json        TEXT NOT NULL DEFAULT '{}',
+    ts                  TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_parts_job ON parts(job_id);
 CREATE INDEX IF NOT EXISTS idx_production_orders_status_due ON production_orders(status, due_at, priority DESC);
 CREATE INDEX IF NOT EXISTS idx_production_order_events_order_ts ON production_order_events(production_order_id, ts DESC);
@@ -1439,6 +1510,10 @@ CREATE INDEX IF NOT EXISTS idx_industrial_profiles_machine ON industrial_profile
 CREATE INDEX IF NOT EXISTS idx_industrial_runs_profile_time ON industrial_commissioning_runs(profile_key, completed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_telemetry_profile_signal_ts ON telemetry_samples(profile_key, signal_key, source_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_telemetry_machine_ts ON telemetry_samples(machine_id, source_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_improvement_recommendations_status ON improvement_recommendations(status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_improvement_experiments_recommendation ON improvement_experiments(recommendation_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_improvement_experiments_outcome ON improvement_experiments(outcome, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_improvement_events_recommendation_ts ON improvement_events(recommendation_id, ts DESC);
 
 -- Seed the 14 in-scope HAEEV machines (aluminium pair excluded, compressors/dust collectors as utility)
 INSERT OR IGNORE INTO machines (name, machine_key, type, brand, model, has_maestro, has_opcua, active) VALUES

@@ -8,6 +8,7 @@ from typing import Optional
 import yaml
 
 import inventory
+import improvement
 import procurement
 
 PLACEHOLDER_HOSTS = {
@@ -153,6 +154,11 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
     procurement_ready = bool(
         purchasing_summary["suppliers"] > 0 and purchasing["commissioned"]
     )
+    improvements = improvement.snapshot(conn)
+    improvement_summary = improvements["summary"]
+    promoted_patterns = sum(
+        1 for item in improvements["learned_patterns"] if item["promoted"]
+    )
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -177,6 +183,10 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "procurement_supply_risks": purchasing_summary["supply_risks"],
             "open_purchase_orders": purchasing_summary["open_purchase_orders"],
             "procurement_outbox_pending": purchasing_summary["pending_outbox"],
+            "improvement_actions_active": improvement_summary["active"],
+            "improvement_actions_evaluable": improvement_summary["evaluable"],
+            "validated_improvements": improvement_summary["validated"],
+            "promoted_improvement_patterns": promoted_patterns,
         },
         "services": [
             {"key": "database", "name": "Database", "status": "online",
@@ -227,6 +237,16 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
                  f"{purchasing_summary['supply_risks']} supply risks; "
                  f"{purchasing_summary['open_purchase_orders']} open POs; "
                  f"{purchasing_summary['pending_outbox']} exchange documents pending"
+             )},
+            {"key": "improvement_learning", "name": "Improvement outcome learning",
+             "status": "ready" if improvement_summary["validated"] else (
+                 "learning" if improvement_summary["active"] else "needs_site_value"
+             ),
+             "detail": (
+                 f"{improvement_summary['active']} active; "
+                 f"{improvement_summary['evaluable']} ready to evaluate; "
+                 f"{improvement_summary['validated']} validated; "
+                 f"{promoted_patterns} reusable patterns"
              )},
         ],
         "machines": machines,

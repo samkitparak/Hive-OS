@@ -224,6 +224,27 @@ No spreadsheet is required when machine events identify the part reliably.
 
 ---
 
+## Improvement Experiments (After One Stable Shift)
+
+Dashboard → **Review actions**
+
+- [ ] Synchronize priorities only after the shift's telemetry and downtime classifications are reviewed
+- [ ] Assign one named owner and write a falsifiable hypothesis before accepting a measured action
+- [ ] Choose the machine scope and primary metric; do not use factory-wide scope when machine evidence exists
+- [ ] Use a baseline and evaluation window covering comparable shifts, product mix, staffing, and planned breaks
+- [ ] Record known confounders such as product family, material, tool change, operator, maintenance, or power interruption
+- [ ] Confirm the baseline meets the minimum sample gate before marking the change implemented
+- [ ] Make only one material process change per experiment where practical
+- [ ] Wait for the fixed evaluation window; do not force an early result
+- [ ] Review the 90% interval and every throughput, downtime, or quality guardrail before accepting the outcome
+- [ ] Treat `promising` and `inconclusive` as reasons to repeat, not proof of improvement
+- [ ] Reconcile the immutable event history with the shift supervisor's notes
+- [ ] Keep promoted patterns advisory until a separate safety and production-control review approves any broader automation
+
+See `IMPROVEMENT_LEARNING.md` for metric definitions and outcome rules.
+
+---
+
 ## Preventive Maintenance and Spares
 
 Dashboard → **Operations** → **Preventive maintenance**

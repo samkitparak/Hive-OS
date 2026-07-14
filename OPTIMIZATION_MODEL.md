@@ -90,6 +90,39 @@ evidence, but HIVE will not recommend a schedule change from it.
 PLC writes and autonomous machine control are outside the present safety
 boundary. HIVE observes, reconciles, and recommends first.
 
+## Closed-Loop Improvement Evidence
+
+Optimization output is read-only until an operator explicitly synchronizes it
+into the improvement ledger. A deterministic identity based on category,
+target, cause, and action keeps the same priority recognizable across
+refreshes. Accepting a measurable action declares its owner, hypothesis,
+primary metric, direction, target effect, baseline window, evaluation window,
+and minimum sample count before implementation.
+
+Implementation freezes the preceding baseline. Evaluation uses the fixed
+post-intervention window, a deterministic bootstrap 90% interval, and a
+metric-specific safety guardrail. HIVE labels the outcome `validated` only when
+the target is met, the interval excludes zero, and no guardrail fails.
+`promising` means the point target was met but uncertainty remains;
+`ineffective` means a sufficiently powered result missed the target or failed a
+guardrail; `inconclusive` means the evidence was insufficient.
+
+Repeated outcomes remain advisory. A recommendation pattern is promoted only
+after at least three decisive outcomes, at least 70% are validated, and the
+implementations span two dates. Promotion changes no schedule and writes no
+machine command.
+
+This design follows NIST guidance to verify measurement capability and process
+stability, declare experimental factors and responses in advance, and compare
+current behavior with a historical baseline. It also preserves a digital thread
+from source evidence through intervention and result:
+
+- [NIST process improvement](https://www.itl.nist.gov/div898/handbook/pri/pri.htm)
+- [NIST experimental design](https://itl.nist.gov/div898/handbook/pri/section1/pri11.htm)
+- [NIST process control techniques](https://www.itl.nist.gov/div898/handbook/pmc/section1/pmc12.htm)
+- [Bayesian structural time-series intervention analysis](https://arxiv.org/abs/1506.00356)
+- [NIST digital thread for manufacturing and inspection](https://www.nist.gov/publications/testing-digital-thread-support-model-based-manufacturing-and-inspection)
+
 ## Automatic Cycle Learning
 
 HIVE derives an immutable cycle observation only when a `cycle_end` can be

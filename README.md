@@ -17,6 +17,7 @@ operations are limited to the HIVE database and site configuration.
 - **OEE** — Availability × Performance × Quality per machine, updated every shift.
 - **Daily score + streak** — gamified production score (0–100) combining OEE and on-time job completion. Streak tracks consecutive days beating the 7-day rolling average.
 - **Explainable optimization engine** — ranks dynamic constraints using active periods, queue depth, inferred downstream starvation, alarms, and a separate telemetry-confidence gate.
+- **Closed-loop improvement learning** — turns priorities into owned experiments with frozen baselines, minimum sample gates, confidence intervals, guardrails, immutable outcomes, and conservative advisory promotion.
 - **Connector commissioning** — browse for real Cabinet Vision, Ottimo, or Maestro evidence; map and validate it; explicitly approve a version; then enable repeat-safe imports.
 - **Data trust layer** — normalizes India-local timestamps, suppresses duplicate MQTT delivery, isolates heartbeats, audits rejected events, and scores each machine's evidence quality.
 - **Automatic cycle learning** — pairs validated part cycles, robustly fits versioned nonnegative models, and protects active models from weak candidates.
@@ -93,6 +94,7 @@ hive-os/
 │   ├── data_quality.py       # per-machine telemetry confidence
 │   ├── commissioning.py      # offline Maestro evidence analysis + replay
 │   ├── optimization.py       # explainable, confidence-gated priorities
+│   ├── improvement.py        # recommendation lifecycle, experiments, outcome learning
 │   ├── learning.py           # automatic cycle observations + model validation
 │   ├── routing.py            # observed same-part process transitions
 │   ├── digital_twin.py       # SimPy schedule-policy comparison
@@ -121,6 +123,7 @@ hive-os/
 ├── INDUSTRIAL_TELEMETRY.md    # industrial I/O contracts and site workflow
 ├── WAREHOUSE_INTELLIGENCE.md  # stock, remnants, BOM boundary, and purchasing logic
 ├── PROCUREMENT_INTEGRATION.md # supplier, PO, receipt, and ERP adapter contract
+├── IMPROVEMENT_LEARNING.md   # recommendation experiments and promotion guardrails
 └── INDIA_CHECKLIST.md        # on-site configuration checklist
 ```
 
@@ -238,6 +241,10 @@ unprefixed routes remain available for compatibility and local tooling.
 | GET | `/bottlenecks` | Current constraint ranking and recommendation |
 | GET | `/data-quality` | Telemetry confidence, cycle integrity, part links, and clock drift |
 | GET | `/optimization` | Confidence-gated factory priorities and constraint persistence |
+| GET | `/improvements` | Recommendation lifecycle, experiments, outcomes, and learned advisories |
+| POST | `/improvements/sync` | Materialize current optimization priorities without GET-side writes |
+| GET | `/improvements/recommendations/{id}` | One recommendation's experiment and immutable event history |
+| POST | `/improvements/recommendations/{id}/action` | Accept, reject, implement, evaluate, complete, or cancel an action |
 | GET | `/learning/status` | Cycle observations and candidate/active model evidence |
 | POST | `/learning/refresh` | Derive observations, train candidates, and refresh route evidence |
 | GET | `/routing/graph` | Observed part-flow edges with support and confidence |
@@ -349,6 +356,8 @@ unprefixed routes remain available for compatibility and local tooling.
 
 See [OPTIMIZATION_MODEL.md](OPTIMIZATION_MODEL.md) for the evidence model,
 research basis, assumptions, confidence gate, and learning stages.
+See [IMPROVEMENT_LEARNING.md](IMPROVEMENT_LEARNING.md) for experiment metrics,
+outcome rules, guardrails, and the operator workflow.
 See [PRODUCTION_CONTROL.md](PRODUCTION_CONTROL.md) for order lifecycle, route
 reconciliation, schedule approval, and the day-one operator workflow.
 See [RESOURCE_MODEL.md](RESOURCE_MODEL.md) for stock reservations, finite

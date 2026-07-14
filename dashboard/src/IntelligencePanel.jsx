@@ -1,10 +1,12 @@
+import { FlaskConical, Settings } from "lucide-react";
+
 const STATUS = {
   ready: { color: "#22c55e", label: "Optimization ready" },
   learning: { color: "#f59e0b", label: "Learning from live data" },
   commissioning: { color: "#60a5fa", label: "Commissioning required" },
 };
 
-export function IntelligencePanel({ optimization, quality, learning, routing, twin, onCommission }) {
+export function IntelligencePanel({ optimization, quality, learning, routing, twin, onCommission, onReviewActions }) {
   if (!optimization || !quality) return null;
   const status = STATUS[optimization.status] ?? STATUS.commissioning;
   const recommendation = optimization.recommendations?.[0];
@@ -51,9 +53,16 @@ export function IntelligencePanel({ optimization, quality, learning, routing, tw
               : (twin?.guardrail ?? recommendation?.action ?? optimization.guardrail)}
           </div>
         </div>
-        <button onClick={onCommission} style={{ background: "#2563eb", color: "white",
-              border: 0, borderRadius: 6, padding: "8px 13px", fontSize: 11,
-              fontWeight: 700, cursor: "pointer" }}>Commission machine</button>
+        <div style={{ display: "flex", gap: 7, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <button onClick={onReviewActions} style={{ display: "inline-flex", alignItems: "center", gap: 6,
+                background: "#2563eb", color: "white", border: 0, borderRadius: 6,
+                padding: "8px 11px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+            <FlaskConical size={14} /> Review actions</button>
+          <button onClick={onCommission} title="Commission machine" style={{ display: "inline-flex", alignItems: "center",
+                justifyContent: "center", background: "#1f2937", color: "#d1d5db",
+                border: "1px solid #374151", borderRadius: 6, width: 32, height: 32, cursor: "pointer" }}>
+            <Settings size={15} /></button>
+        </div>
       </div>
     </section>
   );

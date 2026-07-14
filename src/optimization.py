@@ -1,5 +1,7 @@
 """Explainable factory optimization priorities built from trusted HIVE evidence."""
 
+import hashlib
+import json
 import sqlite3
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -12,13 +14,14 @@ import procurement
 
 def _downtime_evidence(conn: sqlite3.Connection, start: str, end: str) -> Optional[dict]:
     row = conn.execute(
-        """SELECT dr.code,dr.label,dr.category,
+        """SELECT dr.code,dr.label,dr.category,m.machine_key,m.name machine_name,
                   COUNT(*) occurrences,
                   SUM(MAX(0,(julianday(COALESCE(de.ended_at,?))-julianday(de.started_at))*86400)) seconds
            FROM downtime_events de
            LEFT JOIN downtime_reasons dr ON dr.id=de.reason_id
+           LEFT JOIN machines m ON m.id=de.machine_id
            WHERE de.started_at>=? AND de.started_at<=?
-           GROUP BY dr.id ORDER BY seconds DESC LIMIT 1""",
+           GROUP BY dr.id,de.machine_id ORDER BY seconds DESC LIMIT 1""",
         (end, start, end),
     ).fetchone()
     if not row or not row["seconds"]:
@@ -28,13 +31,40 @@ def _downtime_evidence(conn: sqlite3.Connection, start: str, end: str) -> Option
 
 def _quality_evidence(conn: sqlite3.Connection, start: str, end: str) -> Optional[dict]:
     row = conn.execute(
-        """SELECT COALESCE(dt.label,'Unclassified') defect,COUNT(*) count
-           FROM quality_checks qc LEFT JOIN defect_types dt ON dt.id=qc.defect_type_id
+        """SELECT COALESCE(dt.label,'Unclassified') defect,
+                  COALESCE(dt.code,'unclassified') defect_code,
+                  m.machine_key,m.name machine_name,COUNT(*) count
+           FROM quality_checks qc
+           LEFT JOIN defect_types dt ON dt.id=qc.defect_type_id
+           LEFT JOIN machines m ON m.id=qc.machine_id
            WHERE qc.result IN ('fail','rework') AND qc.ts>=? AND qc.ts<=?
-           GROUP BY dt.id ORDER BY count DESC LIMIT 1""",
+           GROUP BY dt.id,qc.machine_id ORDER BY count DESC LIMIT 1""",
         (start, end),
     ).fetchone()
     return dict(row) if row else None
+
+
+def _finalize(recommendations: list[dict], start: str, end: str,
+              generated_at: str) -> list[dict]:
+    for item in recommendations:
+        item.setdefault("target_type", "factory")
+        item.setdefault("target_key", "factory")
+        item.setdefault("cause_code", item["category"])
+        item.setdefault("metric_hint", None)
+        item.setdefault("target_direction", None)
+        identity = {
+            key: item.get(key) for key in (
+                "category", "target_type", "target_key", "cause_code", "action"
+            )
+        }
+        item["recommendation_key"] = hashlib.sha256(
+            json.dumps(identity, sort_keys=True).encode("utf-8")
+        ).hexdigest()[:24]
+        item["source_window_start"] = start
+        item["source_window_end"] = end
+        item["source_generated_at"] = generated_at
+        item["experiment_eligible"] = bool(item["metric_hint"])
+    return recommendations
 
 
 def build(conn: sqlite3.Connection, window_hours: int = 8,
@@ -60,6 +90,7 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
             "confidence": "high",
             "estimated_gain": None,
             "evidence": ["No production telemetry exists in the selected window"],
+            "cause_code": "missing_telemetry",
         })
     elif low_reporting:
         target = sorted(low_reporting, key=lambda item: item["score"])[0]
@@ -71,6 +102,8 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
             "confidence": "high",
             "estimated_gain": None,
             "evidence": [f"Telemetry score {round(target['score'] * 100)}%", *target["issues"][:2]],
+            "target_type": "machine", "target_key": target["machine_key"],
+            "cause_code": "telemetry_quality",
         })
 
     uncovered = [
@@ -98,6 +131,7 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
                 f"{item['name']}: {item['uncovered_qty']:g} {item['internal_uom']} uncovered"
                 for item in unmapped[:3]
             ],
+            "cause_code": "uncommissioned_supplier_master",
         })
     elif supply_risks:
         recommendations.append({
@@ -114,6 +148,7 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
                 f"{item['name']}: projected {item['projected_arrival_at']}"
                 for item in supply_risks[:3]
             ],
+            "cause_code": "supplier_lead_time_risk",
         })
 
     current = constraint.current
@@ -126,6 +161,9 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
             "confidence": current.confidence,
             "estimated_gain": None,
             "evidence": current.evidence or [f"Constraint score {round(current.score * 100)}%"],
+            "target_type": "machine", "target_key": current.machine_key,
+            "cause_code": current.primary_cause,
+            "metric_hint": "throughput_per_hour", "target_direction": "increase",
         })
 
     downtime = _downtime_evidence(conn, start, end)
@@ -141,6 +179,13 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
                 f"{downtime['occurrences']} events",
                 f"{round(downtime['seconds'] / 60)} recorded minutes",
             ],
+            "target_type": "machine" if downtime.get("machine_key") else "factory",
+            "target_key": downtime.get("machine_key") or "factory",
+            "cause_code": {
+                "maintenance": "reliability", "flow": "material_flow",
+                "labor": "staffing", "quality": "quality_loss", "planned": "setup",
+            }.get(downtime.get("category"), downtime.get("code") or "downtime"),
+            "metric_hint": "downtime_minutes_per_hour", "target_direction": "decrease",
         })
 
     defects = _quality_evidence(conn, start, end)
@@ -153,6 +198,10 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
             "confidence": "medium",
             "estimated_gain": None,
             "evidence": [f"{defects['count']} failures or rework records"],
+            "target_type": "machine" if defects.get("machine_key") else "factory",
+            "target_key": defects.get("machine_key") or "factory",
+            "cause_code": f"defect:{defects['defect_code']}",
+            "metric_hint": "defect_rate", "target_direction": "decrease",
         })
 
     history = []
@@ -191,7 +240,7 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
             "supply_risks": len(supply_risks),
             "open_purchase_orders": purchasing["summary"]["open_purchase_orders"],
         },
-        "recommendations": recommendations,
+        "recommendations": _finalize(recommendations, start, end, now.isoformat()),
         "guardrail": (
             "Estimated gains remain hidden until real cycle times and stable telemetry are available."
         ),
