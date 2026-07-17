@@ -11,6 +11,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import inventory
+import tooling
 
 
 DEFAULT_SHEET_LENGTH_MM = 2440.0
@@ -352,6 +353,10 @@ def snapshot(conn: sqlite3.Connection, job_names: list[str] | None = None,
     tool_pools = [dict(row) for row in conn.execute(
         "SELECT pool_key, name, total_qty, available_qty, source, verified, updated_at FROM tool_pools ORDER BY name"
     ).fetchall()]
+    tooling_status = tooling.snapshot(conn)
+    lifecycle_pools = {item["pool_key"]: item for item in tooling_status["pools"]}
+    for pool in tool_pools:
+        pool.update(lifecycle_pools[pool["pool_key"]])
     profiles = [dict(row) for row in conn.execute(
         """SELECT m.machine_key, m.name machine_name, lr.role_key, lr.name labor_role,
                   mrp.labor_qty, tp.pool_key, tp.name tool_pool, mrp.tool_qty,
@@ -405,7 +410,7 @@ def snapshot(conn: sqlite3.Connection, job_names: list[str] | None = None,
     )
     used_pools = {item["pool_key"] for item in used_profiles if item and item["pool_key"]}
     tooling_ok = bool(used_pools) and all(
-        pool_by_key[key]["verified"] and pool_by_key[key]["available_qty"] > 0 for key in used_pools
+        pool_by_key[key]["verified"] and pool_by_key[key]["effective_available_qty"] > 0 for key in used_pools
     )
     factory_calendar = [item for item in calendar
                         if item["resource_type"] == "factory" and item["resource_key"] == "factory"]
@@ -446,7 +451,8 @@ def snapshot(conn: sqlite3.Connection, job_names: list[str] | None = None,
         {"key": "labor", "label": "Labor capacity", "passed": labor_ok,
          "detail": f"{sum(bool(role_by_key[key]['verified']) for key in used_roles)} of {len(used_roles)} roles verified"},
         {"key": "tooling", "label": "Tooling capacity", "passed": tooling_ok,
-         "detail": f"{sum(bool(pool_by_key[key]['verified']) for key in used_pools)} of {len(used_pools)} pools verified"},
+         "detail": f"{sum(bool(pool_by_key[key]['verified']) for key in used_pools)} of {len(used_pools)} pools verified; "
+                   f"{sum(pool_by_key[key]['effective_available_qty'] for key in used_pools)} usable tools"},
         {"key": "calendar", "label": "Work calendar", "passed": calendar_ok,
          "detail": f"{len(factory_calendar)} weekly windows; {'verified' if calendar_ok else 'confirmation required'}"},
         {"key": "wip", "label": "WIP buffers", "passed": wip_ok,
@@ -464,6 +470,7 @@ def snapshot(conn: sqlite3.Connection, job_names: list[str] | None = None,
         "materials": materials,
         "labor_roles": labor_roles,
         "tool_pools": tool_pools,
+        "tooling": tooling_status,
         "machine_profiles": profiles,
         "calendar": calendar,
         "wip_buffers": buffers,
@@ -829,9 +836,8 @@ def simulation_context(conn: sqlite3.Connection, jobs: list[dict], simulated_at:
     labor = {row["role_key"]: int(row["headcount"]) for row in conn.execute(
         "SELECT role_key, headcount FROM labor_roles"
     ).fetchall()}
-    tooling = {row["pool_key"]: int(row["available_qty"]) for row in conn.execute(
-        "SELECT pool_key, available_qty FROM tool_pools"
-    ).fetchall()}
+    tooling = {row["pool_key"]: int(row["effective_available_qty"])
+               for row in status["tool_pools"]}
     buffers = {row["machine_key"]: {
         "capacity": int(row["capacity_qty"]), "current": int(row["current_qty"]),
     } for row in conn.execute(

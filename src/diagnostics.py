@@ -16,6 +16,7 @@ import access_control
 import mqtt_security
 import forecasting
 import recovery
+import tooling
 
 PLACEHOLDER_HOSTS = {
     *(f"192.168.1.{number}" for number in range(51, 55)),
@@ -186,6 +187,8 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
     forecast_result = latest_forecast["result"] if latest_forecast else {}
     forecast_calibration = forecast["calibration"]
     recovery_state = recovery.snapshot(conn)
+    tooling_state = tooling.snapshot(conn)
+    tooling_summary = tooling_state["summary"]
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -197,6 +200,9 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             ),
             "verified_maintenance_plans": verified_plans,
             "maintenance_spare_shortages": int(spare_shortages),
+            "registered_tools": tooling_summary["registered"],
+            "usable_tools": tooling_summary["usable"],
+            "tools_service_due": tooling_summary["service_due"] + tooling_summary["expired"] + tooling_summary["broken"],
             "verified_connectors": connector_verified,
             "enabled_connectors": connector_enabled,
             "verified_industrial_profiles": industrial_verified,
@@ -254,6 +260,15 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
              "detail": (
                  f"{verified_plans}/{len(machines)} machines covered; "
                  f"{spare_shortages} required spare shortages"
+             )},
+            {"key": "tool_lifecycle", "name": "Tool lifecycle management",
+             "status": "attention" if (
+                 tooling_summary["service_due"] or tooling_summary["expired"] or tooling_summary["broken"]
+             ) else ("ready" if tooling_summary["verified"] else "needs_site_value"),
+             "detail": (
+                 f"{tooling_summary['verified']}/{tooling_summary['registered']} tools verified; "
+                 f"{tooling_summary['usable']} usable; {tooling_summary['service_due']} service due; "
+                 f"{tooling_summary['learning']} assets backed by learned life evidence"
              )},
             {"key": "connectors", "name": "Factory data connectors",
              "status": "ready" if connector_total and connector_verified == connector_total else "needs_site_value",

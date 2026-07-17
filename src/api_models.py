@@ -668,6 +668,87 @@ class ToolPoolUpdate(RequestModel):
     actor: str = Field(default="operator", min_length=1)
 
 
+class ToolAssetCreate(RequestModel):
+    tool_key: str = Field(min_length=1, pattern=r"^[A-Za-z0-9._-]+$")
+    pool_key: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    tool_type: str = Field(min_length=1)
+    manufacturer: Optional[str] = None
+    manufacturer_part_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    external_id: Optional[str] = None
+    life_basis: Literal["parts", "cycles", "runtime_minutes"] = "cycles"
+    rated_life: Optional[float] = Field(default=None, gt=0)
+    warning_remaining: Optional[float] = Field(default=None, ge=0)
+    location: Optional[str] = None
+    recondition_limit: Optional[int] = Field(default=None, ge=0)
+    source: str = "manual"
+    verified: bool = False
+    actor: str = Field(default="operator", min_length=1)
+
+
+class ToolAssetUpdate(RequestModel):
+    expected_version: Optional[int] = Field(default=None, ge=1)
+    name: Optional[str] = Field(default=None, min_length=1)
+    tool_type: Optional[str] = Field(default=None, min_length=1)
+    manufacturer: Optional[str] = None
+    manufacturer_part_number: Optional[str] = None
+    serial_number: Optional[str] = None
+    external_id: Optional[str] = None
+    life_basis: Optional[Literal["parts", "cycles", "runtime_minutes"]] = None
+    rated_life: Optional[float] = Field(default=None, gt=0)
+    warning_remaining: Optional[float] = Field(default=None, ge=0)
+    location: Optional[str] = None
+    recondition_limit: Optional[int] = Field(default=None, ge=0)
+    verified: Optional[bool] = None
+    actor: str = Field(default="operator", min_length=1)
+
+
+class ToolUsageCreate(RequestModel):
+    event_key: str = Field(min_length=1, max_length=240)
+    machine_key: Optional[str] = None
+    delta_parts: float = Field(default=0, ge=0)
+    delta_cycles: float = Field(default=0, ge=0)
+    delta_runtime_minutes: float = Field(default=0, ge=0)
+    condition_percent: Optional[float] = Field(default=None, ge=0, le=100)
+    measured_wear_mm: Optional[float] = Field(default=None, ge=0)
+    source: str = "manual"
+    actor: str = Field(default="operator", min_length=1)
+    notes: Optional[str] = None
+    occurred_at: Optional[str] = None
+
+
+class ToolActionCreate(RequestModel):
+    action: Literal["allocate", "install", "remove", "service_start", "broken", "retire"]
+    machine_key: Optional[str] = None
+    pocket: Optional[str] = None
+    location: Optional[str] = None
+    actor: str = Field(default="operator", min_length=1)
+    notes: Optional[str] = None
+
+
+class ToolServiceCreate(RequestModel):
+    action: Literal["inspect", "recondition", "replace", "retire"]
+    end_reason: Literal["scheduled", "worn", "quality", "broken", "other"] = "scheduled"
+    condition_percent: Optional[float] = Field(default=None, ge=0, le=100)
+    measured_wear_mm: Optional[float] = Field(default=None, ge=0)
+    cost: Optional[float] = Field(default=None, ge=0)
+    provider: Optional[str] = None
+    actor: str = Field(default="operator", min_length=1)
+    notes: Optional[str] = None
+    performed_at: Optional[str] = None
+
+
+class ToolProgramMappingCreate(RequestModel):
+    machine_key: str = Field(min_length=1)
+    cnc_file: str = Field(min_length=1)
+    parts_per_cycle: float = Field(default=1, ge=0)
+    cycles_per_event: float = Field(default=1, gt=0)
+    source: str = "manual"
+    verified: bool = False
+    actor: str = Field(default="operator", min_length=1)
+
+
 class MachineResourceProfileUpdate(RequestModel):
     role_key: str = Field(min_length=1)
     labor_qty: int = Field(ge=0)

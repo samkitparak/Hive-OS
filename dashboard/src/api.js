@@ -205,6 +205,17 @@ export const updateLaborRole = (roleKey, payload) => request(`/resources/labor/$
 export const updateToolPool = (poolKey, payload) => request(`/resources/tooling/${encodeURIComponent(poolKey)}`, {
   method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
 });
+export const createToolAsset = payload => postJson("/tooling/tools", payload);
+export const updateToolAsset = (toolKey, payload) => request(`/tooling/tools/${encodeURIComponent(toolKey)}`, {
+  method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+});
+export const recordToolUsage = (toolKey, payload) => postJson(`/tooling/tools/${encodeURIComponent(toolKey)}/usage`, payload);
+export const recordToolAction = (toolKey, payload) => postJson(`/tooling/tools/${encodeURIComponent(toolKey)}/actions`, payload);
+export const recordToolService = (toolKey, payload) => postJson(`/tooling/tools/${encodeURIComponent(toolKey)}/service`, payload);
+export const updateToolProgramMapping = (toolKey, payload) => request(`/tooling/tools/${encodeURIComponent(toolKey)}/program-mappings`, {
+  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+});
+export const syncTooling = () => postJson("/tooling/sync", {});
 export const updateMachineResource = (machineKey, payload) => request(`/resources/machines/${encodeURIComponent(machineKey)}`, {
   method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
 });

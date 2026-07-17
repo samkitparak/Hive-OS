@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import identity
+import tooling
 
 
 def _now() -> str:
@@ -217,6 +218,7 @@ def create_quality_check(conn: sqlite3.Connection, payload: dict,
                VALUES (?,?,?,?,?)""",
             (check_id, job_id, part_id, payload.get("assigned_area"), payload.get("notes")),
         )
+        tooling.link_quality_check(conn, check_id, machine_id, commit=False)
     if commit:
         conn.commit()
     return {"id": check_id, **payload, "ts": ts}

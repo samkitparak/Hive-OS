@@ -339,7 +339,7 @@ def required_permissions(method: str, path: str) -> tuple[str, ...]:
         return ("procure",)
     if path.startswith(("/planning", "/production", "/resources", "/inventory", "/recovery")):
         return ("plan",)
-    if path.startswith("/maintenance"):
+    if path.startswith(("/maintenance", "/tooling")):
         return ("maintain",)
     if path.startswith(("/quality", "/rework")):
         return ("quality", "supervise")

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { Archive, PackagePlus, Plus, Ruler, Save, ShoppingCart } from "lucide-react";
+import { Archive, PackagePlus, Plus, Ruler, Save, ShoppingCart, Wrench } from "lucide-react";
 import { ProcurementPanel } from "./ProcurementPanel";
+import { ToolingPanel } from "./ToolingPanel";
 
 const line = { borderTop: "1px solid #263244", padding: "10px 0" };
 const label = { color: "#6b7280", fontSize: 9, fontWeight: 800, textTransform: "uppercase" };
@@ -271,7 +272,7 @@ export function ResourcePanel({ data, actor, onAction }) {
   const machineNames = useMemo(() => data.machine_profiles.map(item => ({ machine_key: item.machine_key, machine_name: item.machine_name })), [data.machine_profiles]);
   const tabs = [["materials", "Sheets", Archive], ["components", "Components", PackagePlus],
     ["remnants", "Remnants", Ruler], ["procurement", "Procurement", ShoppingCart],
-    ["capacity", "Capacity", null], ["calendar", "Calendar", null]];
+    ["capacity", "Capacity", null], ["tooling", "Tooling", Wrench], ["calendar", "Calendar", null]];
   return <div style={{ borderTop: "1px solid #374151", marginTop: 12, paddingTop: 12 }}>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
       <div><div style={label}>Factory resources</div><div style={{ color: data.resource_ready ? "#22c55e" : "#f59e0b", fontSize: 13, fontWeight: 800, marginTop: 3 }}>{data.status}</div></div>
@@ -309,6 +310,8 @@ export function ResourcePanel({ data, actor, onAction }) {
       <div><div style={label}>Machine requirements</div>{data.machine_profiles.map(item => <ProfileRow key={`${item.machine_key}-${item.updated_at}`} item={item} roles={data.labor_roles} pools={data.tool_pools} actor={actor} onSave={(key, payload) => run("machineResource", { key, payload })} />)}
         <div style={{ ...label, marginTop: 14 }}>Input WIP buffers</div>{data.wip_buffers.map(item => <BufferRow key={`${item.machine_key}-${item.updated_at}`} item={item} actor={actor} onSave={(key, payload) => run("wip", { key, payload })} />)}</div>
     </div>}
+    {tab === "tooling" && <ToolingPanel data={data.tooling} pools={data.tool_pools}
+      machines={machineNames} actor={actor} onAction={run} />}
     {tab === "calendar" && <CalendarEditor key={data.calendar.map(row => row.updated_at).join("-")} rows={data.calendar} machines={machineNames}
       unavailability={data.unavailability} actor={actor} onAction={run} />}
     <style>{`@media (max-width: 760px) { .resource-capacity-grid, .warehouse-setup { grid-template-columns: 1fr !important; } .resource-material-row, .resource-tool-row, .resource-compact-row, .remnant-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important; } .resource-material-row > div:first-child, .resource-tool-row > div:first-child, .resource-compact-row > div:first-child, .remnant-row > div:first-child { grid-column: 1 / -1; } .resource-profile-grid, .resource-calendar-grid, .warehouse-add-grid, .inventory-component-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important; } .resource-unavailable-grid, .remnant-entry-grid { grid-template-columns: minmax(0, 1fr) !important; } }`}</style>

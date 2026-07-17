@@ -32,6 +32,7 @@ operations are limited to the HIVE database and site configuration.
 - **Station execution control** — approved schedule dispatch, acknowledgements, partial quantities, holds, machine/scanner actuals, WIP movement, and traceability.
 - **Serialized unit identity** — one auditable identity per physical part, alias-safe scanner resolution, duplicate suppression, browser labels, and native Zebra ZPL.
 - **Preventive maintenance control** — commissioned calendar/usage/condition plans, machine-specific inspections, named LOTO evidence, maintenance-aware schedules, and audited spare reservations.
+- **Tool lifecycle control** — serialized blades, cutters, and drills; exact CNC-program usage attribution; rated and locally learned life; quality-linked service triggers; reconditioning history; and planning capacity gates.
 - **Factory integration boundary** — versioned mappings, read-only SQL discovery, credential references, sample fingerprints, issue audits, and idempotent import batches.
 - **Industrial telemetry gateway** — commissioned Modbus TCP, OPC-UA, and MQTT signals; read-only probes; immutable contracts; debounced machine state; raw/latest/hourly telemetry; and offsite simulation.
 - **Warehouse intelligence** — derived edge demand, component lots, usable-remnant allocation, schedule reservations, immutable movements, and evidence-labeled purchase suggestions.
@@ -114,6 +115,7 @@ hive-os/
 │   ├── execution.py           # station dispatch, actuals, WIP flow, traceability
 │   ├── identity.py            # physical units, scanner aliases, QR/ZPL labels
 │   ├── maintenance.py         # preventive plans, inspections, spares, reliability
+│   ├── tooling.py             # individual tools, usage, service, life prediction
 │   ├── operations.py         # downtime, manual work, quality/rework, barcode
 │   ├── connectors.py         # versioned connector commissioning + imports
 │   ├── cv_sql_connector.py   # Cabinet Vision SQL placeholder adapter
@@ -304,6 +306,13 @@ unprefixed routes remain available for compatibility and local tooling.
 | PUT | `/resources/materials/{key}` | Verify sheet definition and update lot stock |
 | PUT | `/resources/labor/{key}` | Verify labor-role headcount |
 | PUT | `/resources/tooling/{key}` | Verify total and available tool-pool capacity |
+| GET/POST | `/tooling`, `/tooling/tools` | Tool lifecycle snapshot and individual tool registration |
+| PATCH | `/tooling/tools/{key}` | Versioned tool identity, life policy, and verification update |
+| POST | `/tooling/tools/{key}/usage` | Idempotent parts, cycles, runtime, or condition evidence |
+| POST | `/tooling/tools/{key}/actions` | Allocate, install, remove, service, break, or retire a tool |
+| POST | `/tooling/tools/{key}/service` | Record inspection, reconditioning, replacement, or retirement |
+| PUT | `/tooling/tools/{key}/program-mappings` | Commission exact machine/program usage attribution |
+| POST | `/tooling/sync` | Import mapped cycle evidence and create due service work |
 | PUT | `/resources/machines/{key}` | Verify machine labor/tool requirements and capacity |
 | PUT | `/resources/calendar/factory` | Replace and verify the recurring factory calendar |
 | PUT | `/resources/wip/{machine_key}` | Verify input-buffer capacity and current WIP |
@@ -411,6 +420,8 @@ See [PREDICTIVE_CONTROL.md](PREDICTIVE_CONTROL.md) for forecast uncertainty,
 credibility gates, calibration, and the on-site validation workflow.
 See [SCHEDULE_RECOVERY.md](SCHEDULE_RECOVERY.md) for deviation triggers,
 residual simulation, schedule-stability limits, and approval workflow.
+See [TOOLING_LIFECYCLE.md](TOOLING_LIFECYCLE.md) for tool identity, life
+evidence, planning authority, service prediction, and commissioning.
 
 ---
 
@@ -421,5 +432,6 @@ Once weeks of real OEE data exist:
 - Validate bottleneck scoring weights against real queues and operator observations
 - Validate P80 completion coverage and late-risk calibration across product mixes
 - Validate recovery thresholds and schedule-stability penalties against planner decisions
+- Validate tool-life limits and conservative local estimates against inspection and quality outcomes
 - AMR routing
 - ERP integration

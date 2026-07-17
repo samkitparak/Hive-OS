@@ -624,6 +624,112 @@ CREATE TABLE IF NOT EXISTS tool_pools (
     updated_at          TEXT NOT NULL
 );
 
+-- Individual cutting-tool lifecycle. Pool quantities remain a commissioning
+-- fallback; once assets exist for a pool, verified usable assets are the
+-- authoritative planning capacity.
+CREATE TABLE IF NOT EXISTS tool_assets (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    tool_key                TEXT NOT NULL UNIQUE,
+    pool_id                 INTEGER NOT NULL REFERENCES tool_pools(id),
+    name                    TEXT NOT NULL,
+    tool_type               TEXT NOT NULL,
+    manufacturer            TEXT,
+    manufacturer_part_number TEXT,
+    serial_number           TEXT,
+    external_id             TEXT,
+    life_basis              TEXT NOT NULL DEFAULT 'cycles', -- parts | cycles | runtime_minutes
+    rated_life              REAL CHECK(rated_life IS NULL OR rated_life > 0),
+    warning_remaining       REAL CHECK(warning_remaining IS NULL OR warning_remaining >= 0),
+    parts_used              REAL NOT NULL DEFAULT 0 CHECK(parts_used >= 0),
+    cycles_used             REAL NOT NULL DEFAULT 0 CHECK(cycles_used >= 0),
+    runtime_minutes_used    REAL NOT NULL DEFAULT 0 CHECK(runtime_minutes_used >= 0),
+    status                  TEXT NOT NULL DEFAULT 'available',
+    machine_id              INTEGER REFERENCES machines(id),
+    location                TEXT,
+    pocket                  TEXT,
+    recondition_count       INTEGER NOT NULL DEFAULT 0 CHECK(recondition_count >= 0),
+    recondition_limit       INTEGER CHECK(recondition_limit IS NULL OR recondition_limit >= 0),
+    life_started_at         TEXT NOT NULL,
+    source                  TEXT NOT NULL DEFAULT 'manual',
+    verified                INTEGER NOT NULL DEFAULT 0,
+    version                 INTEGER NOT NULL DEFAULT 1,
+    created_by              TEXT NOT NULL,
+    created_at              TEXT NOT NULL,
+    updated_at              TEXT NOT NULL,
+    UNIQUE(pool_id, external_id),
+    UNIQUE(manufacturer, serial_number)
+);
+
+CREATE TABLE IF NOT EXISTS tool_usage_events (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_key               TEXT NOT NULL UNIQUE,
+    tool_id                 INTEGER NOT NULL REFERENCES tool_assets(id),
+    machine_id              INTEGER REFERENCES machines(id),
+    machine_event_id        INTEGER REFERENCES machine_events(id),
+    event_type              TEXT NOT NULL,
+    delta_parts             REAL NOT NULL DEFAULT 0 CHECK(delta_parts >= 0),
+    delta_cycles            REAL NOT NULL DEFAULT 0 CHECK(delta_cycles >= 0),
+    delta_runtime_minutes   REAL NOT NULL DEFAULT 0 CHECK(delta_runtime_minutes >= 0),
+    condition_percent       REAL CHECK(condition_percent IS NULL OR condition_percent BETWEEN 0 AND 100),
+    measured_wear_mm        REAL CHECK(measured_wear_mm IS NULL OR measured_wear_mm >= 0),
+    source                  TEXT NOT NULL,
+    actor                   TEXT NOT NULL,
+    notes                   TEXT,
+    occurred_at             TEXT NOT NULL,
+    recorded_at             TEXT NOT NULL,
+    UNIQUE(tool_id, machine_event_id)
+);
+
+CREATE TABLE IF NOT EXISTS tool_program_mappings (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    tool_id                 INTEGER NOT NULL REFERENCES tool_assets(id),
+    machine_id              INTEGER NOT NULL REFERENCES machines(id),
+    cnc_file                TEXT NOT NULL,
+    parts_per_cycle         REAL NOT NULL DEFAULT 1 CHECK(parts_per_cycle >= 0),
+    cycles_per_event        REAL NOT NULL DEFAULT 1 CHECK(cycles_per_event > 0),
+    source                  TEXT NOT NULL DEFAULT 'manual',
+    verified                INTEGER NOT NULL DEFAULT 0,
+    created_by              TEXT NOT NULL,
+    created_at              TEXT NOT NULL,
+    updated_at              TEXT NOT NULL,
+    UNIQUE(tool_id, machine_id, cnc_file)
+);
+
+CREATE TABLE IF NOT EXISTS tool_service_records (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    tool_id                 INTEGER NOT NULL REFERENCES tool_assets(id),
+    action                  TEXT NOT NULL, -- inspect | recondition | replace | retire
+    end_reason              TEXT NOT NULL, -- scheduled | worn | quality | broken | other
+    prior_life_value        REAL NOT NULL CHECK(prior_life_value >= 0),
+    prior_parts             REAL NOT NULL CHECK(prior_parts >= 0),
+    prior_cycles            REAL NOT NULL CHECK(prior_cycles >= 0),
+    prior_runtime_minutes   REAL NOT NULL CHECK(prior_runtime_minutes >= 0),
+    condition_percent       REAL CHECK(condition_percent IS NULL OR condition_percent BETWEEN 0 AND 100),
+    measured_wear_mm        REAL CHECK(measured_wear_mm IS NULL OR measured_wear_mm >= 0),
+    cost                    REAL CHECK(cost IS NULL OR cost >= 0),
+    provider                TEXT,
+    actor                   TEXT NOT NULL,
+    notes                   TEXT,
+    performed_at            TEXT NOT NULL,
+    created_at              TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tool_work_order_links (
+    tool_id                 INTEGER NOT NULL REFERENCES tool_assets(id),
+    work_order_id           INTEGER NOT NULL UNIQUE REFERENCES maintenance_work_orders(id),
+    trigger_status          TEXT NOT NULL,
+    trigger_life_value      REAL,
+    created_at              TEXT NOT NULL,
+    PRIMARY KEY(tool_id, work_order_id)
+);
+
+CREATE TABLE IF NOT EXISTS tool_quality_links (
+    quality_check_id        INTEGER PRIMARY KEY REFERENCES quality_checks(id),
+    tool_id                 INTEGER NOT NULL REFERENCES tool_assets(id),
+    attribution             TEXT NOT NULL,
+    created_at              TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS machine_resource_profiles (
     machine_id          INTEGER PRIMARY KEY REFERENCES machines(id),
     labor_role_id       INTEGER REFERENCES labor_roles(id),
@@ -1770,6 +1876,12 @@ CREATE INDEX IF NOT EXISTS idx_remnant_reservations_status ON remnant_reservatio
 CREATE INDEX IF NOT EXISTS idx_inventory_movements_object_ts ON inventory_movements(object_type, object_key, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_inventory_issues_status ON inventory_sync_issues(status, production_order_id);
 CREATE INDEX IF NOT EXISTS idx_calendar_resource_day ON work_calendar_windows(resource_type, resource_key, weekday);
+CREATE INDEX IF NOT EXISTS idx_tool_assets_pool_status ON tool_assets(pool_id, status, verified);
+CREATE INDEX IF NOT EXISTS idx_tool_assets_machine_status ON tool_assets(machine_id, status);
+CREATE INDEX IF NOT EXISTS idx_tool_usage_tool_time ON tool_usage_events(tool_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tool_usage_machine_event ON tool_usage_events(machine_event_id);
+CREATE INDEX IF NOT EXISTS idx_tool_program_machine_file ON tool_program_mappings(machine_id, cnc_file, verified);
+CREATE INDEX IF NOT EXISTS idx_tool_service_tool_time ON tool_service_records(tool_id, performed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_resource_unavailability_window ON resource_unavailability(resource_type, resource_key, starts_at, ends_at);
 CREATE INDEX IF NOT EXISTS idx_resource_change_events_key_ts ON resource_change_events(resource_type, resource_key, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_execution_jobs_machine_state_sequence ON execution_jobs(machine_id, state, dispatch_sequence);

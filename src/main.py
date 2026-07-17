@@ -71,6 +71,7 @@ import config_editor as config_editor_module
 import remote_setup as remote_setup_module
 import operations as operations_module
 import maintenance as maintenance_module
+import tooling as tooling_module
 import connectors as connectors_module
 import industrial_gateway as industrial_gateway_module
 import energy_intelligence as energy_intelligence_module
@@ -155,6 +156,12 @@ from api_models import (
     SparePartCreate,
     SpareStockUpdate,
     ToolPoolUpdate,
+    ToolActionCreate,
+    ToolAssetCreate,
+    ToolAssetUpdate,
+    ToolProgramMappingCreate,
+    ToolServiceCreate,
+    ToolUsageCreate,
     UnitAliasCreate,
     WipBufferUpdate,
     WorkOrderCreate,
@@ -167,7 +174,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.18.0"
+APP_VERSION = "0.19.0"
 
 
 class ApiPrefixMiddleware:
@@ -345,6 +352,7 @@ async def lifespan(app: FastAPI):
     execution_module.sync(_conn)
     maintenance_module.sync_defaults(_conn)
     maintenance_module.sync(_conn)
+    tooling_module.sync(_conn)
     connectors_module.sync_defaults(_conn)
     industrial_gateway_module.sync_defaults(_conn)
     try:
@@ -461,6 +469,7 @@ async def _watch_learning():
             await asyncio.to_thread(execution_module.sync, conn)
             await asyncio.to_thread(execution_module.reconcile_machine_events, conn)
             await asyncio.to_thread(maintenance_module.sync, conn)
+            await asyncio.to_thread(tooling_module.sync, conn)
             await asyncio.to_thread(forecasting_module.refresh_if_needed, conn)
             await asyncio.to_thread(recovery_module.refresh_if_needed, conn)
         except asyncio.CancelledError:
@@ -2022,6 +2031,95 @@ def close_downtime(downtime_id: int, payload: CloseRequest | None = None):
         return operations_module.close_downtime(_get_conn(), downtime_id, body)
     except KeyError as error:
         raise HTTPException(404, str(error)) from error
+
+
+@app.get("/tooling")
+def get_tooling_snapshot():
+    return tooling_module.snapshot(_get_conn(), commit=True)
+
+
+@app.get("/tooling/tools/{tool_key}")
+def get_tooling_asset(tool_key: str):
+    try:
+        return tooling_module.get_asset(_get_conn(), tool_key)
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+
+
+@app.post("/tooling/tools")
+def post_tooling_asset(payload: ToolAssetCreate):
+    try:
+        return tooling_module.create_asset(_get_conn(), payload.model_dump(exclude_none=True))
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except (sqlite3.IntegrityError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.patch("/tooling/tools/{tool_key}")
+def patch_tooling_asset(tool_key: str, payload: ToolAssetUpdate):
+    try:
+        return tooling_module.update_asset(
+            _get_conn(), tool_key, payload.model_dump(exclude_unset=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except (sqlite3.IntegrityError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/tooling/tools/{tool_key}/usage")
+def post_tooling_usage(tool_key: str, payload: ToolUsageCreate):
+    try:
+        return tooling_module.record_usage(
+            _get_conn(), tool_key, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except (sqlite3.IntegrityError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/tooling/tools/{tool_key}/actions")
+def post_tooling_action(tool_key: str, payload: ToolActionCreate):
+    try:
+        return tooling_module.action(_get_conn(), tool_key, payload.model_dump(exclude_none=True))
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except (sqlite3.IntegrityError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/tooling/tools/{tool_key}/service")
+def post_tooling_service(tool_key: str, payload: ToolServiceCreate):
+    try:
+        return tooling_module.record_service(
+            _get_conn(), tool_key, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except (sqlite3.IntegrityError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.put("/tooling/tools/{tool_key}/program-mappings")
+def put_tooling_program_mapping(tool_key: str, payload: ToolProgramMappingCreate):
+    try:
+        return tooling_module.upsert_program_mapping(
+            _get_conn(), tool_key, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except (sqlite3.IntegrityError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/tooling/sync")
+def post_tooling_sync():
+    try:
+        return tooling_module.sync(_get_conn())
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
 
 
 @app.get("/maintenance/work-orders")

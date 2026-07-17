@@ -48,6 +48,11 @@ RULES = {
         "response_minutes": 240,
         "rationale": "A required spare shortage can prevent planned or corrective maintenance.",
     },
+    "tool_service_due": {
+        "label": "Tool service required", "domain": "maintenance", "owner_role": "maintenance_lead",
+        "response_minutes": 240,
+        "rationale": "A verified cutting tool at its service threshold is unavailable until inspected.",
+    },
     "execution_exception": {
         "label": "Execution exception", "domain": "production", "owner_role": "shift_supervisor",
         "response_minutes": 30,
@@ -269,6 +274,28 @@ def _spare_shortages(conn: sqlite3.Connection) -> list[dict]:
     ) for row in rows]
 
 
+def _tool_service_due(conn: sqlite3.Connection) -> list[dict]:
+    rows = conn.execute(
+        """SELECT id,tool_key,name,status,machine_id,updated_at,life_basis,
+                  parts_used,cycles_used,runtime_minutes_used
+           FROM tool_assets WHERE verified=1
+             AND status IN ('service_due','expired','broken')"""
+    ).fetchall()
+    result = []
+    for row in rows:
+        used = row[f"{row['life_basis']}_used"]
+        result.append(_candidate(
+            "tool_service_due", f"tool_service_due:{row['id']}", "tool_asset", row["id"],
+            f"Tool {row['tool_key']} requires service",
+            f"{row['name']} is {row['status'].replace('_', ' ')} after {used:g} {row['life_basis'].replace('_', ' ')}.",
+            "Inspect the tool and record reconditioning, replacement, or retirement before reuse.",
+            "The tool is excluded from verified planning capacity.", row["id"], row["updated_at"],
+            {"tool_key": row["tool_key"], "status": row["status"], "life_used": used},
+            row["machine_id"], "critical" if row["status"] in {"expired", "broken"} else "warning",
+        ))
+    return result
+
+
 def _execution_exceptions(conn: sqlite3.Connection) -> list[dict]:
     critical = {"wip_overflow", "capacity_bypass", "unplanned_execution", "machine_evidence_rejected"}
     rows = conn.execute(
@@ -456,7 +483,7 @@ def collect_candidates(conn: sqlite3.Connection, now: Optional[datetime] = None)
     now = now or datetime.now(timezone.utc)
     candidates = [
         *_machine_alarms(conn, now), *_downtime(conn, now), *_maintenance_attention(conn, now),
-        *_condition_signals(conn), *_spare_shortages(conn), *_execution_exceptions(conn),
+        *_condition_signals(conn), *_spare_shortages(conn), *_tool_service_due(conn), *_execution_exceptions(conn),
         *_route_exceptions(conn), *_quality_recurrence(conn, now), *_procurement_failures(conn),
         *_industrial_failures(conn), *_diagnostic_reviews(conn), *_unacknowledged_dispatch(conn, now),
         *_forecast_delivery_risks(conn),

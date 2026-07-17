@@ -58,6 +58,19 @@ machine-state transitions. See `INDUSTRIAL_TELEMETRY.md`.
 Legacy placeholder endpoints remain available for demo/test compatibility only.
 See `MAINTENANCE_CONTROL.md` for preventive trigger and evidence contracts.
 
+## Tooling Lifecycle Boundary
+
+HIVE now owns individual tool identity, machine/pocket assignment, immutable
+usage evidence, inspection and reconditioning history, maintenance work
+generation, and planning availability. Exact verified machine/program mappings
+can translate Maestro `cycle_end` evidence into repeat-safe parts and cycle
+usage. Unmapped programs never consume tool life by assumption.
+
+Rated limits remain explicit OEM or site values. HIVE displays a separate
+conservative local estimate only after five worn/quality end-of-life outcomes
+for the same tool type and life basis; it never silently overwrites the rated
+limit. See `TOOLING_LIFECYCLE.md`.
+
 Machine-to-HIVE HTTP ingestion uses a distinct integration key created under
 **Access control > HTTP keys**. The plaintext token is shown once; HIVE stores only
 its SHA-256 hash. These keys cannot receive human or administrator permissions,
