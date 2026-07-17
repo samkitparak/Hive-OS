@@ -1,6 +1,7 @@
 """Mutual-TLS broker provisioning, enrollment bundles, and revocation."""
 
 import io
+import hashlib
 import json
 import ssl
 import sys
@@ -23,6 +24,38 @@ from db import init_db
 
 
 NOW = datetime(2026, 7, 17, 12, tzinfo=timezone.utc)
+
+
+def _agent_payload(root: Path) -> Path:
+    files = {
+        "install-machine-agent.ps1": b"# installer",
+        "payload/src/maestro_agent.py": b"# agent",
+        "payload/src/mqtt_client.py": b"# mqtt",
+        "payload/runtime/python-3.12-x64.exe": b"python-installer",
+        "payload/requirements-agent.txt": b"paho-mqtt\nPyYAML\n",
+        "payload/wheels/paho_mqtt-2.1.0-py3-none-any.whl": b"wheel-one",
+        "payload/wheels/PyYAML-6.0.2-cp312-cp312-win_amd64.whl": b"wheel-two",
+    }
+    entries = []
+    for relative, content in files.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        entries.append({
+            "path": relative, "size": len(content),
+            "sha256": hashlib.sha256(content).hexdigest(),
+        })
+    manifest = {
+        "format": "hive-offline-agent-payload", "format_version": 1,
+        "version": "0.22.0", "target": "windows-x64",
+        "python_version": "3.12-64", "files": entries,
+    }
+    encoded = json.dumps(manifest, indent=2).encode()
+    (root / "agent-payload.json").write_bytes(encoded)
+    (root / "agent-payload.json.sha256").write_text(
+        f"{hashlib.sha256(encoded).hexdigest()}  agent-payload.json\n", encoding="ascii",
+    )
+    return root
 
 
 @pytest.fixture
@@ -76,6 +109,7 @@ def test_machine_bundle_is_self_contained_and_private_key_is_not_stored(secure_s
         enrollment = json.loads(archive.read("enrollment.json"))
         assert enrollment["machine_key"] == "morbidelli_cx100"
         assert enrollment["broker_port"] == 8883
+        assert enrollment["runtime_mode"] == "online_prerequisites_required"
         cert = x509.load_pem_x509_certificate(archive.read("certs/client.crt"))
         assert cert.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)[0].value == "morbidelli_cx100"
         assert cert.fingerprint(hashes.SHA256()).hex() == manifest["certificate_sha256"]
@@ -84,6 +118,58 @@ def test_machine_bundle_is_self_contained_and_private_key_is_not_stored(secure_s
     assert row["certificate_sha256"] == manifest["certificate_sha256"]
     assert private_key not in json.dumps(row)
     assert mqtt_security.status(conn, pki_dir)["broker_restart_required"] is False
+
+
+def test_verified_agent_payload_is_embedded_in_enrollment(secure_site, tmp_path):
+    conn, pki_dir, _, _, _ = secure_site
+    payload_dir = _agent_payload(tmp_path / "offline-agent")
+    payload = mqtt_security.agent_payload_status(payload_dir)
+    assert payload["ready"] is True
+    assert payload["file_count"] == 7
+    bundle, manifest = mqtt_security.issue_bundle(
+        conn, "morbidelli_cx100", "Test Admin", pki_dir=pki_dir,
+        agent_payload_dir=payload_dir, now=NOW,
+    )
+    assert manifest["runtime_mode"] == "bundled_offline"
+    assert manifest["agent_payload_sha256"] == payload["manifest_sha256"]
+    with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
+        names = set(archive.namelist())
+        assert "agent-payload.json.sha256" in names
+        assert "payload/runtime/python-3.12-x64.exe" in names
+        assert "payload/wheels/paho_mqtt-2.1.0-py3-none-any.whl" in names
+
+
+def test_agent_payload_tampering_and_unsafe_paths_fail_closed(secure_site, tmp_path):
+    conn, pki_dir, _, _, _ = secure_site
+    payload_dir = _agent_payload(tmp_path / "tampered")
+    (payload_dir / "payload/src/maestro_agent.py").write_bytes(b"changed")
+    status = mqtt_security.agent_payload_status(payload_dir)
+    assert status["status"] == "invalid"
+    assert "hash does not match" in status["detail"] or "size does not match" in status["detail"]
+    with pytest.raises(ValueError, match="payload is invalid"):
+        mqtt_security.issue_bundle(
+            conn, "action_e", "Admin", pki_dir=pki_dir,
+            agent_payload_dir=payload_dir, now=NOW,
+        )
+    assert conn.execute("SELECT COUNT(*) FROM mqtt_enrollments").fetchone()[0] == 0
+
+    payload_dir = _agent_payload(tmp_path / "unsafe")
+    manifest_path = payload_dir / "agent-payload.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["files"][0]["path"] = "../install-machine-agent.ps1"
+    encoded = json.dumps(manifest, indent=2).encode()
+    manifest_path.write_bytes(encoded)
+    (payload_dir / "agent-payload.json.sha256").write_text(
+        f"{hashlib.sha256(encoded).hexdigest()}  agent-payload.json\n", encoding="ascii",
+    )
+    status = mqtt_security.agent_payload_status(payload_dir)
+    assert status["status"] == "invalid"
+    assert "Unsafe agent payload path" in status["detail"]
+
+    (payload_dir / "agent-payload.json.sha256").write_text("", encoding="ascii")
+    status = mqtt_security.agent_payload_status(payload_dir)
+    assert status["status"] == "invalid"
+    assert "hash is missing" in status["detail"]
 
 
 def test_revocation_writes_crl_and_preserves_replacement(secure_site):

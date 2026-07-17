@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import ipaddress
 import json
@@ -11,7 +12,7 @@ import re
 import sqlite3
 import zipfile
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -21,10 +22,12 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 ROOT = Path(__file__).parent.parent
 DEFAULT_PKI_DIR = ROOT / "data" / "mqtt-pki"
+DEFAULT_AGENT_PAYLOAD_DIR = ROOT / "data" / "offline-agent"
 DEFAULT_MOSQUITTO_CONFIG = ROOT / "config" / "mosquitto.conf"
 MACHINE_KEY = re.compile(r"^[a-z0-9_]+$")
 DNS_NAME = re.compile(r"^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?:\.(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?))*$")
 CENTRAL_CN = "hive-central"
+AGENT_PAYLOAD_FORMAT = "hive-offline-agent-payload"
 
 
 def _now() -> datetime:
@@ -37,6 +40,101 @@ def _iso(value: datetime) -> str:
 
 def _pki_dir(path: Path | None = None) -> Path:
     return Path(os.getenv("HIVE_MQTT_PKI_DIR", path or DEFAULT_PKI_DIR))
+
+
+def _agent_payload_dir(path: Path | None = None) -> Path:
+    return Path(os.getenv("HIVE_AGENT_PAYLOAD_DIR", path or DEFAULT_AGENT_PAYLOAD_DIR))
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _payload_relative_path(value: object) -> PurePosixPath:
+    raw = str(value or "")
+    path = PurePosixPath(raw)
+    if not raw or "\\" in raw or path.is_absolute() or ".." in path.parts or "." in path.parts:
+        raise ValueError(f"Unsafe agent payload path: {raw!r}")
+    return path
+
+
+def agent_payload_status(
+    payload_dir: Path | None = None, *, verify: bool = True, include_manifest: bool = False,
+) -> dict:
+    """Validate the retained Windows agent payload before it is distributed."""
+    root = _agent_payload_dir(payload_dir)
+    result = {
+        "path": str(root), "ready": False, "status": "missing",
+        "runtime_mode": "online_prerequisites_required", "file_count": 0,
+        "total_size": 0, "manifest_sha256": None,
+    }
+    manifest_path = root / "agent-payload.json"
+    sidecar_path = root / "agent-payload.json.sha256"
+    if not root.is_dir() or not manifest_path.is_file() or not sidecar_path.is_file():
+        result["detail"] = "Verified offline machine-agent payload is not installed"
+        return result
+    try:
+        sidecar_tokens = sidecar_path.read_text(encoding="ascii").split()
+        if not sidecar_tokens:
+            raise ValueError("Agent payload manifest hash is missing")
+        expected_manifest_hash = sidecar_tokens[0].lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_manifest_hash):
+            raise ValueError("Agent payload manifest hash is malformed")
+        actual_manifest_hash = _sha256(manifest_path)
+        if actual_manifest_hash != expected_manifest_hash:
+            raise ValueError("Agent payload manifest hash does not match")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+        if manifest.get("format") != AGENT_PAYLOAD_FORMAT or manifest.get("format_version") != 1:
+            raise ValueError("Unsupported agent payload manifest")
+        if manifest.get("target") != "windows-x64" or manifest.get("python_version") != "3.12-64":
+            raise ValueError("Agent payload is not for Windows x64 with Python 3.12")
+        files = manifest.get("files")
+        if not isinstance(files, list) or not files:
+            raise ValueError("Agent payload manifest contains no files")
+        seen: set[str] = set()
+        total_size = 0
+        for item in files:
+            if not isinstance(item, dict):
+                raise ValueError("Agent payload file entry is malformed")
+            relative = _payload_relative_path(item.get("path"))
+            normalized = relative.as_posix()
+            if normalized in seen:
+                raise ValueError(f"Duplicate agent payload path: {normalized}")
+            seen.add(normalized)
+            source = root.joinpath(*relative.parts)
+            if not source.is_file():
+                raise ValueError(f"Agent payload file is missing: {normalized}")
+            expected_size = int(item.get("size", -1))
+            if expected_size < 0 or source.stat().st_size != expected_size:
+                raise ValueError(f"Agent payload size does not match: {normalized}")
+            expected_hash = str(item.get("sha256") or "").lower()
+            if not re.fullmatch(r"[0-9a-f]{64}", expected_hash):
+                raise ValueError(f"Agent payload hash is malformed: {normalized}")
+            if verify and _sha256(source) != expected_hash:
+                raise ValueError(f"Agent payload hash does not match: {normalized}")
+            total_size += expected_size
+        required = {
+            "install-machine-agent.ps1", "payload/src/maestro_agent.py",
+            "payload/src/mqtt_client.py", "payload/runtime/python-3.12-x64.exe",
+            "payload/requirements-agent.txt",
+        }
+        if not required.issubset(seen) or not any(path.startswith("payload/wheels/") for path in seen):
+            raise ValueError("Agent payload is incomplete")
+        verified = {
+            **result, "ready": True, "status": "ready",
+            "runtime_mode": "bundled_offline", "file_count": len(files),
+            "total_size": total_size, "manifest_sha256": actual_manifest_hash,
+            "version": manifest.get("version"), "detail": "Offline payload verified",
+        }
+        if include_manifest:
+            verified["manifest"] = manifest
+        return verified
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+        return {**result, "status": "invalid", "detail": str(error)}
 
 
 def _validate_host(value: str) -> str:
@@ -299,6 +397,7 @@ def status(conn: sqlite3.Connection, pki_dir: Path | None = None) -> dict:
 def issue_bundle(
     conn: sqlite3.Connection, machine_key: str, issued_by: str, *, days: int = 397,
     pki_dir: Path | None = None, now: datetime | None = None,
+    agent_payload_dir: Path | None = None,
 ) -> tuple[bytes, dict]:
     if len(machine_key) > 63 or not MACHINE_KEY.fullmatch(machine_key):
         raise ValueError("Invalid machine key")
@@ -311,6 +410,9 @@ def issue_bundle(
         raise KeyError(f"Machine '{machine_key}' not found")
     if not machine["active"]:
         raise ValueError("Cannot enroll an inactive machine")
+    agent_payload = agent_payload_status(agent_payload_dir, include_manifest=True)
+    if agent_payload["status"] == "invalid":
+        raise ValueError(f"Offline machine-agent payload is invalid: {agent_payload['detail']}")
     pki_dir = _pki_dir(pki_dir)
     state = status(conn, pki_dir)
     if not state["initialized"]:
@@ -344,6 +446,8 @@ def issue_bundle(
         "topic_prefix": state.get("topic_prefix", "hive/machines"),
         "common_name": common_name, "certificate_sha256": fingerprint,
         "issued_at": _iso(now), "expires_at": _iso(expires),
+        "runtime_mode": agent_payload["runtime_mode"],
+        "agent_payload_sha256": agent_payload.get("manifest_sha256"),
     }
     config = {
         "mqtt": {
@@ -368,14 +472,24 @@ def issue_bundle(
         archive.writestr("certs/ca.crt", (pki_dir / "ca.crt").read_bytes())
         archive.writestr("certs/client.crt", cert_pem)
         archive.writestr("certs/client.key", _key_pem(client_key))
-        payload_files = {
-            ROOT / "deploy" / "windows" / "install-machine-agent.ps1": "install-machine-agent.ps1",
-            ROOT / "src" / "maestro_agent.py": "payload/src/maestro_agent.py",
-            ROOT / "src" / "mqtt_client.py": "payload/src/mqtt_client.py",
-        }
-        for source, destination in payload_files.items():
-            if source.exists():
-                archive.writestr(destination, source.read_bytes())
+        if agent_payload["ready"]:
+            payload_root = _agent_payload_dir(agent_payload_dir)
+            archive.writestr("agent-payload.json", (payload_root / "agent-payload.json").read_bytes())
+            archive.writestr(
+                "agent-payload.json.sha256", (payload_root / "agent-payload.json.sha256").read_bytes()
+            )
+            for item in agent_payload["manifest"]["files"]:
+                relative = _payload_relative_path(item["path"])
+                archive.writestr(relative.as_posix(), payload_root.joinpath(*relative.parts).read_bytes())
+        else:
+            payload_files = {
+                ROOT / "deploy" / "windows" / "install-machine-agent.ps1": "install-machine-agent.ps1",
+                ROOT / "src" / "maestro_agent.py": "payload/src/maestro_agent.py",
+                ROOT / "src" / "mqtt_client.py": "payload/src/mqtt_client.py",
+            }
+            for source, destination in payload_files.items():
+                if source.exists():
+                    archive.writestr(destination, source.read_bytes())
     return output.getvalue(), manifest
 
 

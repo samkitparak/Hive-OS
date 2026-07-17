@@ -22,6 +22,9 @@ per-machine step when no remote-management channel already exists.
   does not invoke a command shell or interpolate user values into shell text.
 - Host keys, fingerprints, endpoints, results, and bounded output tails are
   audited. Passwords, SSH private keys, and MQTT client private keys are not.
+- Live install is enabled only when the central machine-agent cache passes its
+  nested manifest, size, path-safety, and SHA-256 checks. There is no automatic
+  network fallback on the machine PC.
 
 Microsoft documents the Windows OpenSSH Server capability, automatic service,
 and firewall setup in [Get started with OpenSSH for Windows](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_install_firstuse).
@@ -76,14 +79,17 @@ Administrator username, then:
 
 For a live install HIVE creates a fresh machine-specific MQTT enrollment bundle
 in memory, writes it to a temporary central file, copies it over strict SCP,
-and runs the bundled installer. The remote ZIP and extraction directory are
-removed in a PowerShell `finally` block. The local temporary file is deleted
-when the request finishes.
+and runs the bundled installer. The bundle contains the Python 3.12 x64 offline
+installer, agent-only wheelhouse, requirements, code, certificates, and a nested
+hash manifest. Python dependencies are installed with `--no-index --find-links`.
+The remote ZIP and extraction directory are removed in a PowerShell `finally`
+block. The local temporary file is deleted when the request finishes.
 
 If transfer or installation fails after certificate issuance, HIVE revokes the
-orphaned enrollment and records the failed run. A successful install creates
-`C:\HIVE-Agent`, checks mutual-TLS MQTT, and starts the `HIVE Agent - <machine>`
-SYSTEM scheduled task.
+orphaned enrollment and records the failed run. A successful install verifies a
+staging installation, checks mutual-TLS MQTT, atomically replaces
+`C:\HIVE-Agent`, and starts the `HIVE Agent - <machine>` SYSTEM scheduled task.
+If activation fails, the previous agent directory and task are restored.
 
 ## Recovery and host-key changes
 

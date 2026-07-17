@@ -65,6 +65,15 @@ try {
     Copy-Item "$State\config" "$Next\config" -Recurse
     New-Item -ItemType Directory -Force -Path "$Next\data", "$Next\logs" | Out-Null
     if (Test-Path "$State\data") { Copy-Item "$State\data\*" "$Next\data" -Recurse -Force }
+    $AgentPayloadSource = Join-Path $BundleRoot "agent-payload"
+    if (-not (Test-Path -LiteralPath "$AgentPayloadSource\agent-payload.json" -PathType Leaf)) {
+        throw "The release does not contain a verified offline machine-agent payload."
+    }
+    Remove-Item -LiteralPath "$Next\data\offline-agent" -Recurse -Force -ErrorAction SilentlyContinue
+    Copy-Item -LiteralPath $AgentPayloadSource -Destination "$Next\data\offline-agent" -Recurse -Force
+    & icacls.exe "$Next\data\offline-agent" /inheritance:r /grant:r `
+        "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Could not secure the upgraded machine-agent payload." }
     if (Test-Path "$InstallDir\logs") { Copy-Item "$InstallDir\logs\*" "$Next\logs" -Recurse -Force -ErrorAction SilentlyContinue }
 
     & "$InstallDir\.venv\Scripts\python.exe" -m venv "$Next\.venv"

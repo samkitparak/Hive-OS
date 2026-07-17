@@ -125,7 +125,8 @@ hive-os/
 │   ├── ottimo_connector.py   # Ottimo placeholder barcode adapter
 │   └── main.py               # FastAPI app (REST + SSE)
 ├── dashboard/                # React + Vite frontend
-├── deploy/windows/           # one-click central and machine-agent installers
+├── deploy/windows/           # offline central lifecycle and machine-agent installers
+├── requirements-agent.txt    # minimal machine-agent offline wheelhouse
 ├── tests/                    # pytest suite
 ├── DEPLOYMENT.md             # Windows installation and diagnostics guide
 ├── INTEGRATIONS.md           # integration roadmap

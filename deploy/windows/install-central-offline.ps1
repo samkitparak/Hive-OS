@@ -77,4 +77,17 @@ if (Test-Path -LiteralPath "C:\HIVE-OS") {
 $Installer = Join-Path $BundleRoot "app\deploy\windows\install-central.ps1"
 & $Installer -SkipPrerequisites -OfflineWheelDir (Join-Path $BundleRoot "wheels") `
     -DashboardPrebuilt -PythonExe $PythonExe
+$AgentPayloadSource = Join-Path $BundleRoot "agent-payload"
+if (-not (Test-Path -LiteralPath "$AgentPayloadSource\agent-payload.json" -PathType Leaf)) {
+    throw "The verified offline machine-agent payload is missing from this release."
+}
+$AgentPayloadTarget = "C:\HIVE-OS\data\offline-agent"
+$AgentPayloadStage = "$AgentPayloadTarget.new"
+Remove-Item -LiteralPath $AgentPayloadStage -Recurse -Force -ErrorAction SilentlyContinue
+Copy-Item -LiteralPath $AgentPayloadSource -Destination $AgentPayloadStage -Recurse -Force
+Remove-Item -LiteralPath $AgentPayloadTarget -Recurse -Force -ErrorAction SilentlyContinue
+Move-Item -LiteralPath $AgentPayloadStage -Destination $AgentPayloadTarget
+& icacls.exe $AgentPayloadTarget /inheritance:r /grant:r `
+    "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Could not secure the offline machine-agent payload." }
 Write-Host "Verified offline installation completed without package-index access." -ForegroundColor Green

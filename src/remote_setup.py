@@ -466,13 +466,17 @@ def plan(conn: sqlite3.Connection, cfg_path: Path, machine_key: str) -> dict:
     machine = _machine(cfg_path, machine_key)
     profile = host_profile(conn, machine_key)
     identity = identity_status()
+    agent_payload = mqtt_security.agent_payload_status()
     return {
         "generated_at": _now(), "machine_key": machine_key,
         "label": machine.get("label") or machine_key, "host": machine.get("host"),
         "transport": "ssh", "ssh_port": profile["port"] if profile else 22,
         "mode": "commissioning", "credentials_stored": False,
-        "identity": identity, "host_trust": profile,
-        "ready_for_live_execution": bool(identity["status"] == "ready" and profile and profile["status"] == "trusted"),
+        "identity": identity, "host_trust": profile, "agent_payload": agent_payload,
+        "ready_for_live_execution": bool(
+            identity["status"] == "ready" and profile and profile["status"] == "trusted"
+            and agent_payload["ready"]
+        ),
         "steps": [
             "Generate the central HIVE deployment key",
             "Run enable-hive-ssh.ps1 once as Administrator on the machine PC",
@@ -505,7 +509,8 @@ def snapshot(conn: sqlite3.Connection, cfg_path: Path) -> dict:
     for run in runs:
         latest_by_machine.setdefault(run["machine_key"], run)
     return {
-        "generated_at": _now(), "identity": identity_status(), "hosts": hosts, "runs": runs,
+        "generated_at": _now(), "identity": identity_status(),
+        "agent_payload": mqtt_security.agent_payload_status(), "hosts": hosts, "runs": runs,
         "summary": {"configured_machines": len(machine_keys), "trusted_hosts": trusted,
                     "installed_hosts": installed,
                     "failed_runs": sum(run["status"] == "failed" for run in latest_by_machine.values())},
@@ -578,7 +583,8 @@ def install_agent(conn: sqlite3.Connection, cfg_path: Path, payload: dict, actor
         "status": "preview_ready", "mode": "dry_run", "will_execute": False,
         "install_dir": r"C:\HIVE-Agent", "log_folder": target.get("log_folder"),
         "scheduled_task": f"HIVE Agent - {target['machine_key']}",
-        "security": "A fresh MQTT client certificate is issued only for live execution.",
+        "agent_payload": mqtt_security.agent_payload_status(),
+        "security": "Live execution uses a verified offline runtime and issues a fresh MQTT certificate.",
     }
     if not payload.get("execute"):
         return preview
@@ -586,6 +592,12 @@ def install_agent(conn: sqlite3.Connection, cfg_path: Path, payload: dict, actor
     log_folder = str(target.get("log_folder") or "").strip()
     if not log_folder:
         raise ValueError("Select a verified Maestro log folder before installation")
+    agent_payload = mqtt_security.agent_payload_status()
+    if not agent_payload["ready"]:
+        raise ValueError(
+            "Verified offline machine-agent payload is not ready on the central PC: "
+            + agent_payload["detail"]
+        )
     run_id = _start_run(conn, target, "install", "live", actor,
                         "Copy enrollment package and install HIVE machine agent")
     enrollment_id = None

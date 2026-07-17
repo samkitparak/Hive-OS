@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.21.0",
+    [string]$Version = "0.22.0",
     [Parameter(Mandatory=$true)][string]$PythonInstaller,
     [Parameter(Mandatory=$true)][string]$MosquittoInstaller,
     [Parameter(Mandatory=$true)][string]$OdbcInstaller,
@@ -36,13 +36,18 @@ if (-not $VersionMatch -or $VersionMatch.Matches[0].Groups[1].Value -ne $Version
 
 Remove-Item -LiteralPath $Stage -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $Archive, "$Archive.sha256" -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force -Path "$Stage\app", "$Stage\wheels", "$Stage\installers" | Out-Null
+New-Item -ItemType Directory -Force -Path "$Stage\app", "$Stage\wheels", "$Stage\installers", `
+    "$Stage\agent-payload\payload\src", "$Stage\agent-payload\payload\runtime", `
+    "$Stage\agent-payload\payload\wheels" | Out-Null
 
 Push-Location "$Root\dashboard"
 try {
     npm ci
+    if ($LASTEXITCODE -ne 0) { throw "Dashboard dependency installation failed." }
     npm run lint
+    if ($LASTEXITCODE -ne 0) { throw "Dashboard lint failed." }
     npm run build
+    if ($LASTEXITCODE -ne 0) { throw "Dashboard build failed." }
 } finally { Pop-Location }
 
 robocopy $Root "$Stage\app" /E /XD .git .pytest_cache .venv node_modules dashboard\node_modules `
@@ -52,11 +57,16 @@ robocopy "$Root\dashboard\dist" "$Stage\app\dashboard\dist" /E | Out-Null
 if ($LASTEXITCODE -gt 7) { throw "Could not stage the built dashboard." }
 
 python -m pip download --only-binary=:all: --dest "$Stage\wheels" -r "$Root\requirements.txt"
+if ($LASTEXITCODE -ne 0) { throw "Central Python wheel download failed." }
+python -m pip download --only-binary=:all: --dest "$Stage\agent-payload\payload\wheels" `
+    -r "$Root\requirements-agent.txt"
+if ($LASTEXITCODE -ne 0) { throw "Machine-agent Python wheel download failed." }
 
 $PythonName = "python-3.12-x64.exe"
 $MosquittoName = "mosquitto-x64.exe"
 $OdbcName = if ([IO.Path]::GetExtension($OdbcInstaller) -eq ".msi") { "msodbcsql18-x64.msi" } else { "msodbcsql18-x64.exe" }
 Copy-Item -LiteralPath $PythonInstaller "$Stage\installers\$PythonName"
+Copy-Item -LiteralPath $PythonInstaller "$Stage\agent-payload\payload\runtime\$PythonName"
 Copy-Item -LiteralPath $MosquittoInstaller "$Stage\installers\$MosquittoName"
 Copy-Item -LiteralPath $OdbcInstaller "$Stage\installers\$OdbcName"
 $SshName = $null
@@ -64,6 +74,28 @@ if ($OpenSshArchive) {
     $SshName = "openssh-win64.zip"
     Copy-Item -LiteralPath $OpenSshArchive "$Stage\installers\$SshName"
 }
+
+Copy-Item "$Root\deploy\windows\install-machine-agent.ps1" "$Stage\agent-payload\install-machine-agent.ps1"
+Copy-Item "$Root\src\maestro_agent.py" "$Stage\agent-payload\payload\src\maestro_agent.py"
+Copy-Item "$Root\src\mqtt_client.py" "$Stage\agent-payload\payload\src\mqtt_client.py"
+Copy-Item "$Root\requirements-agent.txt" "$Stage\agent-payload\payload\requirements-agent.txt"
+$AgentRoot = "$Stage\agent-payload"
+$AgentFiles = Get-ChildItem -LiteralPath $AgentRoot -File -Recurse | Sort-Object FullName | ForEach-Object {
+    $Relative = $_.FullName.Substring($AgentRoot.Length + 1).Replace('\', '/')
+    [ordered]@{ path = $Relative; size = $_.Length; sha256 = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
+}
+$AgentManifest = [ordered]@{
+    format = "hive-offline-agent-payload"
+    format_version = 1
+    version = $Version
+    generated_at = [DateTimeOffset]::UtcNow.ToString("o")
+    target = "windows-x64"
+    python_version = "3.12-64"
+    files = @($AgentFiles)
+}
+$AgentManifest | ConvertTo-Json -Depth 6 | Set-Content "$AgentRoot\agent-payload.json" -Encoding UTF8
+$AgentManifestHash = (Get-FileHash "$AgentRoot\agent-payload.json" -Algorithm SHA256).Hash.ToLowerInvariant()
+Set-Content "$AgentRoot\agent-payload.json.sha256" "$AgentManifestHash  agent-payload.json" -Encoding ASCII
 
 Copy-Item "$Root\deploy\windows\install-central-offline.ps1" "$Stage\install-central-offline.ps1"
 Copy-Item "$Root\deploy\windows\hive-lifecycle-common.ps1" "$Stage\hive-lifecycle-common.ps1"

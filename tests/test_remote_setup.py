@@ -154,6 +154,9 @@ def test_folder_detection_defaults_to_preview_and_live_is_audited(conn, ssh_site
 
 def test_live_install_issues_ephemeral_bundle_and_audits_success(conn, ssh_site, monkeypatch):
     _trust(conn)
+    monkeypatch.setattr(remote_setup.mqtt_security, "agent_payload_status", lambda: {
+        "ready": True, "status": "ready", "detail": "Offline payload verified",
+    })
     monkeypatch.setattr(remote_setup.mqtt_security, "issue_bundle", lambda *args, **kwargs: (
         b"ephemeral-enrollment", {"enrollment_id": 41}
     ))
@@ -175,6 +178,9 @@ def test_live_install_issues_ephemeral_bundle_and_audits_success(conn, ssh_site,
 def test_failed_install_revokes_orphaned_enrollment(conn, ssh_site, monkeypatch):
     _trust(conn)
     revoked = []
+    monkeypatch.setattr(remote_setup.mqtt_security, "agent_payload_status", lambda: {
+        "ready": True, "status": "ready", "detail": "Offline payload verified",
+    })
     monkeypatch.setattr(remote_setup.mqtt_security, "issue_bundle", lambda *args, **kwargs: (
         b"ephemeral-enrollment", {"enrollment_id": 42}
     ))
@@ -190,6 +196,19 @@ def test_failed_install_revokes_orphaned_enrollment(conn, ssh_site, monkeypatch)
     assert revoked == [42]
     run = conn.execute("SELECT * FROM remote_setup_runs WHERE action='install'").fetchone()
     assert run["status"] == "failed"
+
+
+def test_live_install_requires_verified_offline_payload(conn, ssh_site, monkeypatch):
+    _trust(conn)
+    monkeypatch.setattr(remote_setup.mqtt_security, "agent_payload_status", lambda: {
+        "ready": False, "status": "invalid", "detail": "payload hash does not match",
+    })
+    with pytest.raises(ValueError, match="not ready"):
+        remote_setup.install_agent(conn, CFG, {
+            "machine_key": "morbidelli_cx100", "host": "10.0.0.104",
+            "log_folder": r"C:\SCM\Maestro\Logs", "execute": True,
+        }, "Admin")
+    assert conn.execute("SELECT COUNT(*) FROM remote_setup_runs").fetchone()[0] == 0
 
 
 def test_forget_host_removes_it_from_strict_known_hosts(conn, ssh_site):

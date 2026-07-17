@@ -236,6 +236,9 @@ export function SetupPanel({ config, onClose, onSave, onRemoteAction }) {
                 <span style={{ ...statusStyle, color: remotePlan?.host_trust?.status === "trusted" ? "#86efac" : "#fbbf24" }}>
                   Host {remotePlan?.host_trust?.status ?? "untrusted"}
                 </span>
+                <span style={{ ...statusStyle, color: remotePlan?.agent_payload?.ready ? "#86efac" : "#fbbf24" }}>
+                  Payload {remotePlan?.agent_payload?.status ?? "unchecked"}
+                </span>
                 <span style={{ ...statusStyle, color: liveMode ? "#fca5a5" : "#93c5fd" }}>
                   {liveMode ? "Live SSH" : "Preview"}
                 </span>

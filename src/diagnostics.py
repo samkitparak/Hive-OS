@@ -209,6 +209,7 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "ssh_trusted_hosts": remote_summary["trusted_hosts"],
             "ssh_installed_hosts": remote_summary["installed_hosts"],
             "ssh_failed_runs": remote_summary["failed_runs"],
+            "offline_agent_payload_ready": remote_state["agent_payload"]["ready"],
             "verified_connectors": connector_verified,
             "enabled_connectors": connector_enabled,
             "verified_industrial_profiles": industrial_verified,
@@ -265,13 +266,15 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
              "status": "offline" if remote_summary["failed_runs"] else (
                  "ready" if remote_state["identity"]["status"] == "ready"
                  and remote_summary["trusted_hosts"] == remote_summary["configured_machines"]
+                 and remote_state["agent_payload"]["ready"]
                  else "needs_site_value"
              ),
              "detail": (
                  f"SSH identity {remote_state['identity']['status']}; "
                  f"{remote_summary['trusted_hosts']}/{remote_summary['configured_machines']} hosts trusted; "
                  f"{remote_summary['installed_hosts']} successful installs; "
-                 f"{remote_summary['failed_runs']} failed runs"
+                 f"{remote_summary['failed_runs']} failed runs; "
+                 f"offline payload {remote_state['agent_payload']['status']}"
              )},
             {"key": "maintenance", "name": "Preventive maintenance",
              "status": "ready" if maintenance_ready else "needs_site_value",

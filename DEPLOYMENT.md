@@ -37,7 +37,9 @@ The installer:
 - Places a public-key-only **HIVE Machine Bootstrap** folder on the desktop
 
 The offline installer performs the same provisioning from verified bundled
-vendor installers, Python wheels, and a prebuilt dashboard.
+vendor installers, Python wheels, and a prebuilt dashboard. It also retains a
+verified offline machine-agent runtime used by enrollment downloads and SSH
+commissioning.
 
 The installer prints the one-time administrator token. Open the desktop HIVE OS
 shortcut on the central PC, create the first administrator, and then store the
@@ -93,6 +95,8 @@ Compare the printed machine fingerprint with **Setup > Remote Agent Setup**,
 approve it, authenticate, detect the real folders, and select **Install agent**.
 HIVE then issues the MQTT enrollment, transfers it over strict SCP, runs the
 installer, removes temporary package files, and records the result centrally.
+The package includes Python 3.12 x64 and all agent wheels; the machine PC does
+not need internet, winget, or PyPI.
 
 The manual enrollment-ZIP workflow below remains available as an offline repair
 path.
@@ -105,22 +109,34 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\install-machine-agent.ps1
 ```
 
-The ZIP contains the machine identity, central broker address, trusted CA, agent
-code, and installer. The installer auto-detects the Maestro log folder and asks
-only when it cannot find one. The private key is restricted to Administrators
-and SYSTEM.
+An enrollment issued by an installed 0.22 offline release contains the machine
+identity, central broker address, trusted CA, agent code, installer, Python
+runtime, dependency wheels, and a hash manifest. The installer verifies every
+runtime file before changing `C:\HIVE-Agent`, auto-detects the Maestro log folder,
+checks mutual-TLS MQTT in a staging directory, and rolls back an existing agent
+if activation fails. The private key is restricted to Administrators and SYSTEM.
 
 The agent is installed at `C:\HIVE-Agent`, starts with Windows, and emits a
 heartbeat even while the machine is idle.
 
-For a repo-based repair install, select a previously issued enrollment ZIP in the
-file picker or pass it directly. The installer verifies secure MQTT reachability
+For a repo-based repair install, select a current self-contained enrollment ZIP
+in the file picker or pass it directly. The installer verifies secure MQTT reachability
 and submits the latest log sample for dry-run parser analysis when optional HTTPS
 API settings are supplied:
 
 ```powershell
 .\deploy\windows\install-machine-agent.ps1 `
   -EnrollmentBundle C:\Install\hive-enrollment-morbidelli_cx100.zip
+```
+
+Older or development enrollment ZIPs do not contain the offline runtime and fail
+closed by default. On an intentionally internet-connected repair PC only, allow
+the legacy prerequisite path explicitly:
+
+```powershell
+.\deploy\windows\install-machine-agent.ps1 `
+  -EnrollmentBundle C:\Install\legacy-enrollment.zip `
+  -AllowOnlinePrerequisites
 ```
 
 The agent always writes the latest sample to

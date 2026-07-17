@@ -1,6 +1,6 @@
 # HIVE OS Offline Installation and Recovery
 
-HIVE OS 0.21 can be installed and upgraded on a disconnected factory LAN. A
+HIVE OS 0.22 can be installed and upgraded on a disconnected factory LAN. A
 release is assembled on an internet-connected Windows x64 build PC before
 travel, then carried on approved removable media. The target central PC does
 not need Node.js, npm, PyPI, winget, or internet access.
@@ -14,7 +14,7 @@ OpenSSH Client.
 
 ```powershell
 .\deploy\windows\build-offline-bundle.ps1 `
-  -Version 0.21.0 `
+  -Version 0.22.0 `
   -PythonInstaller C:\ReleaseInputs\python-3.12.exe `
   -MosquittoInstaller C:\ReleaseInputs\mosquitto.exe `
   -OdbcInstaller C:\ReleaseInputs\msodbcsql18.msi `
@@ -22,10 +22,12 @@ OpenSSH Client.
 ```
 
 The builder runs dashboard lint/build, downloads Windows-compatible binary
-wheels, packages the prebuilt dashboard, hashes every bundled file, and emits:
+wheels, creates a separate machine-agent wheelhouse, embeds the Python 3.12 x64
+installer for each machine PC, packages the prebuilt dashboard, hashes every
+bundled file, and emits:
 
-- `release\HIVE-OS-0.21.0-offline.zip`
-- `release\HIVE-OS-0.21.0-offline.zip.sha256`
+- `release\HIVE-OS-0.22.0-offline.zip`
+- `release\HIVE-OS-0.22.0-offline.zip.sha256`
 
 Keep both files. Compare the ZIP SHA-256 after copying it to USB and again on
 the factory PC.
@@ -43,6 +45,13 @@ provisions MQTT/SSH identities, and registers the supervised startup task.
 This is one-click after the ZIP has been extracted. A vendor-installer failure,
 missing wheel, architecture mismatch, or hash mismatch stops installation
 instead of falling back to the internet.
+
+The installer also retains the independently hashed machine-agent payload at
+`C:\HIVE-OS\data\offline-agent` with Administrator/SYSTEM-only permissions.
+Diagnostics verifies that cache before reporting remote commissioning ready.
+Each newly issued enrollment ZIP contains the runtime, agent-only wheels, code,
+installer, and nested manifest, so an SSH-installed machine PC needs no internet
+or package manager access.
 
 ## Verified backups
 
@@ -89,15 +98,15 @@ For an existing 0.21 or later installation, place the release ZIP and its
 
 ```powershell
 C:\HIVE-OS\deploy\windows\upgrade-hive.ps1 `
-  -BundlePath D:\HIVE-OS-0.21.0-offline.zip
+  -BundlePath D:\HIVE-OS-0.22.0-offline.zip
 ```
 
-To upgrade a 0.20 installation, extract the 0.21 release and run the upgrader
+To upgrade a 0.20 installation, extract the 0.22 release and run the upgrader
 included at its root; it carries the new backup implementation itself:
 
 ```powershell
-D:\HIVE-OS-0.21.0-offline\upgrade-hive.ps1 `
-  -BundlePath D:\HIVE-OS-0.21.0-offline
+D:\HIVE-OS-0.22.0-offline\upgrade-hive.ps1 `
+  -BundlePath D:\HIVE-OS-0.22.0-offline
 ```
 
 The upgrader verifies the release, creates and verifies a pre-upgrade backup,
@@ -116,6 +125,9 @@ backup is subsequently checked with
 Python package installation follows pip's documented
 [`pip download`](https://pip.pypa.io/en/stable/cli/pip_download/) and
 [`--no-index --find-links`](https://pip.pypa.io/en/stable/cli/pip_install/)
-workflow. Windows lifecycle control uses Microsoft's documented
+workflow. Python's Windows documentation defines the unattended offline
+installer options used for both central and machine PCs in
+[Installing without UI](https://docs.python.org/3.12/using/windows.html#installing-without-ui).
+Windows lifecycle control uses Microsoft's documented
 [`Stop-ScheduledTask`](https://learn.microsoft.com/en-us/powershell/module/scheduledtasks/stop-scheduledtask)
 and `Start-ScheduledTask` commands.

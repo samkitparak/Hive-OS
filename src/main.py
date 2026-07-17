@@ -177,7 +177,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.21.0"
+APP_VERSION = "0.22.0"
 
 
 class ApiPrefixMiddleware:

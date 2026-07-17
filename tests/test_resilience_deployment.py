@@ -22,6 +22,10 @@ def test_offline_builder_is_closed_and_hash_manifested():
     assert 'format = "hive-offline-release"' in script
     assert "PythonInstaller" in script and "MosquittoInstaller" in script and "OdbcInstaller" in script
     assert "npm run build" in script
+    assert "requirements-agent.txt" in script
+    assert 'format = "hive-offline-agent-payload"' in script
+    assert "agent-payload.json.sha256" in script
+    assert "Machine-agent Python wheel download failed" in script
 
 
 def test_offline_install_never_uses_package_indexes_or_winget():
@@ -35,6 +39,24 @@ def test_offline_install_never_uses_package_indexes_or_winget():
     assert "--no-index" in installer
     assert "--find-links" in installer
     assert "DashboardPrebuilt" in installer
+    assert "data\\offline-agent" in wrapper
+    assert "agent-payload" in _script("upgrade-hive.ps1")
+
+
+def test_machine_agent_prefers_verified_offline_runtime_and_rolls_back():
+    installer = _script("install-machine-agent.ps1")
+    assert "[switch]$AllowOnlinePrerequisites" in installer
+    assert "hive-offline-agent-payload" in installer
+    assert "Get-FileHash" in installer
+    assert "3.12-64" in installer
+    assert "--no-index" in installer and "--find-links" in installer
+    assert "winget install" in installer
+    assert "elseif (-not $PythonExe -and $AllowOnlinePrerequisites)" in installer
+    assert "$StageDir" in installer and "$PreviousDir" in installer
+    assert "Machine-agent dependency installation failed" in installer
+    assert "Could not register the HIVE machine-agent startup task" in installer
+    assert 'if ($Task.State -ne "Running")' in installer
+    assert "Unregister-ScheduledTask" in installer
 
 
 def test_restore_and_upgrade_fail_back_to_preserved_state():
