@@ -81,7 +81,84 @@ function DeploymentConsole({ deployment }) {
   );
 }
 
-export function DiagnosticsPanel({ data, deployment, onClose }) {
+function formatBytes(value) {
+  if (!value) return "0 B";
+  if (value < 1024 * 1024) return `${Math.ceil(value / 1024)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function ResilienceConsole({ resilience, canManage, onCreateBackup, onVerifyBackup }) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  if (!resilience) return null;
+  const latest = resilience.latest;
+
+  const run = async action => {
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await action();
+      setMessage(`Verified ${result.filename}`);
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ borderTop: "1px solid #1f2937", marginTop: 20, paddingTop: 16 }}>
+      <SectionTitle>Recovery Readiness</SectionTitle>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(260px, 100%), 1fr))",
+                    gap: 10 }}>
+        <div style={{ border: "1px solid #1f2937", borderRadius: 6, padding: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 700 }}>Latest system backup</span>
+            <Status value={latest?.status === "verified" ? "ready" : "missing"} />
+          </div>
+          <div style={{ color: "#9ca3af", fontSize: 10, marginTop: 7, overflowWrap: "anywhere" }}>
+            {latest ? `${latest.filename} · ${formatBytes(latest.size)}` : "No verified recovery point"}
+          </div>
+          {latest?.generated_at && <div style={{ color: "#6b7280", fontSize: 10, marginTop: 4 }}>
+            {new Date(latest.generated_at).toLocaleString()}
+          </div>}
+          {canManage && <div style={{ display: "flex", gap: 7, marginTop: 10, flexWrap: "wrap" }}>
+            <button type="button" disabled={busy} onClick={() => run(onCreateBackup)} title="Create verified backup"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#1d4ed8",
+                             border: "1px solid #3b82f6", color: "#fff", borderRadius: 6, padding: "7px 10px",
+                             fontSize: 11, cursor: busy ? "wait" : "pointer" }}>
+              <DatabaseBackup size={14} /> Back up now
+            </button>
+            {latest && <button type="button" disabled={busy} onClick={() => run(() => onVerifyBackup(latest.filename))}
+                               title="Verify latest backup" style={{ display: "inline-flex", alignItems: "center", gap: 6,
+                               background: "#111827", border: "1px solid #374151", color: "#d1d5db", borderRadius: 6,
+                               padding: "7px 10px", fontSize: 11, cursor: busy ? "wait" : "pointer" }}>
+              <RefreshCw size={14} /> Verify
+            </button>}
+          </div>}
+          {message && <div style={{ color: message.startsWith("Verified") ? "#86efac" : "#fca5a5",
+                                    fontSize: 10, marginTop: 8, overflowWrap: "anywhere" }}>{message}</div>}
+        </div>
+        <div style={{ border: "1px solid #1f2937", borderRadius: 6, padding: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 7 }}>Controlled recovery commands</div>
+          <code style={{ display: "block", background: "#111827", borderRadius: 6, padding: 8,
+                         color: "#d1d5db", fontSize: 10, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+            {resilience.restore_command}
+          </code>
+          <code style={{ display: "block", background: "#111827", borderRadius: 6, padding: 8,
+                         color: "#d1d5db", fontSize: 10, whiteSpace: "pre-wrap", overflowWrap: "anywhere",
+                         marginTop: 7 }}>{resilience.upgrade_command}</code>
+          <div style={{ color: "#6b7280", fontSize: 10, marginTop: 7, overflowWrap: "anywhere" }}>
+            Archives: {resilience.backup_directory}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function DiagnosticsPanel({ data, deployment, resilience, canManage,
+                                   onCreateBackup, onVerifyBackup, onClose }) {
   if (!data) return null;
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 120, background: "rgba(0,0,0,.78)",
@@ -98,8 +175,8 @@ export function DiagnosticsPanel({ data, deployment, onClose }) {
               {data.summary.online_machines}/{data.summary.total_machines} machines reporting recently
             </div>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: 0, color: "#9ca3af",
-                                            fontSize: 20, cursor: "pointer" }}>✕</button>
+          <button onClick={onClose} title="Close diagnostics" style={{ background: "none", border: 0,
+                                            color: "#9ca3af", cursor: "pointer", padding: 5 }}><X size={20} /></button>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
@@ -151,8 +228,12 @@ export function DiagnosticsPanel({ data, deployment, onClose }) {
           </table>
         </div>
 
+        <ResilienceConsole resilience={resilience} canManage={canManage}
+                           onCreateBackup={onCreateBackup} onVerifyBackup={onVerifyBackup} />
         <DeploymentConsole deployment={deployment} />
       </div>
     </div>
   );
 }
+import { useState } from "react";
+import { DatabaseBackup, RefreshCw, X } from "lucide-react";

@@ -229,6 +229,10 @@ export const createResourceUnavailability = payload => postJson("/resources/unav
 export const deleteResourceUnavailability = (id, actor) => request(`/resources/unavailability/${id}?actor=${encodeURIComponent(actor)}`, { method: "DELETE" });
 export const fetchDiagnostics = () => request("/diagnostics");
 export const fetchDeployment = () => request("/deployment");
+export const fetchResilience = () => request("/resilience");
+export const createSystemBackup = () => postJson("/resilience/backups", {});
+export const verifySystemBackup = filename =>
+  postJson(`/resilience/backups/${encodeURIComponent(filename)}/verify`, {});
 export const fetchConfig = () => request("/config");
 
 export const saveConfig = (payload) =>

@@ -81,6 +81,7 @@ $checks += Test-ProtectedHttp "API warehouse" "http://$HostName`:$ApiPort/api/in
 $checks += Test-ProtectedHttp "API procurement" "http://$HostName`:$ApiPort/api/procurement/snapshot"
 $checks += Test-ProtectedHttp "API tooling lifecycle" "http://$HostName`:$ApiPort/api/tooling"
 $checks += Test-ProtectedHttp "API remote commissioning" "http://$HostName`:$ApiPort/api/remote-setup/snapshot"
+$checks += Test-ProtectedHttp "API recovery readiness" "http://$HostName`:$ApiPort/api/resilience"
 $checks += Test-Port "MQTT" $HostName $MqttPort
 
 $odbc = Get-OdbcDriver -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "ODBC Driver 18 for SQL Server*" }

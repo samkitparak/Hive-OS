@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, UserRound } from "lucide-react";
-import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchForecast, refreshForecast, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchRecovery, analyzeRecovery, decideRecovery, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, fetchProcurementSnapshot, updateProcurementSupplier, updateProcurementMapping, createPurchaseOrder, draftProcurementRecommendations, actOnPurchaseOrder, createGoodsReceipt, importProcurementCsv, updateMaterialStock, updateInventoryItem, updateInventoryLot, updateInventoryRequirement, createInventoryRemnant, updateInventoryRemnant, updateLaborRole, updateToolPool, createToolAsset, updateToolAsset, recordToolUsage, recordToolAction, recordToolService, updateToolProgramMapping, syncTooling, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, forgetRemoteHost, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, fetchConnectorSnapshot, analyzeConnector, approveConnector, importConnectorRecords, updateConnectorProfile, discoverCabinetVisionSql, syncCabinetVisionSql, fetchIndustrialSnapshot, updateIndustrialProfile, simulateIndustrialProfile, probeIndustrialProfile, probeIndustrialMqtt, approveIndustrialProfile, pollIndustrialProfile, browseIndustrialOpcua, fetchImprovements, syncImprovements, actOnImprovement, fetchRootCauses, syncRootCauses, decideRootCause, fetchAlerts, syncAlerts, actOnAlert, updateAlertDestination, testAlertDestination, dispatchAlerts, updateAlertSettings, postJson, simulateEvent } from "./api";
+import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchForecast, refreshForecast, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchRecovery, analyzeRecovery, decideRecovery, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, fetchProcurementSnapshot, updateProcurementSupplier, updateProcurementMapping, createPurchaseOrder, draftProcurementRecommendations, actOnPurchaseOrder, createGoodsReceipt, importProcurementCsv, updateMaterialStock, updateInventoryItem, updateInventoryLot, updateInventoryRequirement, createInventoryRemnant, updateInventoryRemnant, updateLaborRole, updateToolPool, createToolAsset, updateToolAsset, recordToolUsage, recordToolAction, recordToolService, updateToolProgramMapping, syncTooling, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchResilience, createSystemBackup, verifySystemBackup, fetchConfig, saveConfig, fetchRemoteSetupPlan, forgetRemoteHost, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, fetchConnectorSnapshot, analyzeConnector, approveConnector, importConnectorRecords, updateConnectorProfile, discoverCabinetVisionSql, syncCabinetVisionSql, fetchIndustrialSnapshot, updateIndustrialProfile, simulateIndustrialProfile, probeIndustrialProfile, probeIndustrialMqtt, approveIndustrialProfile, pollIndustrialProfile, browseIndustrialOpcua, fetchImprovements, syncImprovements, actOnImprovement, fetchRootCauses, syncRootCauses, decideRootCause, fetchAlerts, syncAlerts, actOnAlert, updateAlertDestination, testAlertDestination, dispatchAlerts, updateAlertSettings, postJson, simulateEvent } from "./api";
 import { MachineCard } from "./MachineCard";
 import { MachineDetail } from "./MachineDetail";
 import { JobProgress } from "./JobProgress";
@@ -137,6 +137,9 @@ export default function App({ auth }) {
   });
   const { data: deployment = null } = useQuery({
     queryKey: ["deployment"], queryFn: fetchDeployment, refetchInterval: 60000,
+  });
+  const { data: resilience = null } = useQuery({
+    queryKey: ["resilience"], queryFn: fetchResilience, refetchInterval: 60000,
   });
   const { data: siteConfig = null } = useQuery({
     queryKey: ["siteConfig"], queryFn: fetchConfig, refetchInterval: 60000,
@@ -343,6 +346,18 @@ export default function App({ auth }) {
     ["siteConfig", "diagnostics", "deployment"].forEach(key => {
       qc.invalidateQueries({ queryKey: [key] });
     });
+    return result;
+  };
+
+  const runCreateBackup = async () => {
+    const result = await createSystemBackup();
+    await qc.invalidateQueries({ queryKey: ["resilience"] });
+    return result;
+  };
+
+  const runVerifyBackup = async filename => {
+    const result = await verifySystemBackup(filename);
+    await qc.invalidateQueries({ queryKey: ["resilience"] });
     return result;
   };
 
@@ -752,7 +767,9 @@ export default function App({ auth }) {
         <MachineDetail machineKey={selectedKey} onClose={() => setSelectedKey(null)} />
       )}
       {showDiagnostics && diagnostics && (
-        <DiagnosticsPanel data={diagnostics} deployment={deployment} onClose={() => setShowDiagnostics(false)} />
+        <DiagnosticsPanel data={diagnostics} deployment={deployment} resilience={resilience}
+                          canManage={can("admin")} onCreateBackup={runCreateBackup}
+                          onVerifyBackup={runVerifyBackup} onClose={() => setShowDiagnostics(false)} />
       )}
       {showSetup && siteConfig && (
         <SetupPanel

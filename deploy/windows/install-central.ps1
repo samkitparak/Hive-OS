@@ -1,5 +1,12 @@
-# HIVE OS central/Cabinet Vision PC installer.
-# Run from an Administrator PowerShell window with internet access.
+param(
+    [switch]$SkipPrerequisites,
+    [string]$OfflineWheelDir = "",
+    [switch]$DashboardPrebuilt,
+    [string]$PythonExe = "python"
+)
+
+# HIVE OS central/Cabinet Vision PC installer. Normal mode uses the internet;
+# the verified offline wrapper invokes prerequisite-free mode.
 
 $ErrorActionPreference = "Stop"
 $InstallDir = "C:\HIVE-OS"
@@ -37,15 +44,18 @@ function New-SecureToken {
 }
 
 Require-Admin
-Ensure-WingetPackage "Python.Python.3.12" "python"
-Ensure-WingetPackage "OpenJS.NodeJS.LTS" "node"
-Ensure-WingetPackage "EclipseMosquitto.Mosquitto" "mosquitto"
+if (-not $SkipPrerequisites) {
+    Ensure-WingetPackage "Python.Python.3.12" "python"
+    Ensure-WingetPackage "OpenJS.NodeJS.LTS" "node"
+    Ensure-WingetPackage "EclipseMosquitto.Mosquitto" "mosquitto"
+}
 if (-not (Get-Command ssh-keygen.exe -ErrorAction SilentlyContinue)) {
+    if ($SkipPrerequisites) { throw "OpenSSH Client is absent from the verified offline installation." }
     $SshClient = Get-WindowsCapability -Online | Where-Object Name -Like 'OpenSSH.Client*' | Select-Object -First 1
     if (-not $SshClient) { throw "Windows OpenSSH Client is required for remote machine setup." }
     if ($SshClient.State -ne 'Installed') { Add-WindowsCapability -Online -Name $SshClient.Name | Out-Null }
 }
-if (-not (Get-OdbcDriver -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "ODBC Driver 18 for SQL Server*" })) {
+if (-not $SkipPrerequisites -and -not (Get-OdbcDriver -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "ODBC Driver 18 for SQL Server*" })) {
     Write-Host "Installing Microsoft ODBC Driver 18 for SQL Server..."
     winget install --id Microsoft.msodbcsql.18 --exact --silent `
         --accept-package-agreements --accept-source-agreements
@@ -96,9 +106,14 @@ if (-not (Test-Path $BootstrapTokenPath)) {
 & icacls $BootstrapTokenPath /inheritance:r /grant:r "*S-1-5-18:F" "*S-1-5-32-544:F" | Out-Null
 
 Set-Location $InstallDir
-python -m venv .venv
-& "$InstallDir\.venv\Scripts\python.exe" -m pip install --upgrade pip
-& "$InstallDir\.venv\Scripts\pip.exe" install -r requirements.txt
+& $PythonExe -m venv .venv
+if ($OfflineWheelDir) {
+    $ResolvedWheels = (Resolve-Path -LiteralPath $OfflineWheelDir).Path
+    & "$InstallDir\.venv\Scripts\python.exe" -m pip install --no-index --find-links $ResolvedWheels -r requirements.txt
+} else {
+    & "$InstallDir\.venv\Scripts\python.exe" -m pip install --upgrade pip
+    & "$InstallDir\.venv\Scripts\pip.exe" install -r requirements.txt
+}
 
 $env:PYTHONPATH = "$InstallDir\src"
 if (-not (Test-Path "$InstallDir\data\mqtt-pki\ca.key")) {
@@ -109,9 +124,18 @@ if (-not (Test-Path "$InstallDir\data\mqtt-pki\ca.key")) {
 }
 & icacls "$InstallDir\data\mqtt-pki" /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" | Out-Null
 
-Set-Location "$InstallDir\dashboard"
-npm ci
-npm run build
+if ($DashboardPrebuilt) {
+    $BuiltDashboard = Join-Path $SourceDir "dashboard\dist"
+    if (-not (Test-Path -LiteralPath "$BuiltDashboard\index.html")) {
+        throw "The offline release does not contain a built dashboard."
+    }
+    New-Item -ItemType Directory -Force -Path "$InstallDir\dashboard\dist" | Out-Null
+    robocopy $BuiltDashboard "$InstallDir\dashboard\dist" /E | Out-Null
+} else {
+    Set-Location "$InstallDir\dashboard"
+    npm ci
+    npm run build
+}
 
 $ConfigPath = "$InstallDir\config\machines.yaml"
 $Config = Get-Content $ConfigPath -Raw
@@ -122,22 +146,15 @@ Set-Content $ConfigPath $Config -Encoding UTF8
 Stop-Service mosquitto -ErrorAction SilentlyContinue
 Set-Service mosquitto -StartupType Disabled -ErrorAction SilentlyContinue
 
-@"
-@echo off
-cd /d C:\HIVE-OS
-start "HIVE MQTT" /min cmd /c "mosquitto -c config\mosquitto.conf"
-start "HIVE Backend" /min cmd /c "set PYTHONPATH=src && .venv\Scripts\uvicorn.exe src.main:app --host 127.0.0.1 --port 8000 >> logs\backend.log 2>&1"
-"@ | Set-Content "$InstallDir\start-hive.cmd" -Encoding ASCII
-
-schtasks /Create /TN "HIVE OS Central" /SC ONSTART /RU SYSTEM /RL HIGHEST `
-    /TR "$InstallDir\start-hive.cmd" /F | Out-Null
+$TaskCommand = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$InstallDir\deploy\windows\start-hive.ps1`" -InstallDir `"$InstallDir`""
+schtasks /Create /TN "HIVE OS Central" /SC ONSTART /RU SYSTEM /RL HIGHEST /TR $TaskCommand /F | Out-Null
 
 Remove-NetFirewallRule -DisplayName "HIVE OS API" -ErrorAction SilentlyContinue
 New-NetFirewallRule -DisplayName "HIVE OS MQTT" -Direction Inbound `
     -Protocol TCP -LocalPort 8883 -RemoteAddress LocalSubnet `
     -Action Allow -ErrorAction SilentlyContinue | Out-Null
 
-Start-Process "$InstallDir\start-hive.cmd"
+Start-ScheduledTask -TaskName "HIVE OS Central"
 Start-Sleep -Seconds 2
 
 @"

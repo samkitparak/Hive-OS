@@ -34,6 +34,7 @@ operations are limited to the HIVE database and site configuration.
 - **Preventive maintenance control** — commissioned calendar/usage/condition plans, machine-specific inspections, named LOTO evidence, maintenance-aware schedules, and audited spare reservations.
 - **Tool lifecycle control** — serialized blades, cutters, and drills; exact CNC-program usage attribution; rated and locally learned life; quality-linked service triggers; reconditioning history; and planning capacity gates.
 - **Remote machine commissioning** — Windows OpenSSH bootstrap, explicit host-fingerprint trust, key-only folder discovery, automatic MQTT enrollment, agent install/restart/log retrieval, and immutable run evidence.
+- **Offline recovery lifecycle** — hash-verified no-network install bundles, consistent live backups, protected trust-state recovery, staged upgrades, health checks, and automatic rollback.
 - **Factory integration boundary** — versioned mappings, read-only SQL discovery, credential references, sample fingerprints, issue audits, and idempotent import batches.
 - **Industrial telemetry gateway** — commissioned Modbus TCP, OPC-UA, and MQTT signals; read-only probes; immutable contracts; debounced machine state; raw/latest/hourly telemetry; and offsite simulation.
 - **Warehouse intelligence** — derived edge demand, component lots, usable-remnant allocation, schedule reservations, immutable movements, and evidence-labeled purchase suggestions.
@@ -143,6 +144,7 @@ hive-os/
 ├── PREDICTIVE_CONTROL.md      # ensemble forecast, credibility, and calibration contract
 ├── SCHEDULE_RECOVERY.md       # trigger, freeze-horizon, stability, and approval contract
 ├── REMOTE_COMMISSIONING.md    # Windows SSH trust, bootstrap, install, and recovery
+├── RESILIENCE.md              # offline install, backup, restore, upgrade, and rollback
 ├── ACCESS_CONTROL.md          # local identity, role, session, and transport security
 └── INDIA_CHECKLIST.md        # on-site configuration checklist
 ```

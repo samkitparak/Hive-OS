@@ -22,6 +22,7 @@ import logging
 import os
 import sqlite3
 import threading
+import zipfile
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -69,6 +70,7 @@ import diagnostics as diagnostics_module
 import deployment as deployment_module
 import config_editor as config_editor_module
 import remote_setup as remote_setup_module
+import resilience as resilience_module
 import operations as operations_module
 import maintenance as maintenance_module
 import tooling as tooling_module
@@ -175,7 +177,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.20.0"
+APP_VERSION = "0.21.0"
 
 
 class ApiPrefixMiddleware:
@@ -1945,6 +1947,39 @@ def get_diagnostics():
 @app.get("/deployment")
 def get_deployment():
     return deployment_module.build(CONFIG_PATH)
+
+
+def _backup_dir() -> Path:
+    return Path(os.getenv("HIVE_BACKUP_DIR", str(resilience_module.DEFAULT_BACKUP_DIR)))
+
+
+@app.get("/resilience")
+def get_resilience():
+    return resilience_module.snapshot(db_path=DB_PATH, backup_dir=_backup_dir())
+
+
+@app.post("/resilience/backups")
+def post_resilience_backup(request: Request):
+    try:
+        return resilience_module.create_backup(
+            db_path=DB_PATH,
+            root=Path(__file__).parent.parent,
+            backup_dir=_backup_dir(),
+            app_version=APP_VERSION,
+            actor=_principal_name(request),
+        )
+    except (OSError, sqlite3.Error, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/resilience/backups/{filename}/verify")
+def post_resilience_verify(filename: str):
+    if Path(filename).name != filename or not filename.startswith("hive-backup-"):
+        raise HTTPException(400, "Invalid backup filename")
+    try:
+        return resilience_module.verify_backup(_backup_dir() / filename)
+    except (OSError, sqlite3.Error, ValueError, zipfile.BadZipFile) as error:
+        raise HTTPException(400, str(error)) from error
 
 
 @app.get("/config")

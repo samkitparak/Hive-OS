@@ -2,15 +2,12 @@
 
 ## What "one-click install" means
 
-For the current prototype, download or copy the HIVE OS folder onto the target
-Windows PC and run one PowerShell installer as Administrator.
-
-The installer needs internet access once to install Python, Node.js, Mosquitto,
-and package dependencies. After installation, HIVE OS starts automatically when
-Windows boots and can operate on the factory LAN without internet.
-
-An offline USB installer should be prepared after confirming the exact Windows
-versions and CPU architectures used by the factory PCs.
+For an internet-connected workshop PC, copy the HIVE OS folder and run the
+PowerShell installer as Administrator. For the factory, build the verified
+offline x64 release before travel, extract it on the target central PC, and run
+`Install-HIVE-OS.cmd`. The offline target does not need Node.js, npm, PyPI,
+winget, or internet access. See `RESILIENCE.md` for the release-input, hash,
+backup, restore, upgrade, and rollback workflow.
 
 ## Central / Cabinet Vision PC
 
@@ -28,6 +25,7 @@ The installer:
 - Creates the Python virtual environment and dashboard build
 - Asks for the Cabinet Vision export folder
 - Creates a startup task
+- Runs the broker and backend under one tracked startup-task supervisor
 - Creates a local MQTT certificate authority, broker identity, and central identity
 - Configures a mutual-TLS MQTT listener for machine agents
 - Serves the built dashboard and API on central-PC localhost port `8000`
@@ -37,6 +35,9 @@ The installer:
 - Writes logs to `C:\HIVE-OS\logs`
 - Generates a protected Ed25519 machine-deployment identity
 - Places a public-key-only **HIVE Machine Bootstrap** folder on the desktop
+
+The offline installer performs the same provisioning from verified bundled
+vendor installers, Python wheels, and a prebuilt dashboard.
 
 The installer prints the one-time administrator token. Open the desktop HIVE OS
 shortcut on the central PC, create the first administrator, and then store the

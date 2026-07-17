@@ -24,6 +24,41 @@ INSTALL_ASSETS = [
         ),
     },
     {
+        "key": "offline_builder",
+        "label": "Verified offline release builder",
+        "path": "deploy/windows/build-offline-bundle.ps1",
+        "target": "Internet-connected Windows build PC before travel",
+        "command": ".\\deploy\\windows\\build-offline-bundle.ps1 -Version 0.21.0 <installer paths>",
+    },
+    {
+        "key": "offline_installer",
+        "label": "No-network central installer",
+        "path": "deploy/windows/install-central-offline.ps1",
+        "target": "CV or central HIVE PC",
+        "command": ".\\Install-HIVE-OS.cmd",
+    },
+    {
+        "key": "backup",
+        "label": "Verified system backup",
+        "path": "deploy/windows/backup-hive.ps1",
+        "target": "Central HIVE PC",
+        "command": ".\\deploy\\windows\\backup-hive.ps1",
+    },
+    {
+        "key": "restore",
+        "label": "Controlled system restore",
+        "path": "deploy/windows/restore-hive.ps1",
+        "target": "Central HIVE PC recovery console",
+        "command": ".\\deploy\\windows\\restore-hive.ps1 -BackupPath <backup.zip>",
+    },
+    {
+        "key": "upgrade",
+        "label": "Offline upgrade and rollback",
+        "path": "deploy/windows/upgrade-hive.ps1",
+        "target": "Central HIVE PC",
+        "command": ".\\deploy\\windows\\upgrade-hive.ps1 -BundlePath <release.zip>",
+    },
+    {
         "key": "ssh_bootstrap",
         "label": "Machine-PC SSH bootstrap",
         "path": "deploy/windows/enable-hive-ssh.ps1",
@@ -112,7 +147,10 @@ def build(cfg_path: Path) -> dict:
     central_ready = all(
         asset["exists"]
         for asset in assets
-        if asset["key"] in {"central_installer", "mqtt_restart", "install_tester", "uninstaller"}
+        if asset["key"] in {
+            "central_installer", "offline_builder", "offline_installer", "backup",
+            "restore", "upgrade", "mqtt_restart", "install_tester", "uninstaller",
+        }
     )
     agent_ready = all(
         asset["exists"]
@@ -129,6 +167,15 @@ def build(cfg_path: Path) -> dict:
             "label": "Central install package present",
             "status": "ready" if central_ready else "missing",
             "detail": "PowerShell central installer, uninstaller, and health checker exist",
+        },
+        {
+            "key": "recovery_package",
+            "label": "Offline recovery package present",
+            "status": "ready" if all(
+                asset["exists"] for asset in assets
+                if asset["key"] in {"offline_builder", "offline_installer", "backup", "restore", "upgrade"}
+            ) else "missing",
+            "detail": "Verified offline install, backup, restore, upgrade, and rollback scripts exist",
         },
         {
             "key": "agent_package",
@@ -169,6 +216,7 @@ def build(cfg_path: Path) -> dict:
             "Copy or unzip the hive-os folder onto the target Windows PC.",
             "Open PowerShell as Administrator.",
             "Run the central installer on the CV or HIVE PC.",
+            "Create a verified backup before commissioning or upgrading production state.",
             "Run the public-key-only HIVE SSH bootstrap once on each Maestro PC.",
             "Compare and approve each machine host fingerprint in Setup.",
             "Detect its folders and install the machine agent centrally over SSH.",
