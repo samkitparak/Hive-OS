@@ -190,7 +190,10 @@ def sync_material_requirements(conn: sqlite3.Connection, commit: bool = True) ->
                      required_area_m2=excluded.required_area_m2,
                      required_sheets=excluded.required_sheets,
                      unknown_part_count=excluded.unknown_part_count,
-                     updated_at=excluded.updated_at""",
+                     updated_at=excluded.updated_at
+                   WHERE material_requirements.required_area_m2 IS NOT excluded.required_area_m2
+                      OR material_requirements.required_sheets IS NOT excluded.required_sheets
+                      OR material_requirements.unknown_part_count IS NOT excluded.unknown_part_count""",
                 (order["id"], definition["id"], round(item["area"], 4),
                  required_sheets, item["unknown"], now),
             )

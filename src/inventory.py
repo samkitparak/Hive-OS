@@ -143,7 +143,9 @@ def sync_requirements(conn: sqlite3.Connection, *, commit: bool = True) -> dict:
                    VALUES (?,? ,?,'cv_edges','estimated',?)
                    ON CONFLICT(production_order_id,item_id) DO UPDATE SET
                      required_qty=excluded.required_qty,confidence='estimated',updated_at=excluded.updated_at
-                   WHERE component_requirements.source='cv_edges'""",
+                   WHERE component_requirements.source='cv_edges'
+                     AND (component_requirements.required_qty IS NOT excluded.required_qty
+                          OR component_requirements.confidence!='estimated')""",
                 (order["id"], item["id"], required, now),
             )
             keep_item_ids.append(item["id"])

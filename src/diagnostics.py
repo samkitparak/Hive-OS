@@ -14,6 +14,7 @@ import root_cause
 import alerting
 import access_control
 import mqtt_security
+import forecasting
 
 PLACEHOLDER_HOSTS = {
     *(f"192.168.1.{number}" for number in range(51, 55)),
@@ -179,6 +180,10 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
     )
     access = access_control.snapshot(conn)
     mqtt_trust = mqtt_security.status(conn)
+    forecast = forecasting.snapshot(conn)
+    latest_forecast = forecast.get("latest")
+    forecast_result = latest_forecast["result"] if latest_forecast else {}
+    forecast_calibration = forecast["calibration"]
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -219,6 +224,10 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "failed_logins_24h": access["failed_logins_24h"],
             "active_mqtt_enrollments": mqtt_trust["active_enrollments"],
             "expiring_mqtt_enrollments": mqtt_trust["expiring_within_30_days"],
+            "forecast_status": forecast_result.get("status", "not_available"),
+            "forecast_stale": forecast.get("stale", False),
+            "forecast_calibration_outcomes": forecast_calibration["outcome_count"],
+            "forecast_calibration_status": forecast_calibration["status"],
         },
         "services": [
             {"key": "database", "name": "Database", "status": "online",
@@ -312,6 +321,17 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
              "detail": (
                  f"{access['active_users']} active users; {access['active_sessions']} sessions; "
                  f"{access['active_api_keys']} service keys; {access['failed_logins_24h']} failed logins in 24h"
+             )},
+            {"key": "production_forecast", "name": "Production forecast credibility",
+             "status": "offline" if forecast_calibration["status"] == "drift" else (
+                 "ready" if forecast.get("decision_ready") and forecast_calibration["status"] == "credible"
+                 else "learning" if latest_forecast else "needs_site_value"
+             ),
+             "detail": (
+                 f"{forecast_result.get('sample_count', 0)} stochastic runs; "
+                 f"{'stale' if forecast.get('stale') else 'current'} inputs; "
+                 f"{forecast_calibration['outcome_count']} completed-order calibration outcomes; "
+                 f"calibration {forecast_calibration['status']}"
              )},
         ],
         "machines": machines,

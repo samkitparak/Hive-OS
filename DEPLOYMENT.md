@@ -48,9 +48,13 @@ After installation, run:
 ```
 
 This checks the dashboard, public health and access-control status, protected API
-reachability, secure MQTT port,
+reachability (including the production forecast surface), secure MQTT port,
 ODBC driver, Modbus/OPC-UA client libraries, install folder, logs folder, and
 startup task.
+
+The forecast endpoint may correctly report commissioning instead of ready. Its
+readiness depends on real routes, cycle models, resources, and contractual due
+times after factory evidence begins arriving.
 
 From the central PC on the factory OT network, run the read-only endpoint
 preflight after entering real device endpoints:

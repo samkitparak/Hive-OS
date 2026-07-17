@@ -16,6 +16,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlparse
 
+import forecasting
+
 
 SEVERITY_ORDER = {"info": 0, "warning": 1, "critical": 2}
 ACTIVE_STATUSES = ("open", "acknowledged", "snoozed")
@@ -79,6 +81,11 @@ RULES = {
         "label": "Dispatch not acknowledged", "domain": "production", "owner_role": "shift_supervisor",
         "response_minutes": 15,
         "rationale": "A dispatched station job without acknowledgement has no confirmed owner.",
+    },
+    "forecast_delivery_risk": {
+        "label": "Forecast delivery risk", "domain": "production", "owner_role": "production_planner",
+        "response_minutes": 240,
+        "rationale": "A decision-ready stochastic forecast indicates a material probability of missing a committed due time.",
     },
 }
 
@@ -384,6 +391,34 @@ def _unacknowledged_dispatch(conn: sqlite3.Connection, now: datetime) -> list[di
     ) for row in rows]
 
 
+def _forecast_delivery_risks(conn: sqlite3.Connection) -> list[dict]:
+    state = forecasting.snapshot(conn)
+    latest = state.get("latest")
+    if not latest or not state.get("decision_ready"):
+        return []
+    result = latest["result"]
+    risks = [item for item in result.get("jobs", [])
+             if item.get("production_order_id") and item.get("late_probability") is not None
+             and item["late_probability"] >= 0.5]
+    return [_candidate(
+        "forecast_delivery_risk",
+        f"forecast_delivery_risk:{item['production_order_id']}",
+        "production_forecast", latest["id"],
+        f"{item['job_name']} is forecast late",
+        (f"{round(item['late_probability'] * 100)}% late probability under the "
+         f"{result['policy']} policy; P80 completion {item['completion_at']['p80']}."),
+        "Review the order sequence, forecast constraint, materials, and due-time recovery options.",
+        "The committed production due time may be missed without a reviewed recovery action.",
+        f"{latest['id']}:{round(item['late_probability'], 3)}",
+        latest["generated_at"], {
+            "forecast_id": latest["id"], "job_name": item["job_name"],
+            "late_probability": item["late_probability"],
+            "p80_completion_at": item["completion_at"]["p80"],
+            "calibration_status": state["calibration"]["status"],
+        }, severity="critical" if item["late_probability"] >= 0.8 else "warning",
+    ) for item in risks]
+
+
 def collect_candidates(conn: sqlite3.Connection, now: Optional[datetime] = None) -> list[dict]:
     now = now or datetime.now(timezone.utc)
     candidates = [
@@ -391,6 +426,7 @@ def collect_candidates(conn: sqlite3.Connection, now: Optional[datetime] = None)
         *_condition_signals(conn), *_spare_shortages(conn), *_execution_exceptions(conn),
         *_route_exceptions(conn), *_quality_recurrence(conn, now), *_procurement_failures(conn),
         *_industrial_failures(conn), *_diagnostic_reviews(conn), *_unacknowledged_dispatch(conn, now),
+        *_forecast_delivery_risks(conn),
     ]
     return sorted(candidates, key=lambda item: (-SEVERITY_ORDER[item["severity"]], item["occurred_at"], item["alert_key"]))
 

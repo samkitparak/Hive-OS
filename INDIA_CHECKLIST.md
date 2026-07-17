@@ -238,6 +238,27 @@ No spreadsheet is required when machine events identify the part reliably.
 
 ---
 
+## Predictive Production Forecast (After Routes And Resources Pass)
+
+Dashboard → **Production forecast**
+
+- [ ] Set contractual timezone-aware due times on every ready or released order
+- [ ] Confirm every selected route and cycle model passes the digital-twin gate
+- [ ] Verify material, component, labor, tooling, shift, outage, and WIP inputs against the floor
+- [ ] Run the default 50-replication forecast twice and confirm the same seed is reproducible
+- [ ] Compare the likely forecast constraint with the planner and shift supervisor's expectation
+- [ ] Review all orders with at least 20% late probability before the next dispatch decision
+- [ ] Treat forecast alerts as recovery reviews, not automatic schedule changes
+- [ ] Confirm a production or resource edit immediately marks the prior forecast stale
+- [ ] Complete orders through normal machine/scanner evidence so actual timestamps remain trustworthy
+- [ ] After five outcomes, review P80/P95 coverage, P50 error, and late-risk Brier score
+- [ ] Classify every major miss as model, route, resource, calendar, disturbance, or source-data error
+- [ ] Stop using forecast recommendations if calibration enters `drift` until assumptions are corrected
+
+See `PREDICTIVE_CONTROL.md` for the uncertainty model, credibility gates, and calibration rules.
+
+---
+
 ## Improvement Experiments (After One Stable Shift)
 
 Dashboard → **Review actions**
@@ -287,7 +308,7 @@ See `ROOT_CAUSE_DIAGNOSTICS.md` for evidence weights, learning thresholds, and A
 Dashboard → **Alerts**
 
 - [ ] Rationalize each OEM alarm code: required operator action, consequence, priority, owner, and duplicate/deadband behavior
-- [ ] Confirm the 12 HIVE rule classes create an alert only when a person must respond
+- [ ] Confirm the 13 HIVE rule classes create an alert only when a person must respond
 - [ ] Assign primary and backup roles for every shift and approve initial response times
 - [ ] Run repeated condition synchronization against one shift of evidence and remove nuisance or chattering conditions
 - [ ] Verify acknowledgment, snooze expiry, manual resolution, source-clear resolution, recurrence, and escalation history

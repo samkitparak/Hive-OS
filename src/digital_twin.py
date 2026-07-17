@@ -185,6 +185,7 @@ def _single_run(conn: sqlite3.Connection, jobs: list[dict], parts: list[dict],
     setup_time = 0.0
     calendar_wait = 0.0
     capacity_wait = 0.0
+    machine_wait = defaultdict(float)
     labor_busy = defaultdict(float)
     tooling_busy = defaultdict(float)
     blocked_units: list[str] = []
@@ -235,7 +236,9 @@ def _single_run(conn: sqlite3.Connection, jobs: list[dict], parts: list[dict],
                     request = resource.request()
                     yield request
                     acquired.append((resource, request))
-                capacity_wait += env.now - wait_started
+                waited = env.now - wait_started
+                capacity_wait += waited
+                machine_wait[machine_key] += waited
                 needs_setup = (machine_key == "gabbiani_pt80" and
                                saw_material[machine_key] not in (None, part["material"]))
                 total_duration = duration + (changeover_s if needs_setup else 0)
@@ -332,10 +335,15 @@ def _single_run(conn: sqlite3.Connection, jobs: list[dict], parts: list[dict],
         "blocked_reasons": sorted(set(blocked_units))[:50],
         "calendar_wait_s": round(calendar_wait, 1),
         "capacity_wait_s": round(capacity_wait, 1),
+        "machine_wait_s": {key: round(machine_wait.get(key, 0.0), 1)
+                           for key in machine_keys},
+        "machine_busy_s": {key: round(busy.get(key, 0.0), 1)
+                           for key in machine_keys},
         "machine_utilization": utilization,
         "labor_utilization": labor_utilization,
         "tool_utilization": tool_utilization,
         "job_completion_s": {key: round(value, 1) for key, value in job_completion.items()},
+        "job_tardiness_s": {key: round(value, 1) for key, value in tardiness.items()},
     }
 
 

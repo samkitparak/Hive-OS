@@ -135,6 +135,8 @@ export const fetchLearningStatus = () => request("/learning/status");
 export const fetchRoutingGraph = () => request("/routing/graph");
 export const fetchTwinReadiness = () => request("/digital-twin/readiness");
 export const compareTwinSchedules = (payload = {}) => postJson("/digital-twin/compare", payload);
+export const fetchForecast = () => request("/forecast");
+export const refreshForecast = (payload = {}) => postJson("/forecast/refresh", payload);
 export const fetchProductionOrders = () => request("/production/orders");
 export const fetchProductionReadiness = () => request("/production/readiness");
 export const updateProductionOrder = (id, payload) => request(`/production/orders/${id}`, {

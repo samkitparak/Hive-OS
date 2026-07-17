@@ -374,6 +374,14 @@ class DigitalTwinRequest(RequestModel):
     seed: int = Field(default=1, ge=0, le=2_147_483_647)
 
 
+class ForecastRefreshRequest(RequestModel):
+    job_names: Optional[list[str]] = None
+    policy: Literal["current", "fifo", "edd", "spt", "material_batch"] = "current"
+    samples: int = Field(default=50, ge=20, le=200)
+    seed: int = Field(default=1, ge=0, le=2_147_483_447)
+    force: bool = False
+
+
 class ProductionOrderUpdate(RequestModel):
     expected_version: Optional[int] = Field(default=None, ge=1)
     status: Optional[Literal[

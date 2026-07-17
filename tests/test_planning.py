@@ -139,6 +139,19 @@ def test_resource_change_expires_scenario_before_approval():
     assert planning.get_scenario(conn, scenario["id"])["status"] == "expired"
 
 
+def test_read_only_resource_refresh_does_not_expire_scenario():
+    conn = _ready_factory()
+    scenario = planning.create_scenario(conn, {
+        "created_by": "planner", "policies": ["fifo"],
+    })
+    before = planning.factory_signature(conn)
+    resources.snapshot(conn)
+    resources.snapshot(conn)
+    assert planning.factory_signature(conn) == before
+    approved = planning.decide(conn, scenario["id"], "approve", "supervisor", "fifo")
+    assert approved["status"] == "approved"
+
+
 def test_order_completion_consumes_stock_and_cancellation_releases_it():
     conn = _ready_factory()
     scenario = planning.create_scenario(conn, {

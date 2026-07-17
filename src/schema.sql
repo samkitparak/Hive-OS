@@ -1674,6 +1674,20 @@ CREATE TABLE IF NOT EXISTS mqtt_enrollments (
     version             INTEGER NOT NULL DEFAULT 1
 );
 
+-- Immutable probabilistic forecasts. The input signature makes stale results
+-- detectable; completed production-order events later provide calibration truth.
+CREATE TABLE IF NOT EXISTS production_forecasts (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    input_signature     TEXT NOT NULL,
+    policy              TEXT NOT NULL,
+    sample_count        INTEGER NOT NULL,
+    seed                INTEGER NOT NULL,
+    status              TEXT NOT NULL,
+    request_json        TEXT NOT NULL,
+    result_json         TEXT NOT NULL,
+    generated_at        TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS auth_events (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     event_type          TEXT NOT NULL,
@@ -1777,6 +1791,8 @@ CREATE INDEX IF NOT EXISTS idx_auth_api_keys_token ON auth_api_keys(token_hash, 
 CREATE INDEX IF NOT EXISTS idx_auth_events_time ON auth_events(ts DESC);
 CREATE INDEX IF NOT EXISTS idx_auth_events_actor ON auth_events(actor_user_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_mqtt_enrollments_machine_status ON mqtt_enrollments(machine_id, status, expires_at);
+CREATE INDEX IF NOT EXISTS idx_production_forecasts_generated ON production_forecasts(generated_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_production_forecasts_signature ON production_forecasts(input_signature, policy, sample_count);
 
 -- Seed the 14 in-scope HAEEV machines (aluminium pair excluded, compressors/dust collectors as utility)
 INSERT OR IGNORE INTO machines (name, machine_key, type, brand, model, has_maestro, has_opcua, active) VALUES

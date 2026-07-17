@@ -47,6 +47,7 @@ import sequencer as sequencer_module
 import bottleneck as bottleneck_module
 import data_quality as data_quality_module
 import digital_twin as digital_twin_module
+import forecasting as forecasting_module
 import learning as learning_module
 import routing as routing_module
 import commissioning as commissioning_module
@@ -118,6 +119,7 @@ from api_models import (
     PurchaseOrderAction,
     PurchaseOrderCreate,
     DigitalTwinRequest,
+    ForecastRefreshRequest,
     ExecutionActionRequest,
     ExecutionExceptionDecision,
     IdentityMaterializeRequest,
@@ -162,7 +164,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.16.0"
+APP_VERSION = "0.17.0"
 
 
 class ApiPrefixMiddleware:
@@ -456,6 +458,7 @@ async def _watch_learning():
             await asyncio.to_thread(execution_module.sync, conn)
             await asyncio.to_thread(execution_module.reconcile_machine_events, conn)
             await asyncio.to_thread(maintenance_module.sync, conn)
+            await asyncio.to_thread(forecasting_module.refresh_if_needed, conn)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -1052,6 +1055,27 @@ def post_digital_twin_compare(payload: DigitalTwinRequest):
         return digital_twin_module.compare(
             _get_conn(), payload.job_names, payload.policies,
             payload.stochastic, payload.seed,
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/forecast")
+def get_forecast():
+    return forecasting_module.snapshot(_get_conn())
+
+
+@app.get("/forecast/history")
+def get_forecast_history(limit: int = Query(20, ge=1, le=100)):
+    return forecasting_module.history(_get_conn(), limit)
+
+
+@app.post("/forecast/refresh")
+def post_forecast_refresh(payload: ForecastRefreshRequest):
+    try:
+        return forecasting_module.refresh(
+            _get_conn(), job_names=payload.job_names, policy=payload.policy,
+            samples=payload.samples, seed=payload.seed, force=payload.force,
         )
     except ValueError as error:
         raise HTTPException(400, str(error)) from error

@@ -201,6 +201,26 @@ def test_quality_and_integration_conditions_are_rationalized(conn):
     assert next(item for item in candidates if item["rule_key"] == "industrial_profile_failed")["severity"] == "critical"
 
 
+def test_decision_ready_forecast_creates_delivery_risk_candidate(conn, monkeypatch):
+    monkeypatch.setattr(alerting.forecasting, "snapshot", lambda _conn: {
+        "decision_ready": True,
+        "calibration": {"status": "collecting"},
+        "latest": {
+            "id": 42, "generated_at": NOW.isoformat(),
+            "result": {"policy": "current", "jobs": [{
+                "production_order_id": 7, "job_name": "RISK-7",
+                "late_probability": 0.82,
+                "completion_at": {"p80": (NOW + timedelta(hours=3)).isoformat()},
+            }]},
+        },
+    })
+    candidate = next(item for item in alerting.collect_candidates(conn, NOW)
+                     if item["rule_key"] == "forecast_delivery_risk")
+    assert candidate["severity"] == "critical"
+    assert candidate["owner_role"] == "production_planner"
+    assert candidate["evidence"]["forecast_id"] == 42
+
+
 class _CaptureHandler(BaseHTTPRequestHandler):
     captures = []
 

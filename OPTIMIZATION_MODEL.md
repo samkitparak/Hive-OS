@@ -90,6 +90,25 @@ evidence, but HIVE will not recommend a schedule change from it.
 PLC writes and autonomous machine control are outside the present safety
 boundary. HIVE observes, reconciles, and recommends first.
 
+## Predictive Constraint And Delivery Risk
+
+Once the digital-twin readiness gates pass, HIVE repeats the selected policy
+with seeded stochastic cycle durations. Bottleneck frequency is the share of
+feasible runs in which a machine has the highest utilization; tied peaks share
+that run's credit. Relative severity compares each machine's utilization with
+that run's peak. Order completion and
+tardiness are retained as P10/P50/P80/P95 distributions rather than one falsely
+precise ETA.
+
+Every forecast carries the complete factory-input signature. Any order, route,
+model, event, stock, labor, tooling, calendar, availability, WIP, or execution
+change makes it stale. Completed orders calibrate P80/P95 coverage, P50 error,
+and late-risk Brier score. Calibration drift removes effective decision-ready
+status until the model assumptions are reviewed.
+
+See `PREDICTIVE_CONTROL.md` for the algorithm, operating gates, research basis,
+API, and site workflow.
+
 ## Closed-Loop Improvement Evidence
 
 Optimization output is read-only until an operator explicitly synchronizes it

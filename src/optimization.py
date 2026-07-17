@@ -9,6 +9,7 @@ from typing import Optional
 
 import bottleneck
 import data_quality
+import forecasting
 import procurement
 
 
@@ -81,6 +82,7 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
     quality = data_quality.build(conn, window_hours, now)
     constraint = bottleneck.detect(conn, window_hours, now)
     purchasing = procurement.snapshot(conn)
+    forecast = forecasting.snapshot(conn)
     recommendations = []
 
     low_reporting = [
@@ -172,6 +174,53 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
             "metric_hint": "throughput_per_hour", "target_direction": "increase",
         })
 
+    latest_forecast = forecast.get("latest")
+    forecast_result = latest_forecast["result"] if latest_forecast else {}
+    if forecast.get("decision_ready"):
+        at_risk = sorted([
+            item for item in forecast_result.get("jobs", [])
+            if item.get("late_probability") is not None and item["late_probability"] >= 0.2
+        ], key=lambda item: (
+            item["late_probability"], item.get("expected_tardiness_s") or 0
+        ), reverse=True)
+        if at_risk:
+            risk = at_risk[0]
+            recommendations.append({
+                "priority": len(recommendations) + 1,
+                "category": "delivery_risk",
+                "title": f"Recover the schedule for {risk['job_name']}",
+                "action": "Review its release position, constraint queue, material readiness, and due-time commitment before the next dispatch.",
+                "confidence": "medium",
+                "estimated_gain": None,
+                "evidence": [
+                    f"{round(risk['late_probability'] * 100)}% simulated late risk",
+                    f"P80 completion {risk['completion_at']['p80']}",
+                    f"Forecast calibration: {forecast['calibration']['status']}",
+                ],
+                "target_type": "production_order",
+                "target_key": str(risk.get("production_order_id") or risk["job_name"]),
+                "cause_code": "forecast_delivery_risk",
+            })
+        forecast_constraints = forecast_result.get("constraints", [])
+        if forecast_constraints:
+            future = forecast_constraints[0]
+            if (future["bottleneck_probability"] >= 0.5 and
+                    (not current or future["machine_key"] != current.machine_key)):
+                recommendations.append({
+                    "priority": len(recommendations) + 1,
+                    "category": "forecast_constraint",
+                    "title": f"Prepare {future['machine_name']} for incoming load",
+                    "action": "Verify staffing, tooling, maintenance clearance, and its input buffer before releasing the forecast queue.",
+                    "confidence": "medium",
+                    "estimated_gain": None,
+                    "evidence": [
+                        f"{round(future['bottleneck_probability'] * 100)}% forecast bottleneck frequency",
+                        f"P90 utilization {round(future['p90_utilization'] * 100)}%",
+                    ],
+                    "target_type": "machine", "target_key": future["machine_key"],
+                    "cause_code": "forecast_capacity_risk",
+                })
+
     downtime = _downtime_evidence(conn, start, end)
     if downtime:
         confirmed_downtime = downtime.get("confirmed_cause")
@@ -252,6 +301,13 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
             "unmapped_shortages": len(unmapped),
             "supply_risks": len(supply_risks),
             "open_purchase_orders": purchasing["summary"]["open_purchase_orders"],
+        },
+        "forecast": {
+            "available": latest_forecast is not None,
+            "stale": forecast.get("stale", False),
+            "decision_ready": forecast.get("decision_ready", False),
+            "calibration_status": forecast["calibration"]["status"],
+            "forecast_id": latest_forecast["id"] if latest_forecast else None,
         },
         "recommendations": _finalize(recommendations, start, end, now.isoformat()),
         "guardrail": (

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, UserRound } from "lucide-react";
-import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, fetchProcurementSnapshot, updateProcurementSupplier, updateProcurementMapping, createPurchaseOrder, draftProcurementRecommendations, actOnPurchaseOrder, createGoodsReceipt, importProcurementCsv, updateMaterialStock, updateInventoryItem, updateInventoryLot, updateInventoryRequirement, createInventoryRemnant, updateInventoryRemnant, updateLaborRole, updateToolPool, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, fetchConnectorSnapshot, analyzeConnector, approveConnector, importConnectorRecords, updateConnectorProfile, discoverCabinetVisionSql, syncCabinetVisionSql, fetchIndustrialSnapshot, updateIndustrialProfile, simulateIndustrialProfile, probeIndustrialProfile, probeIndustrialMqtt, approveIndustrialProfile, pollIndustrialProfile, browseIndustrialOpcua, fetchImprovements, syncImprovements, actOnImprovement, fetchRootCauses, syncRootCauses, decideRootCause, fetchAlerts, syncAlerts, actOnAlert, updateAlertDestination, testAlertDestination, dispatchAlerts, updateAlertSettings, postJson, simulateEvent } from "./api";
+import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchForecast, refreshForecast, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, fetchProcurementSnapshot, updateProcurementSupplier, updateProcurementMapping, createPurchaseOrder, draftProcurementRecommendations, actOnPurchaseOrder, createGoodsReceipt, importProcurementCsv, updateMaterialStock, updateInventoryItem, updateInventoryLot, updateInventoryRequirement, createInventoryRemnant, updateInventoryRemnant, updateLaborRole, updateToolPool, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, fetchConnectorSnapshot, analyzeConnector, approveConnector, importConnectorRecords, updateConnectorProfile, discoverCabinetVisionSql, syncCabinetVisionSql, fetchIndustrialSnapshot, updateIndustrialProfile, simulateIndustrialProfile, probeIndustrialProfile, probeIndustrialMqtt, approveIndustrialProfile, pollIndustrialProfile, browseIndustrialOpcua, fetchImprovements, syncImprovements, actOnImprovement, fetchRootCauses, syncRootCauses, decideRootCause, fetchAlerts, syncAlerts, actOnAlert, updateAlertDestination, testAlertDestination, dispatchAlerts, updateAlertSettings, postJson, simulateEvent } from "./api";
 import { MachineCard } from "./MachineCard";
 import { MachineDetail } from "./MachineDetail";
 import { JobProgress } from "./JobProgress";
@@ -30,6 +30,7 @@ const GROUPS = [
 ];
 
 const AccessPanel = lazy(() => import("./AccessPanel").then(module => ({ default: module.AccessPanel })));
+const ForecastPanel = lazy(() => import("./ForecastPanel").then(module => ({ default: module.ForecastPanel })));
 
 function factoryOee(oeeList) {
   if (!oeeList?.length) return null;
@@ -103,6 +104,9 @@ export default function App({ auth }) {
   });
   const { data: twin = null } = useQuery({
     queryKey: ["twin"], queryFn: fetchTwinReadiness, refetchInterval: 60000,
+  });
+  const { data: forecast = null } = useQuery({
+    queryKey: ["forecast"], queryFn: fetchForecast, refetchInterval: 60000,
   });
   const { data: productionOrders = [] } = useQuery({
     queryKey: ["productionOrders"], queryFn: fetchProductionOrders, refetchInterval: 30000,
@@ -182,6 +186,7 @@ export default function App({ auth }) {
       qc.invalidateQueries({ queryKey: ["learning"] });
       qc.invalidateQueries({ queryKey: ["routing"] });
       qc.invalidateQueries({ queryKey: ["twin"] });
+      qc.invalidateQueries({ queryKey: ["forecast"] });
       qc.invalidateQueries({ queryKey: ["productionOrders"] });
       qc.invalidateQueries({ queryKey: ["routeExceptions"] });
       qc.invalidateQueries({ queryKey: ["executionSnapshot"] });
@@ -432,9 +437,17 @@ export default function App({ auth }) {
   };
 
   const refreshPlanning = () => {
-    ["productionOrders", "productionReadiness", "planningScenarios", "activeSchedule", "resourceSnapshot", "procurementSnapshot", "routeExceptions", "executionSnapshot", "identitySnapshot", "sequence", "twin", "jobs", "optimization", "diagnostics"].forEach(key => {
+    ["productionOrders", "productionReadiness", "planningScenarios", "activeSchedule", "resourceSnapshot", "procurementSnapshot", "routeExceptions", "executionSnapshot", "identitySnapshot", "sequence", "twin", "forecast", "jobs", "optimization", "diagnostics"].forEach(key => {
       qc.invalidateQueries({ queryKey: [key] });
     });
+  };
+
+  const runForecast = async payload => {
+    const result = await refreshForecast(payload);
+    ["forecast", "optimization", "alerts", "diagnostics"].forEach(key => {
+      qc.invalidateQueries({ queryKey: [key] });
+    });
+    return result;
   };
 
   const runPlanningAction = async (kind, data) => {
@@ -593,6 +606,12 @@ export default function App({ auth }) {
                       letterSpacing: 1, marginBottom: 12 }}>CURRENT CONSTRAINT</div>
         <BottleneckPanel report={bottlenecks} />
       </div>
+
+      <Suspense fallback={<section style={{ borderTop: "1px solid #1f2937", borderBottom: "1px solid #1f2937",
+        padding: "14px 0", marginBottom: 20, color: "#6b7280", fontSize: 11 }}>Loading production forecast…</section>}>
+        <ForecastPanel forecast={forecast} canRefresh={can("optimize", "supervise")}
+                       onRefresh={runForecast} />
+      </Suspense>
 
       {/* ── Job Queue ── */}
       <div style={{ background: "#111827", border: "1px solid #1f2937",
@@ -778,11 +797,14 @@ export default function App({ auth }) {
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: #0d1117; }
         ::-webkit-scrollbar-thumb { background: #374151; border-radius: 2px; }
+        @keyframes hive-spin { to { transform: rotate(360deg); } }
+        .spin { animation: hive-spin .8s linear infinite; }
         @media (max-width: 760px) {
           .bottom-grid { grid-template-columns: 1fr !important; }
           .constraint-grid { grid-template-columns: 1fr 1fr !important; }
           .constraint-recommendation { grid-column: 1 / -1; }
           .intelligence-grid { grid-template-columns: 1fr 1fr !important; }
+          .forecast-grid { grid-template-columns: 1fr 1fr !important; }
           .commission-controls { grid-template-columns: 1fr !important; }
           .connector-layout { grid-template-columns: 1fr !important; }
           .connector-layout > div:first-child { border-right: 0 !important; border-bottom: 1px solid #1f2937; padding-right: 0 !important; padding-bottom: 10px; display: grid; grid-template-columns: 1fr 1fr; }

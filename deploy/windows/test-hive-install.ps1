@@ -69,6 +69,7 @@ $checks += Test-ProtectedHttp "API machines" "http://$HostName`:$ApiPort/api/mac
 $checks += Test-ProtectedHttp "API diagnostics" "http://$HostName`:$ApiPort/api/diagnostics"
 $checks += Test-ProtectedHttp "API data quality" "http://$HostName`:$ApiPort/api/data-quality"
 $checks += Test-ProtectedHttp "API optimization" "http://$HostName`:$ApiPort/api/optimization"
+$checks += Test-ProtectedHttp "API production forecast" "http://$HostName`:$ApiPort/api/forecast"
 $checks += Test-ProtectedHttp "API improvement learning" "http://$HostName`:$ApiPort/api/improvements"
 $checks += Test-ProtectedHttp "API root-cause diagnostics" "http://$HostName`:$ApiPort/api/root-causes"
 $checks += Test-ProtectedHttp "API alert management" "http://$HostName`:$ApiPort/api/alerts"
