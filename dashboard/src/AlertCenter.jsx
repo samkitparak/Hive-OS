@@ -25,9 +25,9 @@ function formatTime(value) {
   return new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 }
 
-function AlertItem({ item, onAction }) {
+function AlertItem({ item, onAction, currentUser, canManage }) {
   const [expanded, setExpanded] = useState(false);
-  const [draft, setDraft] = useState({ actor: "", owner: item.owner || "", notes: "", snooze_minutes: 30 });
+  const [draft, setDraft] = useState({ actor: currentUser || "", owner: item.owner || "", notes: "", snooze_minutes: 30 });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const due = item.status === "open" && item.response_due_at && new Date(item.response_due_at) <= new Date();
@@ -70,7 +70,7 @@ function AlertItem({ item, onAction }) {
           Due {formatTime(item.response_due_at)} · escalation L{item.escalation_level}<br />Role: {item.owner_role}{item.owner ? ` · ${item.owner}` : ""}
         </div></div>
       </div>
-      <div className="alert-action-form" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.5fr 110px", gap: 8, marginTop: 13 }}>
+      {canManage && <><div className="alert-action-form" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.5fr 110px", gap: 8, marginTop: 13 }}>
         <Field name="Operator"><input value={draft.actor} onChange={event => set("actor", event.target.value)} placeholder="Full name" style={input} /></Field>
         <Field name="Owner"><input value={draft.owner} onChange={event => set("owner", event.target.value)} placeholder={item.owner_role} style={input} /></Field>
         <Field name={item.status === "resolved" ? "Reopen note" : "Disposition / snooze reason"}>
@@ -87,7 +87,7 @@ function AlertItem({ item, onAction }) {
           style={{ ...button, opacity: busy || !draft.actor || !draft.notes ? .45 : 1 }}><XCircle size={14} /> Resolve</button>}
         {item.status === "resolved" && <button disabled={busy || !draft.actor} onClick={() => act("reopen")}
           style={{ ...button, opacity: busy || !draft.actor ? .45 : 1 }}><RotateCcw size={14} /> Reopen</button>}
-      </div>
+      </div></>}
       {message && <div style={{ color: "#f87171", fontSize: 10, marginTop: 9 }}>{message}</div>}
       {!!item.events?.length && <details style={{ marginTop: 12 }}><summary style={{ color: "#6b7280", fontSize: 9, cursor: "pointer" }}>Lifecycle history ({item.events.length})</summary>
         <div style={{ display: "grid", gap: 5, marginTop: 7 }}>{item.events.slice(0, 12).map(event => <div key={event.id} style={{ color: "#9ca3af", fontSize: 9 }}>
@@ -97,9 +97,9 @@ function AlertItem({ item, onAction }) {
   </article>;
 }
 
-function DeliveryConsole({ data, onDestination, onTestDestination, onDispatch, onSettings }) {
+function DeliveryConsole({ data, currentUser, onDestination, onTestDestination, onDispatch, onSettings, canConfigure }) {
   const existing = data.destinations[0];
-  const [actor, setActor] = useState("");
+  const [actor, setActor] = useState(currentUser || "");
   const [destination, setDestination] = useState({ key: existing?.destination_key || "shift_webhook",
     name: existing?.name || "Shift alert webhook", endpoint: existing?.endpoint || "", secret_env: existing?.secret_env || "",
     min_severity: existing?.min_severity || "warning", enabled: Boolean(existing?.enabled), expected_version: existing?.version });
@@ -119,7 +119,7 @@ function DeliveryConsole({ data, onDestination, onTestDestination, onDispatch, o
   const test = live => run(live ? "live test" : "simulate", () => onTestDestination(destination.key, { live, actor }));
   const saveSettings = () => run("settings", () => onSettings({ ...settings, interval_seconds: Number(settings.interval_seconds), actor }));
   return <div style={{ display: "grid", gap: 18, minWidth: 0, width: "100%" }}>
-    <section style={{ minWidth: 0 }}><div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}><Settings size={15} color="#60a5fa" /><h3 style={{ fontSize: 13 }}>Automation</h3></div>
+    {canConfigure && <><section style={{ minWidth: 0 }}><div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}><Settings size={15} color="#60a5fa" /><h3 style={{ fontSize: 13 }}>Automation</h3></div>
       <div className="alert-settings" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 130px 1fr", gap: 10, alignItems: "end" }}>
         <label style={{ ...input, display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={settings.auto_sync} onChange={event => setSettings(value => ({ ...value, auto_sync: event.target.checked }))} /> Automatic condition sync</label>
         <label style={{ ...input, display: "flex", alignItems: "center", gap: 8 }}><input type="checkbox" checked={settings.auto_dispatch} onChange={event => setSettings(value => ({ ...value, auto_dispatch: event.target.checked }))} /> Automatic dispatch</label>
@@ -151,7 +151,7 @@ function DeliveryConsole({ data, onDestination, onTestDestination, onDispatch, o
         <button disabled={!actor || !verified || busy} onClick={() => run("dispatch", () => onDispatch({ limit: 50, actor }))} style={{ ...button, opacity: !actor || !verified || busy ? .45 : 1 }}><Send size={14} /> Dispatch pending</button>
       </div>
       <div style={{ color: "#6b7280", fontSize: 9, marginTop: 7 }}>Simulation stays local. A live test sends one CloudEvents request, verifies the contract, and queues current active state.</div>
-    </section>
+    </section></>}
     <section style={{ borderTop: "1px solid #263244", paddingTop: 16, minWidth: 0 }}>
       <h3 style={{ fontSize: 13, marginBottom: 9 }}>Delivery history</h3>
       <div style={{ overflowX: "auto", width: "100%", maxWidth: "100%", minWidth: 0 }}><table style={{ width: "100%", minWidth: 700, borderCollapse: "collapse", fontSize: 10 }}>
@@ -162,14 +162,14 @@ function DeliveryConsole({ data, onDestination, onTestDestination, onDispatch, o
           <td style={{ padding: 7, borderBottom: "1px solid #1f2937" }}>{row.attempts}/5</td></tr>)}</tbody>
       </table>{!data.deliveries.length && <div style={{ color: "#6b7280", fontSize: 10, padding: "14px 0" }}>No deliveries have been queued.</div>}</div>
     </section>
-    <Field name="Named operator"><input value={actor} onChange={event => setActor(event.target.value)} placeholder="Required for commissioning changes" style={input} /></Field>
-    {message && <div style={{ color: message.includes("passed") || message.includes("completed") ? "#22c55e" : "#f87171", fontSize: 10 }}>{message}</div>}
+    {canConfigure && <Field name="Named operator"><input value={actor} onChange={event => setActor(event.target.value)} placeholder="Required for commissioning changes" style={input} /></Field>}
+    {canConfigure && message && <div style={{ color: message.includes("passed") || message.includes("completed") ? "#22c55e" : "#f87171", fontSize: 10 }}>{message}</div>}
   </div>;
 }
 
-export function AlertCenter({ data, onSync, onAction, onDestination, onTestDestination, onDispatch, onSettings, onClose }) {
+export function AlertCenter({ data, currentUser, canManage, canCommission, onSync, onAction, onDestination, onTestDestination, onDispatch, onSettings, onClose }) {
   const [tab, setTab] = useState("open");
-  const [syncActor, setSyncActor] = useState("");
+  const [syncActor, setSyncActor] = useState(currentUser || "");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const rows = useMemo(() => data.alerts.filter(item => item.status === tab), [data.alerts, tab]);
@@ -185,16 +185,16 @@ export function AlertCenter({ data, onSync, onAction, onDestination, onTestDesti
         <div><div style={{ display: "flex", alignItems: "center", gap: 8 }}><Bell size={18} color={data.summary.critical_unacknowledged ? "#ef4444" : "#60a5fa"} /><h2 style={{ fontSize: 16 }}>Alert center</h2></div>
           <div style={{ color: "#6b7280", fontSize: 10, marginTop: 4 }}>{data.summary.active} active · {data.summary.critical_unacknowledged} critical unacknowledged · {data.summary.response_overdue} response overdue</div></div>
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap", justifyContent: "flex-end" }}>
-          <input aria-label="Operator for condition sync" value={syncActor} onChange={event => setSyncActor(event.target.value)} placeholder="Operator name" style={{ ...input, width: 150 }} />
-          <button onClick={sync} disabled={busy || !syncActor} style={{ ...button, opacity: busy || !syncActor ? .45 : 1 }}><RefreshCw size={14} /> Sync conditions</button>
+          {canManage && <input aria-label="Operator for condition sync" value={syncActor} onChange={event => setSyncActor(event.target.value)} placeholder="Operator name" style={{ ...input, width: 150 }} />}
+          {canManage && <button onClick={sync} disabled={busy || !syncActor} style={{ ...button, opacity: busy || !syncActor ? .45 : 1 }}><RefreshCw size={14} /> Sync conditions</button>}
           <button onClick={onClose} title="Close" style={{ ...button, width: 32, padding: 0 }}><X size={16} /></button></div>
       </header>
       <nav style={{ display: "flex", gap: 4, padding: "10px 16px 0", overflowX: "auto" }}>{tabs.map(([key, text]) => <button key={key} onClick={() => setTab(key)}
         style={{ ...button, whiteSpace: "nowrap", background: tab === key ? "#172554" : "transparent", borderColor: tab === key ? "#3b82f6" : "transparent" }}>{text}</button>)}</nav>
       <main style={{ overflowY: "auto", overflowX: "hidden", padding: 16, minWidth: 0 }}>
         {tab === "delivery" ? <DeliveryConsole key={`${data.settings.version}:${data.destinations.map(row => row.version).join("-")}`}
-          data={data} onDestination={onDestination} onTestDestination={onTestDestination} onDispatch={onDispatch} onSettings={onSettings} />
-          : <div style={{ display: "grid", gap: 9 }}>{rows.map(item => <AlertItem key={item.id} item={item} onAction={onAction} />)}
+          data={data} currentUser={currentUser} canConfigure={canCommission} onDestination={onDestination} onTestDestination={onTestDestination} onDispatch={onDispatch} onSettings={onSettings} />
+          : <div style={{ display: "grid", gap: 9 }}>{rows.map(item => <AlertItem key={item.id} item={item} currentUser={currentUser} canManage={canManage} onAction={onAction} />)}
             {!rows.length && <div style={{ color: "#6b7280", fontSize: 11, borderTop: "1px solid #263244", paddingTop: 18 }}>No alerts in this view.</div>}</div>}
         {message && <div style={{ display: "flex", alignItems: "center", gap: 6, color: message.includes("synchronized") ? "#22c55e" : "#f87171", fontSize: 10, marginTop: 10 }}>
           {!message.includes("synchronized") && <AlertTriangle size={12} />}{message}</div>}

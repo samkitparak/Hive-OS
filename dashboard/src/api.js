@@ -1,18 +1,68 @@
 const BASE = import.meta.env.VITE_API_URL || "/api";
+let csrfToken = null;
+
+export const setAuthCsrf = value => { csrfToken = value || null; };
 
 async function request(path, options) {
-  const response = await fetch(`${BASE}${path}`, options);
+  const method = (options?.method || "GET").toUpperCase();
+  const headers = new Headers(options?.headers || {});
+  if (csrfToken && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+    headers.set("X-CSRF-Token", csrfToken);
+  }
+  const response = await fetch(`${BASE}${path}`, {
+    ...options, method, headers, credentials: "same-origin",
+  });
   const contentType = response.headers.get("content-type") || "";
   const data = contentType.includes("application/json")
     ? await response.json()
     : await response.text();
 
   if (!response.ok) {
+    if (response.status === 401 && !["/auth/login", "/auth/me"].includes(path)) {
+      window.dispatchEvent(new CustomEvent("hive-auth-expired"));
+    }
     const detail = typeof data === "object" ? data?.detail : data;
     throw new Error(detail || `Request failed: ${response.status}`);
   }
   return data;
 }
+
+export const fetchAuthStatus = () => request("/auth/status");
+export const fetchCurrentUser = async () => {
+  const result = await request("/auth/me");
+  setAuthCsrf(result.csrf_token);
+  return result;
+};
+export const bootstrapAuth = async payload => {
+  const result = await request("/auth/bootstrap", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+  });
+  setAuthCsrf(result.csrf_token);
+  return result;
+};
+export const loginAuth = async payload => {
+  const result = await request("/auth/login", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+  });
+  setAuthCsrf(result.csrf_token);
+  return result;
+};
+export const logoutAuth = async () => {
+  const result = await postJson("/auth/logout", {});
+  setAuthCsrf(null);
+  return result;
+};
+export const changeAuthPassword = payload => postJson("/auth/password", payload);
+export const fetchAuthUsers = () => request("/auth/users");
+export const createAuthUser = payload => postJson("/auth/users", payload);
+export const updateAuthUser = (id, payload) => request(`/auth/users/${id}`, {
+  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+});
+export const resetAuthPassword = (id, payload) => postJson(`/auth/users/${id}/reset-password`, payload);
+export const fetchAuthApiKeys = () => request("/auth/api-keys");
+export const createAuthApiKey = payload => postJson("/auth/api-keys", payload);
+export const revokeAuthApiKey = id => request(`/auth/api-keys/${id}`, { method: "DELETE" });
+export const fetchAuthEvents = () => request("/auth/events?limit=150");
 
 export const fetchMachines = () => request("/machines");
 

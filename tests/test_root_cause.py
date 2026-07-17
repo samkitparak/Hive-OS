@@ -172,7 +172,7 @@ def test_confirmed_cause_flows_into_optimization(conn):
 
 
 def test_root_cause_api_syncs_and_decides(conn):
-    _downtime(conn)
+    _downtime(conn, occurred=datetime.now(timezone.utc) - timedelta(hours=1))
     import main
 
     main.set_conn(conn)

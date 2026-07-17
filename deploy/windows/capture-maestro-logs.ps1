@@ -2,11 +2,19 @@
 
 param(
     [string]$MachineKey,
-    [string]$CentralHost,
-    [string]$LogFolder,
-    [int]$CentralPort = 8000,
-    [switch]$ImportValidated
+    [string]$CentralApiBase,
+    [Security.SecureString]$AgentToken,
+    [string]$LogFolder
 )
+
+function ConvertFrom-HiveSecureString([Security.SecureString]$Value) {
+    $Pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Value)
+    try {
+        return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($Pointer)
+    } finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($Pointer)
+    }
+}
 
 if ([string]::IsNullOrWhiteSpace($LogFolder)) {
     $Candidates = @(
@@ -33,17 +41,25 @@ $Output = Join-Path $env:USERPROFILE "Desktop\hive-maestro-sample.txt"
 
 Write-Host "Captured recent Maestro lines to $Output" -ForegroundColor Green
 
-if ([string]::IsNullOrWhiteSpace($CentralHost)) { $CentralHost = Read-Host "Central HIVE IP (leave blank to only save file)" }
-if (-not [string]::IsNullOrWhiteSpace($CentralHost)) {
+if (-not [string]::IsNullOrWhiteSpace($CentralApiBase)) {
+    if (-not $CentralApiBase.StartsWith("https://")) { throw "CentralApiBase must use HTTPS." }
+    if (-not $AgentToken) { $AgentToken = Read-Host "HIVE machine integration key" -AsSecureString }
     if ([string]::IsNullOrWhiteSpace($MachineKey)) { $MachineKey = Read-Host "Machine key" }
     $Body = @{
         machine_key = $MachineKey
         log_text = ((Get-Content $Latest.FullName -Tail 500) -join "`n")
-        persist = [bool]$ImportValidated
+        persist = $false
         site_timezone = "Asia/Kolkata"
     } | ConvertTo-Json
-    $Result = Invoke-RestMethod -Method Post -Uri "http://$CentralHost`:$CentralPort/api/commissioning/log/analyze" `
-        -ContentType "application/json" -Body $Body -TimeoutSec 20
+    $PlainAgentToken = ConvertFrom-HiveSecureString $AgentToken
+    try {
+        $Headers = @{ Authorization = "Bearer $PlainAgentToken" }
+        $Result = Invoke-RestMethod -Method Post -Uri "$($CentralApiBase.TrimEnd('/'))/api/commissioning/log/analyze" `
+            -Headers $Headers -ContentType "application/json" -Body $Body -TimeoutSec 20
+    } finally {
+        $Headers = $null
+        $PlainAgentToken = $null
+    }
     $AnalysisPath = Join-Path $env:USERPROFILE "Desktop\hive-maestro-analysis.json"
     $Result | ConvertTo-Json -Depth 8 | Set-Content $AnalysisPath -Encoding UTF8
     Write-Host "Recognition: $([math]::Round($Result.recognition_rate * 100))%" -ForegroundColor Cyan

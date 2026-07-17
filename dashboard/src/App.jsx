@@ -1,6 +1,6 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { lazy, Suspense, useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell } from "lucide-react";
+import { Bell, UserRound } from "lucide-react";
 import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, fetchProcurementSnapshot, updateProcurementSupplier, updateProcurementMapping, createPurchaseOrder, draftProcurementRecommendations, actOnPurchaseOrder, createGoodsReceipt, importProcurementCsv, updateMaterialStock, updateInventoryItem, updateInventoryLot, updateInventoryRequirement, createInventoryRemnant, updateInventoryRemnant, updateLaborRole, updateToolPool, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchConfig, saveConfig, fetchRemoteSetupPlan, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, fetchConnectorSnapshot, analyzeConnector, approveConnector, importConnectorRecords, updateConnectorProfile, discoverCabinetVisionSql, syncCabinetVisionSql, fetchIndustrialSnapshot, updateIndustrialProfile, simulateIndustrialProfile, probeIndustrialProfile, probeIndustrialMqtt, approveIndustrialProfile, pollIndustrialProfile, browseIndustrialOpcua, fetchImprovements, syncImprovements, actOnImprovement, fetchRootCauses, syncRootCauses, decideRootCause, fetchAlerts, syncAlerts, actOnAlert, updateAlertDestination, testAlertDestination, dispatchAlerts, updateAlertSettings, postJson, simulateEvent } from "./api";
 import { MachineCard } from "./MachineCard";
 import { MachineDetail } from "./MachineDetail";
@@ -29,6 +29,8 @@ const GROUPS = [
   { label: "Utilities",    keys: ["elgi_1", "elgi_2", "aarco_1", "aarco_2"] },
 ];
 
+const AccessPanel = lazy(() => import("./AccessPanel").then(module => ({ default: module.AccessPanel })));
+
 function factoryOee(oeeList) {
   if (!oeeList?.length) return null;
   const active = oeeList.filter(m => m.run_time_s > 0 || m.idle_time_s > 0);
@@ -38,8 +40,10 @@ function factoryOee(oeeList) {
            provisional: active.some(machine => machine.provisional) };
 }
 
-export default function App() {
+export default function App({ auth }) {
   const qc = useQueryClient();
+  const permissions = new Set(auth.user.permissions || []);
+  const can = (...requested) => permissions.has("admin") || requested.some(permission => permissions.has(permission));
   const [selectedKey, setSelectedKey]     = useState(null);
   const [liveLog, setLiveLog]             = useState([]);
   const [machineStates, setMachineStates] = useState({});
@@ -52,6 +56,7 @@ export default function App() {
   const [showImprovements, setShowImprovements] = useState(false);
   const [showRootCauses, setShowRootCauses] = useState(false);
   const [showAlerts, setShowAlerts] = useState(false);
+  const [showAccess, setShowAccess] = useState(false);
   const demoRef = useRef(null);
 
   const { data: machines = [] } = useQuery({
@@ -506,6 +511,11 @@ export default function App() {
         )}
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={() => setShowAccess(true)} title="Open account and access control" style={{
+            display: "inline-flex", alignItems: "center", gap: 6, background: "#1f2937",
+            border: "1px solid #374151", color: "#f9fafb", padding: "7px 12px", borderRadius: 6,
+            fontSize: 12, cursor: "pointer",
+          }}><UserRound size={14} /> {auth.user.display_name}</button>
           <button onClick={() => setShowAlerts(true)} title="Open alert center" style={{
             display: "inline-flex", alignItems: "center", gap: 6,
             background: alerts?.summary.critical_unacknowledged ? "#7f1d1d" : alerts?.summary.active ? "#78350f" : "#1f2937",
@@ -514,31 +524,31 @@ export default function App() {
           }}>
             <Bell size={14} /> Alerts{alerts?.summary.active ? ` (${alerts.summary.active})` : ""}
           </button>
-          <button onClick={() => setShowCommissioning(true)} style={{
+          {can("commission") && <button onClick={() => setShowCommissioning(true)} style={{
             background: "#1d4ed8", border: "1px solid #3b82f6", color: "#f9fafb",
             padding: "7px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
           }}>
             Commission
-          </button>
-          <button onClick={() => setShowSetup(true)} style={{
+          </button>}
+          {can("commission") && <button onClick={() => setShowSetup(true)} style={{
             background: "#1f2937", border: "1px solid #374151", color: "#f9fafb",
             padding: "7px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
           }}>
             Setup
-          </button>
+          </button>}
           <button onClick={() => setShowOperations(true)} style={{
             background: "#1f2937", border: "1px solid #374151", color: "#f9fafb",
             padding: "7px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
           }}>
             Operations
           </button>
-          <button onClick={() => setShowPlanning(true)} style={{
+          {can("plan") && <button onClick={() => setShowPlanning(true)} style={{
             background: routeExceptions.length ? "#78350f" : "#1f2937",
             border: `1px solid ${routeExceptions.length ? "#f59e0b" : "#374151"}`,
             color: "#f9fafb", padding: "7px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
           }}>
             Planning{routeExceptions.length ? ` (${routeExceptions.length})` : ""}
-          </button>
+          </button>}
           <button onClick={() => setShowDiagnostics(true)} style={{
             background: "#1f2937", border: "1px solid #374151", color: "#f9fafb",
             padding: "7px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
@@ -551,21 +561,21 @@ export default function App() {
           }}>
             ⬇ Shift Report
           </button>
-          <button onClick={toggleDemo} style={{
+          {can("commission") && <button onClick={toggleDemo} style={{
             background: demoRunning ? "#7f1d1d" : "#1f2937",
             border: "1px solid #374151", color: "#f9fafb",
             padding: "7px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
           }}>
             {demoRunning ? "■ Stop Demo" : "▶ Demo Mode"}
-          </button>
+          </button>}
         </div>
       </div>
 
       <IntelligencePanel optimization={optimization} quality={dataQuality}
                          learning={learning} routing={routing} twin={twin}
-                         onCommission={() => setShowCommissioning(true)}
-                         onReviewActions={() => setShowImprovements(true)}
-                         onDiagnose={() => setShowRootCauses(true)} />
+                         onCommission={can("commission") ? () => setShowCommissioning(true) : null}
+                         onReviewActions={can("optimize", "supervise") ? () => setShowImprovements(true) : null}
+                         onDiagnose={can("optimize", "supervise") ? () => setShowRootCauses(true) : null} />
 
       {/* ── Daily Score ── */}
       <div style={{ background: "#111827", border: "1px solid #1f2937",
@@ -746,7 +756,8 @@ export default function App() {
                         onClose={() => setShowRootCauses(false)} />
       )}
       {showAlerts && alerts && (
-        <AlertCenter data={alerts}
+        <AlertCenter data={alerts} currentUser={auth.user.display_name}
+          canManage={can("alerts")} canCommission={can("commission")}
           onSync={payload => runAlertOperation("sync", null, payload)}
           onAction={(id, payload) => runAlertOperation("action", id, payload)}
           onDestination={(key, payload) => runAlertOperation("destination", key, payload)}
@@ -754,6 +765,12 @@ export default function App() {
           onDispatch={payload => runAlertOperation("dispatch", null, payload)}
           onSettings={payload => runAlertOperation("settings", null, payload)}
           onClose={() => setShowAlerts(false)} />
+      )}
+      {showAccess && (
+        <Suspense fallback={<div style={{ position: "fixed", inset: 0, zIndex: 1150, background: "rgba(2,6,23,.88)",
+          display: "grid", placeItems: "center", color: "#9ca3af", fontSize: 11 }}>Loading access control…</div>}>
+          <AccessPanel auth={auth} onClose={() => setShowAccess(false)} onExpired={auth.expireAuth} />
+        </Suspense>
       )}
 
       <style>{`

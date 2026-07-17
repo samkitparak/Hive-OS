@@ -1608,6 +1608,66 @@ CREATE TABLE IF NOT EXISTS alert_admin_events (
     ts                  TEXT NOT NULL
 );
 
+-- Local-first access control. Browser session and API-key secrets are stored as
+-- one-way hashes; human passwords use Argon2id strings with embedded parameters.
+CREATE TABLE IF NOT EXISTS auth_users (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    username            TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    display_name        TEXT NOT NULL,
+    password_hash       TEXT NOT NULL,
+    role                TEXT NOT NULL,
+    active              INTEGER NOT NULL DEFAULT 1,
+    failed_logins       INTEGER NOT NULL DEFAULT 0,
+    locked_until        TEXT,
+    last_login_at       TEXT,
+    password_changed_at TEXT NOT NULL,
+    created_by          TEXT NOT NULL,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    version             INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id             INTEGER NOT NULL REFERENCES auth_users(id),
+    token_hash          TEXT NOT NULL UNIQUE,
+    csrf_token          TEXT NOT NULL,
+    created_at          TEXT NOT NULL,
+    expires_at          TEXT NOT NULL,
+    revoked_at          TEXT,
+    client_ip           TEXT,
+    user_agent          TEXT
+);
+
+CREATE TABLE IF NOT EXISTS auth_api_keys (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    name                TEXT NOT NULL UNIQUE,
+    key_prefix          TEXT NOT NULL,
+    token_hash          TEXT NOT NULL UNIQUE,
+    permissions_json    TEXT NOT NULL DEFAULT '[]',
+    active              INTEGER NOT NULL DEFAULT 1,
+    expires_at          TEXT,
+    last_used_at        TEXT,
+    created_by          TEXT NOT NULL,
+    created_at          TEXT NOT NULL,
+    revoked_at          TEXT,
+    version             INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS auth_events (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type          TEXT NOT NULL,
+    actor_user_id       INTEGER REFERENCES auth_users(id),
+    actor_name          TEXT NOT NULL,
+    target_type         TEXT,
+    target_key          TEXT,
+    success             INTEGER NOT NULL,
+    client_ip           TEXT,
+    user_agent          TEXT,
+    details_json        TEXT NOT NULL DEFAULT '{}',
+    ts                  TEXT NOT NULL
+);
+
 INSERT OR IGNORE INTO alert_runtime_settings
     (id,auto_sync,auto_dispatch,interval_seconds,updated_by,updated_at)
 VALUES (1,0,0,60,'schema','1970-01-01T00:00:00+00:00');
@@ -1691,6 +1751,11 @@ CREATE INDEX IF NOT EXISTS idx_alert_instances_source ON alert_instances(source_
 CREATE INDEX IF NOT EXISTS idx_alert_events_alert_ts ON alert_events(alert_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_alert_deliveries_status_due ON alert_deliveries(status, next_attempt_at, id);
 CREATE INDEX IF NOT EXISTS idx_alert_admin_events_target_ts ON alert_admin_events(target_type, target_key, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_token ON auth_sessions(token_hash, revoked_at, expires_at);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id, revoked_at);
+CREATE INDEX IF NOT EXISTS idx_auth_api_keys_token ON auth_api_keys(token_hash, active);
+CREATE INDEX IF NOT EXISTS idx_auth_events_time ON auth_events(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_auth_events_actor ON auth_events(actor_user_id, ts DESC);
 
 -- Seed the 14 in-scope HAEEV machines (aluminium pair excluded, compressors/dust collectors as utility)
 INSERT OR IGNORE INTO machines (name, machine_key, type, brand, model, has_maestro, has_opcua, active) VALUES

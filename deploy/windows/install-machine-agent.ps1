@@ -5,7 +5,8 @@ param(
     [string]$MachineKey,
     [string]$BrokerHost,
     [string]$LogFolder,
-    [int]$CentralPort = 8000
+    [string]$CentralApiBase,
+    [Security.SecureString]$AgentToken
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,6 +29,15 @@ function Find-MaestroLogFolder {
         "D:\SCM\Maestro\Logs"
     )
     return $Candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+}
+
+function ConvertFrom-HiveSecureString([Security.SecureString]$Value) {
+    $Pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Value)
+    try {
+        return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($Pointer)
+    } finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($Pointer)
+    }
 }
 
 Require-Admin
@@ -96,7 +106,13 @@ schtasks /Create /TN "HIVE Agent - $MachineKey" /SC ONSTART /RU SYSTEM /RL HIGHE
 Start-Process "$InstallDir\start-agent.cmd"
 
 $LatestLog = Get-ChildItem $LogFolder -Filter *.log | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$AnalysisPath = $null
 if ($LatestLog) {
+    $SamplePath = "$InstallDir\logs\commissioning-sample.txt"
+    Get-Content $LatestLog.FullName -Tail 500 | Set-Content $SamplePath -Encoding UTF8
+    Write-Host "Commissioning sample: $SamplePath" -ForegroundColor Cyan
+}
+if ($LatestLog -and -not [string]::IsNullOrWhiteSpace($CentralApiBase)) {
     try {
         $Sample = (Get-Content $LatestLog.FullName -Tail 500) -join "`n"
         $Body = @{
@@ -105,9 +121,19 @@ if ($LatestLog) {
             persist = $false
             site_timezone = "Asia/Kolkata"
         } | ConvertTo-Json
-        $Analysis = Invoke-RestMethod -Method Post -Uri "http://$BrokerHost`:$CentralPort/api/commissioning/log/analyze" `
-            -ContentType "application/json" -Body $Body -TimeoutSec 20
-        $Analysis | ConvertTo-Json -Depth 8 | Set-Content "$InstallDir\logs\commissioning-analysis.json" -Encoding UTF8
+        if (-not $CentralApiBase.StartsWith("https://")) { throw "CentralApiBase must use HTTPS." }
+        if (-not $AgentToken) { $AgentToken = Read-Host "HIVE machine integration key" -AsSecureString }
+        $PlainAgentToken = ConvertFrom-HiveSecureString $AgentToken
+        try {
+            $Headers = @{ Authorization = "Bearer $PlainAgentToken" }
+            $Analysis = Invoke-RestMethod -Method Post -Uri "$($CentralApiBase.TrimEnd('/'))/api/commissioning/log/analyze" `
+                -Headers $Headers -ContentType "application/json" -Body $Body -TimeoutSec 20
+        } finally {
+            $Headers = $null
+            $PlainAgentToken = $null
+        }
+        $AnalysisPath = "$InstallDir\logs\commissioning-analysis.json"
+        $Analysis | ConvertTo-Json -Depth 8 | Set-Content $AnalysisPath -Encoding UTF8
         Write-Host "Parser recognition: $([math]::Round($Analysis.recognition_rate * 100))%" -ForegroundColor Cyan
         if (-not $Analysis.ready_to_replay) {
             Write-Warning "Agent installed, but this log format has not passed HIVE parser checks. Open Commission in HIVE."
@@ -115,10 +141,14 @@ if ($LatestLog) {
     } catch {
         Write-Warning "Agent installed, but central log analysis failed: $($_.Exception.Message)"
     }
+} elseif ($LatestLog) {
+    Write-Warning "Central analysis skipped. After HTTPS is commissioned, rerun with -CentralApiBase; the installer will securely prompt for a machine integration key."
 }
 
 Write-Host ""
 Write-Host "HIVE machine agent installed for $MachineKey." -ForegroundColor Green
 Write-Host "It should appear online in Central HIVE Diagnostics within 1-3 minutes."
 Write-Host "Agent log: $InstallDir\logs\agent.log"
-Write-Host "Commissioning analysis: $InstallDir\logs\commissioning-analysis.json"
+if ($AnalysisPath) {
+    Write-Host "Commissioning analysis: $AnalysisPath"
+}

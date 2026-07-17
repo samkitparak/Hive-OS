@@ -20,6 +20,7 @@ operations are limited to the HIVE database and site configuration.
 - **Closed-loop improvement learning** — turns priorities into owned experiments with frozen baselines, minimum sample gates, confidence intervals, guardrails, immutable outcomes, and conservative advisory promotion.
 - **Evidence-backed root-cause diagnostics** — correlates alarms, downtime, quality, programs, maintenance, spares, and utility telemetry; preserves ranked alternatives and learns local priors only from named operator confirmations.
 - **Industrial alert management** — rationalized actionable conditions, evidence-token deduplication, acknowledgment/snooze/resolve history, response escalation, and commissioned CloudEvents webhooks with HMAC signing.
+- **Local identity and access control** — named operators, least-privilege roles, Argon2id passwords, expiring browser sessions, CSRF protection, immutable request attribution, and integration-only machine credentials.
 - **Connector commissioning** — browse for real Cabinet Vision, Ottimo, or Maestro evidence; map and validate it; explicitly approve a version; then enable repeat-safe imports.
 - **Data trust layer** — normalizes India-local timestamps, suppresses duplicate MQTT delivery, isolates heartbeats, audits rejected events, and scores each machine's evidence quality.
 - **Automatic cycle learning** — pairs validated part cycles, robustly fits versioned nonnegative models, and protects active models from weak candidates.
@@ -99,6 +100,7 @@ hive-os/
 │   ├── improvement.py        # recommendation lifecycle, experiments, outcome learning
 │   ├── root_cause.py         # incident evidence, hypotheses, confirmation learning
 │   ├── alerting.py            # alarm rationalization, lifecycle, escalation, delivery
+│   ├── access_control.py       # users, roles, sessions, machine keys, request audit
 │   ├── learning.py           # automatic cycle observations + model validation
 │   ├── routing.py            # observed same-part process transitions
 │   ├── digital_twin.py       # SimPy schedule-policy comparison
@@ -130,6 +132,7 @@ hive-os/
 ├── IMPROVEMENT_LEARNING.md   # recommendation experiments and promotion guardrails
 ├── ROOT_CAUSE_DIAGNOSTICS.md  # diagnostic evidence, decisions, and learning contract
 ├── ALARM_MANAGEMENT.md        # alert rules, lifecycle, escalation, and webhook contract
+├── ACCESS_CONTROL.md          # local identity, role, session, and transport security
 └── INDIA_CHECKLIST.md        # on-site configuration checklist
 ```
 
@@ -194,8 +197,10 @@ All TODOs are in two files:
 See `INDIA_CHECKLIST.md` for the full on-site setup sequence.
 See `DEPLOYMENT.md` for Windows one-click installation and diagnostics.
 
-The Windows installer limits dashboard/API and MQTT firewall rules to the local
-subnet. Remote setup probes are also restricted to private LAN addresses.
+The Windows installer binds the dashboard/API to central-PC localhost and opens
+only MQTT to the local subnet. Commission HTTPS before allowing browser or agent
+API access from another device. Remote setup probes remain restricted to private
+LAN addresses. See `ACCESS_CONTROL.md`.
 
 ---
 
@@ -234,6 +239,10 @@ unprefixed routes remain available for compatibility and local tooling.
 | Method | Path | Description |
 |---|---|---|
 | GET | `/health` | Lightweight service health check |
+| GET | `/auth/status` | Public setup and secure-transport status |
+| POST | `/auth/bootstrap`, `/auth/login` | First-admin setup and human login |
+| GET/POST | `/auth/users`, `/auth/api-keys` | Administer named users and integration-only machine keys |
+| GET | `/auth/events` | Immutable access and request audit |
 | GET | `/machines` | All machines + current state |
 | GET | `/machines/{key}` | Single machine + last 20 events |
 | GET | `/jobs` | All jobs (most recent first) |

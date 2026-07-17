@@ -16,6 +16,7 @@ Run:
 """
 
 import asyncio
+import hmac
 import json
 import logging
 import os
@@ -24,12 +25,13 @@ import threading
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime, timezone
+from http.cookies import SimpleCookie
 from pathlib import Path
 from typing import AsyncGenerator, Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 import db as db_module
@@ -52,6 +54,7 @@ import optimization as optimization_module
 import improvement as improvement_module
 import root_cause as root_cause_module
 import alerting as alerting_module
+import access_control as access_control_module
 import planning as planning_module
 import production_control as production_control_module
 import resources as resources_module
@@ -93,6 +96,13 @@ from api_models import (
     AlertDispatchRequest,
     AlertSettingsUpdate,
     AlertSyncRequest,
+    AuthApiKeyCreate,
+    AuthBootstrap,
+    AuthLogin,
+    AuthPasswordChange,
+    AuthPasswordReset,
+    AuthUserCreate,
+    AuthUserUpdate,
     InventoryItemUpdate,
     InventoryLotBalanceUpdate,
     InventoryRequirementUpdate,
@@ -149,7 +159,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.14.0"
+APP_VERSION = "0.15.0"
 
 
 class ApiPrefixMiddleware:
@@ -164,6 +174,141 @@ class ApiPrefixMiddleware:
             scope["path"] = scope["path"][4:]
             scope["raw_path"] = scope["path"].encode("utf-8")
         await self.app(scope, receive, send)
+
+
+class AccessControlMiddleware:
+    """Authenticate API traffic, authorize permissions, and bind audit actors."""
+
+    def __init__(self, app):
+        self.app = app
+
+    @staticmethod
+    def _path(scope) -> str:
+        path = scope.get("path", "")
+        return path[4:] if path.startswith("/api/") else path
+
+    @staticmethod
+    def _headers(scope) -> dict[str, str]:
+        return {key.decode("latin1").lower(): value.decode("latin1")
+                for key, value in scope.get("headers", [])}
+
+    @staticmethod
+    def _static(path: str) -> bool:
+        return path == "/" or path.startswith("/assets/") or path in {"/favicon.ico"}
+
+    @staticmethod
+    def _transport_acceptable(scope, headers: dict[str, str]) -> bool:
+        if scope.get("scheme") == "https" or os.getenv("HIVE_ALLOW_INSECURE_AUTH") == "1":
+            return True
+        client = (scope.get("client") or (None,))[0]
+        return client in {"127.0.0.1", "::1"}
+
+    @staticmethod
+    async def _json(scope, receive, send, status_code: int, detail: str) -> None:
+        await JSONResponse({"detail": detail}, status_code=status_code)(scope, receive, send)
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not access_control_module.auth_required():
+            await self.app(scope, receive, send)
+            return
+        path = self._path(scope)
+        method = scope.get("method", "GET").upper()
+        mutation = method in {"POST", "PUT", "PATCH", "DELETE"}
+        if self._static(path) or method == "OPTIONS":
+            await self.app(scope, receive, send)
+            return
+        headers = self._headers(scope)
+        if path in access_control_module.PUBLIC_PATHS:
+            scope.setdefault("state", {})["transport_acceptable"] = self._transport_acceptable(scope, headers)
+            await self.app(scope, receive, send)
+            return
+        conn = _get_conn()
+        if access_control_module.setup_required(conn):
+            await self._json(scope, receive, send, 428, "Create the first administrator before using HIVE OS")
+            return
+        cookie = SimpleCookie()
+        try:
+            cookie.load(headers.get("cookie", ""))
+        except Exception:
+            cookie = SimpleCookie()
+        session_token = cookie.get(access_control_module.SESSION_COOKIE)
+        authorization = headers.get("authorization", "")
+        bearer = authorization[7:].strip() if authorization.lower().startswith("bearer ") else None
+        transport_acceptable = self._transport_acceptable(scope, headers)
+        if (session_token or bearer) and not transport_acceptable:
+            await self._json(scope, receive, send, 400, "Credentials require HTTPS or central PC localhost")
+            return
+        principal = access_control_module.authenticate(
+            conn, session_token=session_token.value if session_token else None, bearer_token=bearer,
+        )
+        if not principal:
+            await self._json(scope, receive, send, 401, "Authentication required")
+            return
+
+        def audit_request(status_code: int) -> None:
+            try:
+                access_control_module.record_request(
+                    conn, principal, method, path, status_code,
+                    client_ip=(scope.get("client") or (None,))[0], user_agent=headers.get("user-agent"),
+                )
+            except Exception:
+                conn.rollback()
+                log.exception("Failed to record access audit for %s %s", method, path)
+
+        required = access_control_module.required_permissions(method, path)
+        if not access_control_module.authorize(principal, required):
+            audit_request(403)
+            await self._json(scope, receive, send, 403, f"Permission required: {' or '.join(required)}")
+            return
+        if mutation and principal["kind"] == "user":
+            supplied_csrf = headers.get("x-csrf-token", "")
+            if not supplied_csrf or not hmac.compare_digest(supplied_csrf, principal["csrf_token"]):
+                audit_request(403)
+                await self._json(scope, receive, send, 403, "Valid CSRF token required")
+                return
+        scope.setdefault("state", {})["principal"] = principal
+        scope["state"]["transport_acceptable"] = transport_acceptable
+        replay_receive = receive
+        if mutation and "application/json" in headers.get("content-type", "") and not path.startswith("/auth/"):
+            body = b""
+            more = True
+            while more:
+                message = await receive()
+                body += message.get("body", b"")
+                more = message.get("more_body", False)
+                if len(body) > 10_000_000:
+                    await self._json(scope, receive, send, 413, "JSON request exceeds 10 MB")
+                    return
+            try:
+                bound = access_control_module.bind_actor(json.loads(body or b"{}"), principal)
+                body = json.dumps(bound, separators=(",", ":")).encode("utf-8")
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                pass
+            sent = False
+
+            async def replay_receive():
+                nonlocal sent
+                if sent:
+                    return {"type": "http.request", "body": b"", "more_body": False}
+                sent = True
+                return {"type": "http.request", "body": body, "more_body": False}
+
+        response_status = 500
+
+        async def audit_send(message):
+            nonlocal response_status
+            if message["type"] == "http.response.start":
+                response_status = message["status"]
+            await send(message)
+
+        try:
+            await self.app(scope, replay_receive, audit_send)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            if mutation:
+                audit_request(response_status)
 
 # ── App lifecycle ─────────────────────────────────────────────────────────────
 
@@ -182,6 +327,10 @@ _route_connections = threading.local()
 async def lifespan(app: FastAPI):
     global _mqtt_client, _conn, _cv_observer, _event_watch_task, _learning_watch_task, _industrial_watch_task, _alert_watch_task
     _conn = init_db(DB_PATH, check_same_thread=False)
+    if access_control_module.auth_required():
+        token_path = access_control_module.ensure_bootstrap_token(_conn)
+        if token_path:
+            log.warning("HIVE access setup required; bootstrap token stored at %s", token_path)
     production_control_module.sync_all(_conn)
     resources_module.sync_defaults(_conn)
     identity_module.sync_controlled_orders(_conn)
@@ -246,10 +395,11 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-CSRF-Token"],
 )
 app.add_middleware(ApiPrefixMiddleware)
+app.add_middleware(AccessControlMiddleware)
 
 
 def _get_conn():
@@ -385,6 +535,164 @@ def _infer_state(event_type: Optional[str]) -> str:
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "hive-os", "version": APP_VERSION}
+
+
+def _auth_context(request: Request) -> dict:
+    return {
+        "client_ip": request.client.host if request.client else None,
+        "user_agent": request.headers.get("user-agent"),
+    }
+
+
+def _set_session_cookie(response: Response, token: str, request: Request) -> None:
+    secure = request.url.scheme == "https" or os.getenv("HIVE_COOKIE_SECURE") == "1"
+    response.set_cookie(
+        access_control_module.SESSION_COOKIE, token, httponly=True, secure=secure,
+        samesite="strict", path="/",
+    )
+    response.headers["Cache-Control"] = "no-store"
+
+
+def _principal(request: Request) -> dict:
+    principal = getattr(request.state, "principal", None)
+    if not principal:
+        raise HTTPException(401, "Authentication required")
+    return principal
+
+
+@app.get("/auth/status")
+def get_auth_status(request: Request):
+    return access_control_module.status(
+        _get_conn(), transport_acceptable=bool(getattr(request.state, "transport_acceptable", False))
+    )
+
+
+@app.post("/auth/bootstrap")
+def post_auth_bootstrap(payload: AuthBootstrap, request: Request, response: Response):
+    if not getattr(request.state, "transport_acceptable", False):
+        raise HTTPException(400, "Administrator setup requires HTTPS or the central PC localhost")
+    try:
+        result = access_control_module.bootstrap(
+            _get_conn(), payload.model_dump(), **_auth_context(request)
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    _set_session_cookie(response, result.pop("token"), request)
+    result.pop("session_id", None)
+    return result
+
+
+@app.post("/auth/login")
+def post_auth_login(payload: AuthLogin, request: Request, response: Response):
+    if not getattr(request.state, "transport_acceptable", False):
+        raise HTTPException(400, "Sign-in requires HTTPS or the central PC localhost")
+    try:
+        result = access_control_module.login(
+            _get_conn(), payload.model_dump(), **_auth_context(request)
+        )
+    except ValueError as error:
+        raise HTTPException(401, str(error)) from error
+    _set_session_cookie(response, result.pop("token"), request)
+    result.pop("session_id", None)
+    return result
+
+
+@app.get("/auth/me")
+def get_auth_me(request: Request, response: Response):
+    principal = _principal(request)
+    if principal["kind"] != "user":
+        raise HTTPException(403, "Human session required")
+    response.headers["Cache-Control"] = "no-store"
+    return {"user": principal["user"], "csrf_token": principal["csrf_token"],
+            "expires_at": principal["expires_at"]}
+
+
+@app.post("/auth/logout")
+def post_auth_logout(request: Request, response: Response):
+    access_control_module.revoke_session(_get_conn(), _principal(request))
+    response.delete_cookie(access_control_module.SESSION_COOKIE, path="/", samesite="strict")
+    response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
+    response.headers["Cache-Control"] = "no-store"
+    return {"logged_out": True}
+
+
+@app.post("/auth/password")
+def post_auth_password(payload: AuthPasswordChange, request: Request):
+    try:
+        return access_control_module.change_password(
+            _get_conn(), payload.model_dump(), _principal(request)
+        )
+    except (KeyError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/auth/users")
+def get_auth_users():
+    return {"users": access_control_module.list_users(_get_conn()),
+            "roles": [{"key": role, "permissions": sorted(permissions)}
+                      for role, permissions in access_control_module.ROLE_PERMISSIONS.items()]}
+
+
+@app.post("/auth/users")
+def post_auth_user(payload: AuthUserCreate, request: Request):
+    try:
+        return access_control_module.create_user(
+            _get_conn(), payload.model_dump(), _principal(request)
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.put("/auth/users/{user_id}")
+def put_auth_user(user_id: int, payload: AuthUserUpdate, request: Request):
+    try:
+        return access_control_module.update_user(
+            _get_conn(), user_id, payload.model_dump(exclude_none=True), _principal(request)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/auth/users/{user_id}/reset-password")
+def post_auth_password_reset(user_id: int, payload: AuthPasswordReset, request: Request):
+    try:
+        return access_control_module.reset_password(
+            _get_conn(), user_id, payload.password, _principal(request)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/auth/api-keys")
+def get_auth_api_keys():
+    return {"api_keys": access_control_module.list_api_keys(_get_conn())}
+
+
+@app.post("/auth/api-keys")
+def post_auth_api_key(payload: AuthApiKeyCreate, request: Request):
+    try:
+        return access_control_module.create_api_key(
+            _get_conn(), payload.model_dump(exclude_none=True), _principal(request)
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.delete("/auth/api-keys/{key_id}")
+def delete_auth_api_key(key_id: int, request: Request):
+    try:
+        return access_control_module.revoke_api_key(_get_conn(), key_id, _principal(request))
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+
+
+@app.get("/auth/events")
+def get_auth_events(limit: int = Query(default=100, ge=1, le=500)):
+    return {"events": access_control_module.recent_events(_get_conn(), limit)}
 
 @app.get("/machines")
 def get_machines():
@@ -1288,7 +1596,10 @@ def delete_resource_unavailability(unavailability_id: int, actor: str = Query("o
 
 
 @app.post("/commissioning/log/analyze")
-def post_commissioning_log_analysis(payload: CommissioningLogRequest):
+def post_commissioning_log_analysis(payload: CommissioningLogRequest, request: Request):
+    principal = getattr(request.state, "principal", None)
+    if principal and principal["kind"] == "api_key" and payload.persist:
+        raise HTTPException(403, "Machine credentials may analyze evidence but cannot persist history")
     conn = _get_conn()
     machine = conn.execute(
         "SELECT id FROM machines WHERE machine_key=?", (payload.machine_key,)

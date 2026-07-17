@@ -12,6 +12,20 @@ Each item has the file to edit and exactly what to do.
 - [ ] Update `config/machines.yaml` → `mqtt.broker_host` with real broker IP
 - [ ] Confirm factory LAN allows Modbus TCP (port 502) and MQTT (port 1883)
 
+## Identity and Access (Day 1)
+
+- [ ] On the central PC, use the installer-generated token to create the first administrator
+- [ ] Create a second administrator for recovery and one named account per person; never share operator accounts
+- [ ] Assign the smallest suitable role: supervisor, planner, maintenance, quality, operator, or viewer
+- [ ] Create a separate integration key for each machine PC that submits HTTP evidence; record only its prefix in the commissioning log
+- [ ] Revoke and replace any integration key exposed during setup
+- [ ] Keep dashboard/API access on central-PC localhost until an approved HTTPS reverse proxy is commissioned
+- [ ] Verify a viewer cannot mutate records, an operator cannot approve planning, and a machine key cannot read `/api/machines`
+- [ ] Confirm audit events show the authenticated person's display name even when a client submits a different actor value
+- [ ] Store administrator credentials in the approved site password manager and test second-admin recovery
+
+See `ACCESS_CONTROL.md` for the complete role and transport contract.
+
 ---
 
 ## Energy Meters — Compressors + Dust Collectors

@@ -54,18 +54,18 @@ export function IntelligencePanel({ optimization, quality, learning, routing, tw
           </div>
         </div>
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap", justifyContent: "flex-end" }}>
-          <button onClick={onReviewActions} style={{ display: "inline-flex", alignItems: "center", gap: 6,
+          {onReviewActions && <button onClick={onReviewActions} style={{ display: "inline-flex", alignItems: "center", gap: 6,
                 background: "#2563eb", color: "white", border: 0, borderRadius: 6,
                 padding: "8px 11px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
-            <FlaskConical size={14} /> Review actions</button>
-          <button onClick={onDiagnose} title="Root-cause diagnostics" style={{ display: "inline-flex", alignItems: "center",
+            <FlaskConical size={14} /> Review actions</button>}
+          {onDiagnose && <button onClick={onDiagnose} title="Root-cause diagnostics" style={{ display: "inline-flex", alignItems: "center",
                 justifyContent: "center", background: "#1f2937", color: "#d1d5db",
                 border: "1px solid #374151", borderRadius: 6, width: 32, height: 32, cursor: "pointer" }}>
-            <SearchCheck size={15} /></button>
-          <button onClick={onCommission} title="Commission machine" style={{ display: "inline-flex", alignItems: "center",
+            <SearchCheck size={15} /></button>}
+          {onCommission && <button onClick={onCommission} title="Commission machine" style={{ display: "inline-flex", alignItems: "center",
                 justifyContent: "center", background: "#1f2937", color: "#d1d5db",
                 border: "1px solid #374151", borderRadius: 6, width: 32, height: 32, cursor: "pointer" }}>
-            <Settings size={15} /></button>
+            <Settings size={15} /></button>}
         </div>
       </div>
     </section>

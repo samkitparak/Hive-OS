@@ -29,10 +29,16 @@ The installer:
 - Asks for the Cabinet Vision export folder
 - Creates a startup task
 - Configures a LAN MQTT listener for machine agents
-- Serves the built dashboard and API from one FastAPI process on port `8000`
-- Opens ports `8000` and `1883` on the factory LAN
+- Serves the built dashboard and API on central-PC localhost port `8000`
+- Opens only MQTT port `1883` to the factory LAN
+- Creates a random, one-time administrator bootstrap token
 - Creates a public-desktop HIVE OS shortcut
 - Writes logs to `C:\HIVE-OS\logs`
+
+The installer prints the one-time administrator token. Open the desktop HIVE OS
+shortcut on the central PC, create the first administrator, and then store the
+password in the site's approved password manager. HIVE deletes the token after
+the first administrator exists. Create a second administrator for recovery.
 
 After installation, run:
 
@@ -40,7 +46,8 @@ After installation, run:
 .\deploy\windows\test-hive-install.ps1
 ```
 
-This checks the dashboard, API, alert, connector, industrial, warehouse, and procurement registries, MQTT port,
+This checks the dashboard, public health and access-control status, protected API
+reachability, MQTT port,
 ODBC driver, Modbus/OPC-UA client libraries, install folder, logs folder, and
 startup task.
 
@@ -54,8 +61,12 @@ preflight after entering real device endpoints:
 It checks TCP reachability only. Protocol reads, signal validation, and approval
 remain in **Commission > Industrial I/O**.
 
-Firewall rules are limited to `LocalSubnet`; HIVE does not expose its API or
-MQTT broker intentionally beyond the factory LAN.
+The dashboard/API is intentionally bound to localhost because credentials must
+not cross plain HTTP. Before using HIVE from another PC or tablet, commission an
+HTTPS reverse proxy or approved OT gateway and keep FastAPI itself on localhost.
+The MQTT listener is limited to `LocalSubnet`; anonymous MQTT is a temporary
+commissioning boundary and must be replaced with broker credentials and TLS
+before untrusted devices can join the factory network.
 
 ## Maestro Machine PCs
 
@@ -84,6 +95,21 @@ and submits the latest log sample to central HIVE for dry-run parser analysis:
   -MachineKey morbidelli_cx100 `
   -BrokerHost 192.168.1.20
 ```
+
+The agent always writes the latest sample to
+`C:\HIVE-Agent\logs\commissioning-sample.txt`. Automatic submission is optional
+and requires an HTTPS HIVE URL plus a one-time-visible integration key created
+under **Access > Machine keys**:
+
+```powershell
+.\deploy\windows\install-machine-agent.ps1 `
+  -MachineKey morbidelli_cx100 `
+  -BrokerHost 192.168.1.20 `
+  -CentralApiBase https://hive.factory.example
+```
+
+The installer prompts for the integration key without echoing it or placing it
+in PowerShell history.
 
 ## Diagnostics
 
@@ -160,11 +186,18 @@ It can also submit the evidence directly to HIVE without importing it:
 ```powershell
 .\deploy\windows\capture-maestro-logs.ps1 `
   -MachineKey morbidelli_cx100 `
-  -CentralHost 192.168.1.20
+  -CentralApiBase https://hive.factory.example
 ```
 
-Add `-ImportValidated` only after the returned checks pass. Replaying the same
-sample twice is safe because the central ingestion gate suppresses duplicates.
+The capture command also prompts for the key without echoing it.
+
+Machine credentials can analyze but cannot import history. After the checks
+pass, review the evidence in **Commission** and import it with a named human
+account. Replaying the same sample is safe because the ingestion gate suppresses
+duplicates.
+
+See `ACCESS_CONTROL.md` for roles, password/session behavior, service-key scope,
+transport rules, and recovery practice.
 
 ## Removal
 

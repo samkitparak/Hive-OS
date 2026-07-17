@@ -743,3 +743,44 @@ class AlertSettingsUpdate(RequestModel):
     interval_seconds: int = Field(default=60, ge=15, le=3600)
     expected_version: Optional[int] = Field(default=None, ge=1)
     actor: str = Field(min_length=1, max_length=120)
+
+
+class AuthBootstrap(RequestModel):
+    bootstrap_token: str = Field(min_length=20, max_length=200)
+    username: str = Field(min_length=3, max_length=40)
+    display_name: str = Field(min_length=2, max_length=120)
+    password: str = Field(min_length=15, max_length=128)
+
+
+class AuthLogin(RequestModel):
+    username: str = Field(min_length=1, max_length=120)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class AuthUserCreate(RequestModel):
+    username: str = Field(min_length=3, max_length=40)
+    display_name: str = Field(min_length=2, max_length=120)
+    role: Literal["admin", "supervisor", "planner", "maintenance", "quality", "operator", "viewer"]
+    password: str = Field(min_length=15, max_length=128)
+
+
+class AuthUserUpdate(RequestModel):
+    display_name: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    role: Optional[Literal["admin", "supervisor", "planner", "maintenance", "quality", "operator", "viewer"]] = None
+    active: Optional[bool] = None
+    expected_version: Optional[int] = Field(default=None, ge=1)
+
+
+class AuthPasswordReset(RequestModel):
+    password: str = Field(min_length=15, max_length=128)
+
+
+class AuthPasswordChange(RequestModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=15, max_length=128)
+
+
+class AuthApiKeyCreate(RequestModel):
+    name: str = Field(min_length=2, max_length=120)
+    permissions: list[Literal["integration"]]
+    expires_at: Optional[str] = None

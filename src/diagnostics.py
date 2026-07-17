@@ -12,6 +12,7 @@ import improvement
 import procurement
 import root_cause
 import alerting
+import access_control
 
 PLACEHOLDER_HOSTS = {
     *(f"192.168.1.{number}" for number in range(51, 55)),
@@ -175,6 +176,7 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
     enabled_alert_destinations = sum(
         bool(item["enabled"]) for item in alerts["destinations"]
     )
+    access = access_control.snapshot(conn)
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -210,6 +212,9 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "critical_unacknowledged_alerts": alert_summary["critical_unacknowledged"],
             "failed_alert_deliveries": alert_summary["failed_deliveries"],
             "verified_alert_destinations": verified_alert_destinations,
+            "active_access_users": access["active_users"],
+            "active_access_sessions": access["active_sessions"],
+            "failed_logins_24h": access["failed_logins_24h"],
         },
         "services": [
             {"key": "database", "name": "Database", "status": "online",
@@ -291,6 +296,14 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
                  f"{verified_alert_destinations} destinations verified; auto sync "
                  f"{'on' if alert_settings['auto_sync'] else 'off'}; dispatch "
                  f"{'on' if alert_settings['auto_dispatch'] else 'off'}"
+             )},
+            {"key": "access_control", "name": "Identity and access control",
+             "status": "needs_site_value" if access["setup_required"] else (
+                 "ready" if access["auth_required"] and access["active_users"] else "offline"
+             ),
+             "detail": (
+                 f"{access['active_users']} active users; {access['active_sessions']} sessions; "
+                 f"{access['active_api_keys']} service keys; {access['failed_logins_24h']} failed logins in 24h"
              )},
         ],
         "machines": machines,

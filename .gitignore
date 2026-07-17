@@ -25,6 +25,7 @@ env/
 # Generated configuration backups
 config/backups/
 config/*.bak
+data/hive-bootstrap.token
 
 # Node
 node_modules/
