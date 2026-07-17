@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Check, RefreshCw, TriangleAlert, X } from "lucide-react";
 import { ResourcePanel } from "./ResourcePanel";
 
 const panel = { background: "#111827", border: "1px solid #263244", borderRadius: 8, padding: 14 };
@@ -147,8 +148,86 @@ function ScenarioView({ scenario, actor, onDecision }) {
   </div>;
 }
 
+function RecoveryView({ state, actor, onAction }) {
+  const latest = state?.latest;
+  const recommendation = latest?.result?.recommendation;
+  const scenarios = latest?.result?.scenarios ?? [];
+  const triggers = state?.current?.triggers ?? [];
+  const [policy, setPolicy] = useState(recommendation?.policy ?? scenarios[0]?.policy ?? "");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const actionablePolicies = scenarios.filter(item => item.feasible && item.recovery?.actionable);
+  const selectedPolicy = actionablePolicies.some(item => item.policy === policy)
+    ? policy : recommendation?.policy ?? actionablePolicies[0]?.policy ?? "";
+  if (!state) return null;
+
+  const analyze = async () => {
+    setBusy(true); setMessage("");
+    try {
+      const result = await onAction("recoveryAnalyze", { payload: { actor, force: false } });
+      setMessage(result.action_required ? "Recovery evidence is ready for review" : "Recovery assessment refreshed");
+    } catch (err) { setMessage(err.message); } finally { setBusy(false); }
+  };
+  const decide = async decision => {
+    if (!latest) return;
+    setBusy(true); setMessage("");
+    try {
+      await onAction("recoveryDecision", { id: latest.id, payload: {
+        decision, actor, selected_policy: decision === "approve" ? selectedPolicy : null,
+        notes: "Decision recorded in planning console",
+      } });
+      setMessage(decision === "approve" ? "Recovery sequence approved" : "Recovery proposal rejected");
+    } catch (err) { setMessage(err.message); } finally { setBusy(false); }
+  };
+  const tone = state.action_required ? "#ef4444" : triggers.length ? "#f59e0b" : "#22c55e";
+  return <div style={{ ...panel, marginBottom: 12, borderColor: state.action_required ? "#7f1d1d" : "#263244" }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+      <div>
+        <div style={label}>Schedule recovery</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, color: tone, fontSize: 12, fontWeight: 800, marginTop: 4, textTransform: "uppercase" }}>
+          {triggers.length > 0 && <TriangleAlert size={14} aria-hidden="true" />}
+          {state.status.replaceAll("_", " ")} · {triggers.length} trigger{triggers.length === 1 ? "" : "s"}
+        </div>
+      </div>
+      <button onClick={analyze} disabled={busy || state.current?.status === "waiting_for_schedule"}
+        title="Recalculate recovery candidates from current factory state"
+        style={{ ...button, display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <RefreshCw size={13} aria-hidden="true" />{busy ? "Working" : "Analyze"}
+      </button>
+    </div>
+    <div style={{ color: "#9ca3af", fontSize: 10, marginTop: 8 }}>{state.guardrail}</div>
+    {triggers.length > 0 && <div className="recovery-trigger-grid" style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 7, marginTop: 10 }}>
+      {triggers.slice(0, 6).map(item => <div key={item.key} style={{ borderTop: "1px solid #1f2937", paddingTop: 7, minWidth: 0 }}>
+        <div style={{ color: item.severity === "critical" ? "#f87171" : "#fbbf24", fontSize: 10, fontWeight: 800 }}>{item.title}</div>
+        <div style={{ color: "#6b7280", fontSize: 9, marginTop: 3, overflowWrap: "anywhere" }}>{item.detail}</div>
+      </div>)}
+    </div>}
+    {scenarios.length > 0 && <div style={{ overflowX: "auto", marginTop: 10 }}><table style={{ width: "100%", minWidth: 650, borderCollapse: "collapse", fontSize: 10 }}>
+      <thead><tr style={{ color: "#6b7280", textAlign: "left" }}><th style={{ padding: 6 }}>Policy</th><th>Late jobs</th><th>Tardiness</th><th>Recovered</th><th>Moved</th><th>Stability</th><th>Frozen</th></tr></thead>
+      <tbody>{scenarios.map(item => <tr key={item.policy} style={{ borderTop: "1px solid #1f2937", background: item.policy === recommendation?.policy ? "#13251c" : "transparent" }}>
+        <td style={{ padding: 6, color: "#e5e7eb", fontWeight: 700 }}>{item.policy}</td><td>{item.late_jobs}</td>
+        <td>{Math.round(item.total_tardiness_s / 60)}m</td><td style={{ color: (item.recovery?.tardiness_reduction_s ?? 0) > 0 ? "#22c55e" : "#9ca3af" }}>{Math.round((item.recovery?.tardiness_reduction_s ?? 0) / 60)}m</td>
+        <td>{item.stability?.moved_jobs ?? 0}</td><td>{Math.round((item.stability?.score ?? 0) * 100)}%</td>
+        <td style={{ color: item.stability?.frozen_positions_preserved ? "#22c55e" : "#f87171" }}>{item.stability?.frozen_positions_preserved ? "preserved" : "changed"}</td>
+      </tr>)}</tbody>
+    </table></div>}
+    {latest?.result?.recovery?.frozen_jobs?.length > 0 && <div style={{ color: "#6b7280", fontSize: 9, marginTop: 8 }}>
+      Frozen: {latest.result.recovery.frozen_jobs.join(" · ")}
+    </div>}
+    {state.action_required && <div style={{ display: "flex", gap: 7, justifyContent: "flex-end", alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
+      <select value={selectedPolicy} onChange={event => setPolicy(event.target.value)} style={input}>
+        {actionablePolicies.map(item => <option key={item.policy}>{item.policy}</option>)}
+      </select>
+      <button onClick={() => decide("reject")} disabled={busy} style={{ ...button, display: "inline-flex", alignItems: "center", gap: 5 }}><X size={13} aria-hidden="true" />Reject</button>
+      <button onClick={() => decide("approve")} disabled={busy || state.stale || !selectedPolicy || !actor.trim()} title="Approve selected recovery sequence"
+        style={{ ...button, display: "inline-flex", alignItems: "center", gap: 5, background: "#166534", borderColor: "#22c55e" }}><Check size={13} aria-hidden="true" />Approve recovery</button>
+    </div>}
+    {message && <div style={{ color: message.includes("approved") || message.includes("ready") ? "#22c55e" : "#f59e0b", fontSize: 10, marginTop: 8 }}>{message}</div>}
+  </div>;
+}
+
 export function PlanningPanel({ data, machines, onClose, onAction }) {
-  const { orders = [], readiness = null, scenarios = [], activeSchedule = null, exceptions = [], resources = null } = data;
+  const { orders = [], readiness = null, scenarios = [], activeSchedule = null, recovery = null, exceptions = [], resources = null } = data;
   const [actor, setActor] = useState("operator");
   const [selectedJobs, setSelectedJobs] = useState([]);
   const [routeData, setRouteData] = useState(null);
@@ -177,6 +256,7 @@ export function PlanningPanel({ data, machines, onClose, onAction }) {
       {showResources && resources && <div style={{ ...panel, marginBottom: 12 }}><ResourcePanel data={resources} actor={actor} onAction={onAction} /></div>}
       {activeSchedule?.items?.length > 0 && <div style={{ ...panel, borderColor: "#166534", marginBottom: 12 }}><div style={label}>Approved schedule</div>
         <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>{activeSchedule.items.map(item => <span key={item.position} style={{ fontSize: 10, color: "#d1fae5" }}>{item.position}. {item.job_name}</span>)}</div></div>}
+      <RecoveryView state={recovery} actor={actor} onAction={onAction} />
       <div style={{ ...panel, marginBottom: 12 }}><div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "end" }}>
         <div><div style={label}>Production orders</div><div style={{ color: "#9ca3af", fontSize: 10, marginTop: 4 }}>{eligible.length} open orders</div></div>
         <div style={{ color: "#6b7280", fontSize: 9 }}>DUE TIME · PRIORITY · STATE</div></div>
@@ -210,7 +290,7 @@ export function PlanningPanel({ data, machines, onClose, onAction }) {
         </button>}
         {exceptionLimit > 25 && <button onClick={() => setExceptionLimit(25)} style={{ ...button, width: "100%", marginTop: 8 }}>Show first 25</button>}
       </div>}
-      <style>{`@media (max-width: 760px) { .planning-order-row { grid-template-columns: 1fr 1fr !important; } .planning-lower-grid, .route-editor-grid { grid-template-columns: 1fr !important; } .planning-exception-row { grid-template-columns: 1fr 1fr !important; } .planning-exception-row > span:nth-child(2) { grid-column: 1 / -1; grid-row: 2; } }`}</style>
+      <style>{`@media (max-width: 760px) { .planning-order-row { grid-template-columns: 1fr 1fr !important; } .planning-lower-grid, .route-editor-grid, .recovery-trigger-grid { grid-template-columns: 1fr !important; } .planning-exception-row { grid-template-columns: 1fr 1fr !important; } .planning-exception-row > span:nth-child(2) { grid-column: 1 / -1; grid-row: 2; } }`}</style>
     </div>
   </div>;
 }

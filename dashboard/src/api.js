@@ -153,6 +153,9 @@ export const fetchPlanningScenario = (id) => request(`/planning/scenarios/${id}`
 export const createPlanningScenario = (payload) => postJson("/planning/scenarios", payload);
 export const decidePlanningScenario = (id, payload) => postJson(`/planning/scenarios/${id}/decision`, payload);
 export const fetchActiveSchedule = () => request("/planning/active-schedule");
+export const fetchRecovery = () => request("/recovery");
+export const analyzeRecovery = (payload) => postJson("/recovery/analyze", payload);
+export const decideRecovery = (id, payload) => postJson(`/recovery/${id}/decision`, payload);
 export const fetchExecutionSnapshot = () => request("/execution/snapshot");
 export const syncExecution = () => postJson("/execution/sync", {});
 export const updateExecutionJob = (id, payload) => postJson(`/execution/jobs/${id}/action`, payload);

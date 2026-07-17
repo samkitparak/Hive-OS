@@ -64,7 +64,7 @@ def test_get_machines_returns_list(client):
 def test_api_prefix_routes_to_backend(client):
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "service": "hive-os", "version": "0.17.0"}
+    assert response.json() == {"status": "ok", "service": "hive-os", "version": "0.18.0"}
     assert client.get("/api/machines").status_code == 200
 
 
@@ -93,6 +93,9 @@ def test_production_control_and_planning_endpoints(client):
     assert client.get("/api/production/route-exceptions").status_code == 200
     assert client.get("/api/planning/scenarios").status_code == 200
     assert client.get("/api/planning/active-schedule").status_code == 200
+    recovery = client.get("/api/recovery")
+    assert recovery.status_code == 200
+    assert recovery.json()["status"] == "waiting_for_schedule"
     scenario = client.post("/api/planning/scenarios", json={
         "created_by": "test", "policies": ["fifo"], "seed": 1,
     })

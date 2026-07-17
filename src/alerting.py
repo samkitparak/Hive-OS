@@ -17,6 +17,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 import forecasting
+import recovery
 
 
 SEVERITY_ORDER = {"info": 0, "warning": 1, "critical": 2}
@@ -86,6 +87,11 @@ RULES = {
         "label": "Forecast delivery risk", "domain": "production", "owner_role": "production_planner",
         "response_minutes": 240,
         "rationale": "A decision-ready stochastic forecast indicates a material probability of missing a committed due time.",
+    },
+    "schedule_recovery_review": {
+        "label": "Schedule recovery review", "domain": "production",
+        "owner_role": "production_planner", "response_minutes": 30,
+        "rationale": "A material schedule deviation has an evidence-backed recovery sequence awaiting a named decision.",
     },
 }
 
@@ -419,6 +425,33 @@ def _forecast_delivery_risks(conn: sqlite3.Connection) -> list[dict]:
     ) for item in risks]
 
 
+def _schedule_recovery_review(conn: sqlite3.Connection) -> list[dict]:
+    state = recovery.snapshot(conn)
+    latest = state.get("latest")
+    if not latest or not state.get("action_required"):
+        return []
+    result = latest["result"]
+    recommendation = result.get("recommendation") or {}
+    triggers = result.get("recovery", {}).get("triggers", [])
+    critical = any(item.get("severity") == "critical" for item in triggers)
+    return [_candidate(
+        "schedule_recovery_review", f"schedule_recovery_review:{latest['id']}",
+        "schedule_recovery", latest["id"],
+        "A recovery schedule is waiting for review",
+        (f"{len(triggers)} deviation triggers; {recommendation.get('policy')} preserves "
+         f"the frozen horizon and recovers "
+         f"{round((recommendation.get('tardiness_reduction_s') or 0) / 60)} tardiness minutes."),
+        "Review and approve or reject the draft recovery sequence in Production planning.",
+        "Station dispatch stays on the current schedule until a named planner decides.",
+        f"{latest['id']}:{recommendation.get('policy')}", latest["created_at"], {
+            "assessment_id": latest["id"],
+            "planning_scenario_id": latest["planning_scenario_id"],
+            "recommended_policy": recommendation.get("policy"),
+            "trigger_count": len(triggers),
+        }, severity="critical" if critical else "warning",
+    )]
+
+
 def collect_candidates(conn: sqlite3.Connection, now: Optional[datetime] = None) -> list[dict]:
     now = now or datetime.now(timezone.utc)
     candidates = [
@@ -427,6 +460,7 @@ def collect_candidates(conn: sqlite3.Connection, now: Optional[datetime] = None)
         *_route_exceptions(conn), *_quality_recurrence(conn, now), *_procurement_failures(conn),
         *_industrial_failures(conn), *_diagnostic_reviews(conn), *_unacknowledged_dispatch(conn, now),
         *_forecast_delivery_risks(conn),
+        *_schedule_recovery_review(conn),
     ]
     return sorted(candidates, key=lambda item: (-SEVERITY_ORDER[item["severity"]], item["occurred_at"], item["alert_key"]))
 

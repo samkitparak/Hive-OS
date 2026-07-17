@@ -85,7 +85,7 @@ evidence, but HIVE will not recommend a schedule change from it.
 3. **Calibrated**: fit machine cycle-time coefficients from observed part features.
 4. **Diagnostic**: rank persistent constraints and their dominant causes.
 5. **Predictive**: forecast constraint movement and late-job risk from repeated shifts.
-6. **Closed-loop planning**: recommend release and sequence changes with human approval.
+6. **Closed-loop planning**: detect deviations, resimulate residual work, and recommend stable sequence changes with human approval.
 
 PLC writes and autonomous machine control are outside the present safety
 boundary. HIVE observes, reconciles, and recommends first.
@@ -108,6 +108,25 @@ status until the model assumptions are reviewed.
 
 See `PREDICTIVE_CONTROL.md` for the algorithm, operating gates, research basis,
 API, and site workflow.
+
+## Rolling-Horizon Schedule Recovery
+
+Once a schedule is approved, HIVE monitors downtime, held station work,
+execution exceptions, unscheduled ready work, schedule overruns, and credible
+forecast late risk. A trigger starts a residual simulation: completed operations
+are removed and elapsed work is conservatively credited to operations already in
+process. Dispatched, acknowledged, running, held, and in-progress work is fixed
+in place, as are the first configured horizon positions.
+
+Current, FIFO, EDD, SPT, and material-batch orders are compared only inside the
+remaining movable positions. HIVE reports moved-job share, total position shift,
+and frozen-position preservation. A candidate is actionable only when it reduces
+late jobs, clears a declared tardiness or makespan threshold, and respects the
+stability limit. It becomes a draft planning scenario; no station state changes
+until a named planner approves non-stale evidence.
+
+See `SCHEDULE_RECOVERY.md` for the full trigger, stability, approval, and
+commissioning contract.
 
 ## Closed-Loop Improvement Evidence
 

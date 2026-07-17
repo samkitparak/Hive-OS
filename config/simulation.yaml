@@ -5,3 +5,14 @@ material_changeover_s: 600
 max_transfer_time_s: 14400
 stochastic_trials: 20
 minimum_route_edge_support: 3
+
+# Rolling-horizon recovery defaults. These are visible engineering priors and
+# must be reviewed against HAEEV planner behavior during commissioning.
+rescheduling:
+  freeze_horizon_jobs: 2
+  schedule_overrun_grace_s: 900
+  minimum_tardiness_recovery_s: 900
+  minimum_makespan_recovery_s: 600
+  stability_penalty_s_per_position: 120
+  maximum_moved_job_share: 0.5
+  automatic_refresh_interval_s: 900

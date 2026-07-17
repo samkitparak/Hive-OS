@@ -48,6 +48,7 @@ import bottleneck as bottleneck_module
 import data_quality as data_quality_module
 import digital_twin as digital_twin_module
 import forecasting as forecasting_module
+import recovery as recovery_module
 import learning as learning_module
 import routing as routing_module
 import commissioning as commissioning_module
@@ -137,6 +138,8 @@ from api_models import (
     PartRouteUpdate,
     PlanningDecision,
     PlanningScenarioCreate,
+    RecoveryAnalyzeRequest,
+    RecoveryDecision,
     ProductionOrderUpdate,
     CvSqlRow,
     DowntimeCreate,
@@ -164,7 +167,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.17.0"
+APP_VERSION = "0.18.0"
 
 
 class ApiPrefixMiddleware:
@@ -459,6 +462,7 @@ async def _watch_learning():
             await asyncio.to_thread(execution_module.reconcile_machine_events, conn)
             await asyncio.to_thread(maintenance_module.sync, conn)
             await asyncio.to_thread(forecasting_module.refresh_if_needed, conn)
+            await asyncio.to_thread(recovery_module.refresh_if_needed, conn)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -1202,6 +1206,39 @@ def post_planning_decision(scenario_id: int, payload: PlanningDecision):
 @app.get("/planning/active-schedule")
 def get_active_schedule():
     return planning_module.active_schedule(_get_conn())
+
+
+@app.get("/recovery")
+def get_schedule_recovery():
+    return recovery_module.snapshot(_get_conn())
+
+
+@app.get("/recovery/history")
+def get_schedule_recovery_history(limit: int = Query(20, ge=1, le=100)):
+    return recovery_module.history(_get_conn(), limit)
+
+
+@app.post("/recovery/analyze")
+def post_schedule_recovery_analysis(payload: RecoveryAnalyzeRequest):
+    try:
+        return recovery_module.analyze(
+            _get_conn(), actor=payload.actor, force=payload.force,
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/recovery/{assessment_id}/decision")
+def post_schedule_recovery_decision(assessment_id: int, payload: RecoveryDecision):
+    try:
+        return recovery_module.decide(
+            _get_conn(), assessment_id, payload.decision, payload.actor,
+            payload.selected_policy, payload.notes,
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
 
 
 @app.get("/execution/snapshot")

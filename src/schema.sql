@@ -1688,6 +1688,27 @@ CREATE TABLE IF NOT EXISTS production_forecasts (
     generated_at        TEXT NOT NULL
 );
 
+-- Event-driven rolling-horizon recovery analyses. The linked planning scenario
+-- remains the approval authority; this table preserves why replanning started
+-- and the stability/benefit evidence shown to the planner.
+CREATE TABLE IF NOT EXISTS schedule_recovery_assessments (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    active_scenario_id  INTEGER REFERENCES planning_scenarios(id),
+    planning_scenario_id INTEGER REFERENCES planning_scenarios(id),
+    input_signature     TEXT NOT NULL,
+    trigger_signature   TEXT NOT NULL,
+    status              TEXT NOT NULL,
+    triggers_json       TEXT NOT NULL,
+    result_json         TEXT NOT NULL,
+    created_by          TEXT NOT NULL,
+    created_at          TEXT NOT NULL,
+    decision            TEXT,
+    selected_policy     TEXT,
+    decided_by          TEXT,
+    decided_at          TEXT,
+    notes               TEXT
+);
+
 CREATE TABLE IF NOT EXISTS auth_events (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     event_type          TEXT NOT NULL,
@@ -1793,6 +1814,8 @@ CREATE INDEX IF NOT EXISTS idx_auth_events_actor ON auth_events(actor_user_id, t
 CREATE INDEX IF NOT EXISTS idx_mqtt_enrollments_machine_status ON mqtt_enrollments(machine_id, status, expires_at);
 CREATE INDEX IF NOT EXISTS idx_production_forecasts_generated ON production_forecasts(generated_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_production_forecasts_signature ON production_forecasts(input_signature, policy, sample_count);
+CREATE INDEX IF NOT EXISTS idx_schedule_recovery_created ON schedule_recovery_assessments(created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_schedule_recovery_trigger ON schedule_recovery_assessments(trigger_signature, input_signature);
 
 -- Seed the 14 in-scope HAEEV machines (aluminium pair excluded, compressors/dust collectors as utility)
 INSERT OR IGNORE INTO machines (name, machine_key, type, brand, model, has_maestro, has_opcua, active) VALUES

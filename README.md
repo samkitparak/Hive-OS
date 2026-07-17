@@ -26,6 +26,7 @@ operations are limited to the HIVE database and site configuration.
 - **Automatic cycle learning** — pairs validated part cycles, robustly fits versioned nonnegative models, and protects active models from weak candidates.
 - **Production digital twin** — compares dispatch policies with finite machine, labor, tooling, calendar, maintenance, material, and WIP capacity.
 - **Predictive production control** — runs repeatable stochastic ensembles for future constraint probability, P50/P80 completion, late-order risk, stale-input detection, and forecast-versus-actual calibration.
+- **Stability-aware schedule recovery** — detects floor deviations, resimulates only unfinished work, freezes dispatched and near-horizon jobs in place, and drafts thresholded recovery sequences for named planner approval.
 - **Production control** — explicit work releases, contractual due times, quantity-aware routes, exception reconciliation, and audited human schedule approval.
 - **Factory resource control** — sheet-stock estimates and reservations, labor/tool pools, machine profiles, shift calendars, planned outages, and finite WIP buffers.
 - **Station execution control** — approved schedule dispatch, acknowledgements, partial quantities, holds, machine/scanner actuals, WIP movement, and traceability.
@@ -106,6 +107,7 @@ hive-os/
 │   ├── routing.py            # observed same-part process transitions
 │   ├── digital_twin.py       # SimPy schedule-policy comparison
 │   ├── forecasting.py        # probabilistic constraint/delivery forecast + calibration
+│   ├── recovery.py           # event-driven residual simulation + schedule recovery
 │   ├── production_control.py  # order lifecycle + planned/observed route control
 │   ├── planning.py            # persisted scenarios + approval ledger
 │   ├── resources.py           # stock, labor, tooling, calendars, WIP, reservations
@@ -135,6 +137,7 @@ hive-os/
 ├── ROOT_CAUSE_DIAGNOSTICS.md  # diagnostic evidence, decisions, and learning contract
 ├── ALARM_MANAGEMENT.md        # alert rules, lifecycle, escalation, and webhook contract
 ├── PREDICTIVE_CONTROL.md      # ensemble forecast, credibility, and calibration contract
+├── SCHEDULE_RECOVERY.md       # trigger, freeze-horizon, stability, and approval contract
 ├── ACCESS_CONTROL.md          # local identity, role, session, and transport security
 └── INDIA_CHECKLIST.md        # on-site configuration checklist
 ```
@@ -284,6 +287,10 @@ unprefixed routes remain available for compatibility and local tooling.
 | GET | `/forecast` | Latest probabilistic constraint/delivery forecast and calibration |
 | GET | `/forecast/history` | Immutable recent forecast snapshots |
 | POST | `/forecast/refresh` | Run or reuse a seeded 20–200 sample forecast ensemble |
+| GET | `/recovery` | Current deviations, latest recovery evidence, staleness, and approval state |
+| GET | `/recovery/history` | Immutable recent schedule-recovery assessments |
+| POST | `/recovery/analyze` | Resimulate residual work and draft a material recovery candidate |
+| POST | `/recovery/{id}/decision` | Approve or reject a non-stale recovery sequence |
 | GET | `/production/readiness` | Day-one work, route, model, exception, and schedule gates |
 | GET | `/production/orders` | Controlled production orders and route coverage |
 | PUT | `/production/orders/{id}` | Versioned due-date, priority, and lifecycle update |
@@ -402,6 +409,8 @@ See [IDENTITY_AND_LABELS.md](IDENTITY_AND_LABELS.md) for physical unit IDs,
 scanner alias rules, duplicate protection, QR labels, and Zebra output.
 See [PREDICTIVE_CONTROL.md](PREDICTIVE_CONTROL.md) for forecast uncertainty,
 credibility gates, calibration, and the on-site validation workflow.
+See [SCHEDULE_RECOVERY.md](SCHEDULE_RECOVERY.md) for deviation triggers,
+residual simulation, schedule-stability limits, and approval workflow.
 
 ---
 
@@ -411,6 +420,6 @@ Once weeks of real OEE data exist:
 - Promote automatically learned cycle models into real Performance OEE
 - Validate bottleneck scoring weights against real queues and operator observations
 - Validate P80 completion coverage and late-risk calibration across product mixes
-- Dynamic job resequencing based on live machine state
+- Validate recovery thresholds and schedule-stability penalties against planner decisions
 - AMR routing
 - ERP integration

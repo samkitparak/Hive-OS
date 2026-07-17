@@ -259,6 +259,25 @@ See `PREDICTIVE_CONTROL.md` for the uncertainty model, credibility gates, and ca
 
 ---
 
+## Schedule Recovery (After One Approved Test Schedule)
+
+Dashboard → **Planning** → **Schedule recovery**
+
+- [ ] Approve a representative four-or-more-order schedule with trustworthy routes, models, due times, and resources
+- [ ] Hold one dispatched station job and confirm HIVE reports the deviation without changing the approved sequence
+- [ ] Run **Analyze** and confirm completed operations are absent from residual simulation
+- [ ] Confirm dispatched, acknowledged, running, held, in-progress, and the first two horizon jobs remain in their exact positions
+- [ ] Compare current, FIFO, EDD, SPT, and material-batch results with the production planner
+- [ ] Verify a proposal appears only when configured lateness or makespan recovery is material
+- [ ] Edit an order or resource after analysis and confirm approval is blocked as stale
+- [ ] Approve one recovery with a named planner and verify the execution queue relinks without releasing held work
+- [ ] Reject one recovery and confirm the current approved schedule remains active
+- [ ] Tune thresholds only through a recorded management-of-change review after observing real planner decisions
+
+See `SCHEDULE_RECOVERY.md` for trigger logic, stability scoring, thresholds, and the audited decision flow.
+
+---
+
 ## Improvement Experiments (After One Stable Shift)
 
 Dashboard → **Review actions**
@@ -308,7 +327,7 @@ See `ROOT_CAUSE_DIAGNOSTICS.md` for evidence weights, learning thresholds, and A
 Dashboard → **Alerts**
 
 - [ ] Rationalize each OEM alarm code: required operator action, consequence, priority, owner, and duplicate/deadband behavior
-- [ ] Confirm the 13 HIVE rule classes create an alert only when a person must respond
+- [ ] Confirm the 14 HIVE rule classes create an alert only when a person must respond
 - [ ] Assign primary and backup roles for every shift and approve initial response times
 - [ ] Run repeated condition synchronization against one shift of evidence and remove nuisance or chattering conditions
 - [ ] Verify acknowledgment, snooze expiry, manual resolution, source-clear resolution, recurrence, and escalation history

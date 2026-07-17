@@ -89,6 +89,11 @@ order with at least 50% late probability becomes a rationalized planning alert.
 The optimization feed also exposes at-risk orders and forecast constraints as
 reviewable actions.
 
+A decision-ready order at or above 50% late probability is also a schedule
+recovery trigger. Recovery resimulates current unfinished work and can draft a
+stable replacement sequence, but still requires a named planner's approval.
+See `SCHEDULE_RECOVERY.md`.
+
 ## Site Commissioning
 
 1. Finish route, cycle-model, resource, and contractual due-time commissioning.

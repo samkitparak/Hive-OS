@@ -423,6 +423,20 @@ class PlanningDecision(RequestModel):
     notes: Optional[str] = None
 
 
+class RecoveryAnalyzeRequest(RequestModel):
+    actor: str = Field(default="planner", min_length=1)
+    force: bool = False
+
+
+class RecoveryDecision(RequestModel):
+    decision: Literal["approve", "reject"]
+    actor: str = Field(min_length=1)
+    selected_policy: Optional[Literal[
+        "current", "fifo", "edd", "spt", "material_batch"
+    ]] = None
+    notes: Optional[str] = None
+
+
 class ExecutionActionRequest(RequestModel):
     action: Literal["dispatch", "acknowledge", "start", "complete", "hold", "resume", "cancel"]
     expected_version: Optional[int] = Field(default=None, ge=1)

@@ -15,6 +15,7 @@ import alerting
 import access_control
 import mqtt_security
 import forecasting
+import recovery
 
 PLACEHOLDER_HOSTS = {
     *(f"192.168.1.{number}" for number in range(51, 55)),
@@ -184,6 +185,7 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
     latest_forecast = forecast.get("latest")
     forecast_result = latest_forecast["result"] if latest_forecast else {}
     forecast_calibration = forecast["calibration"]
+    recovery_state = recovery.snapshot(conn)
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -228,6 +230,9 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "forecast_stale": forecast.get("stale", False),
             "forecast_calibration_outcomes": forecast_calibration["outcome_count"],
             "forecast_calibration_status": forecast_calibration["status"],
+            "recovery_status": recovery_state["status"],
+            "recovery_triggers": len(recovery_state["current"]["triggers"]),
+            "recovery_action_required": recovery_state["action_required"],
         },
         "services": [
             {"key": "database", "name": "Database", "status": "online",
@@ -332,6 +337,17 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
                  f"{'stale' if forecast.get('stale') else 'current'} inputs; "
                  f"{forecast_calibration['outcome_count']} completed-order calibration outcomes; "
                  f"calibration {forecast_calibration['status']}"
+             )},
+            {"key": "schedule_recovery", "name": "Rolling schedule recovery",
+             "status": (
+                 "attention" if recovery_state["action_required"] else
+                 "ready" if recovery_state["status"] == "stable" else
+                 "learning" if recovery_state["status"] == "triggered" else
+                 "needs_site_value"
+             ),
+             "detail": (
+                 f"{len(recovery_state['current']['triggers'])} active triggers; "
+                 f"{'planner decision required' if recovery_state['action_required'] else recovery_state['status']}"
              )},
         ],
         "machines": machines,

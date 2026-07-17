@@ -11,6 +11,7 @@ import bottleneck
 import data_quality
 import forecasting
 import procurement
+import recovery
 
 
 def _downtime_evidence(conn: sqlite3.Connection, start: str, end: str) -> Optional[dict]:
@@ -83,6 +84,7 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
     constraint = bottleneck.detect(conn, window_hours, now)
     purchasing = procurement.snapshot(conn)
     forecast = forecasting.snapshot(conn)
+    recovery_state = recovery.snapshot(conn, now)
     recommendations = []
 
     low_reporting = [
@@ -172,6 +174,31 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
             "target_type": "machine", "target_key": current.machine_key,
             "cause_code": current.primary_cause,
             "metric_hint": "throughput_per_hour", "target_direction": "increase",
+        })
+
+    latest_recovery = recovery_state.get("latest")
+    if recovery_state.get("action_required") and latest_recovery:
+        recovery_result = latest_recovery["result"]
+        recommendation = recovery_result.get("recommendation") or {}
+        triggers = recovery_result.get("recovery", {}).get("triggers", [])
+        recommendations.append({
+            "priority": len(recommendations) + 1,
+            "category": "schedule_recovery",
+            "title": f"Review {recommendation.get('policy', 'updated')} recovery sequence",
+            "action": (
+                "Compare the frozen-horizon recovery evidence and approve or reject the "
+                "draft sequence before changing station dispatch."
+            ),
+            "confidence": "high",
+            "estimated_gain": None,
+            "evidence": [
+                f"{len(triggers)} active recovery trigger{'s' if len(triggers) != 1 else ''}",
+                f"{round((recommendation.get('tardiness_reduction_s') or 0) / 60)} minutes modeled tardiness recovery",
+                f"{(recommendation.get('stability') or {}).get('moved_jobs', 0)} unfrozen jobs moved",
+            ],
+            "target_type": "planning_scenario",
+            "target_key": str(latest_recovery["planning_scenario_id"]),
+            "cause_code": "schedule_deviation",
         })
 
     latest_forecast = forecast.get("latest")
@@ -308,6 +335,12 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
             "decision_ready": forecast.get("decision_ready", False),
             "calibration_status": forecast["calibration"]["status"],
             "forecast_id": latest_forecast["id"] if latest_forecast else None,
+        },
+        "recovery": {
+            "status": recovery_state["status"],
+            "action_required": recovery_state["action_required"],
+            "trigger_count": len(recovery_state["current"]["triggers"]),
+            "assessment_id": latest_recovery["id"] if latest_recovery else None,
         },
         "recommendations": _finalize(recommendations, start, end, now.isoformat()),
         "guardrail": (

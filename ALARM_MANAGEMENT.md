@@ -28,6 +28,7 @@ a machine, or change an approved production schedule.
 | Diagnostic review | Open high-confidence root-cause case | Reliability lead | 240 min |
 | Dispatch unacknowledged | Dispatched station job unacknowledged for 15 minutes | Shift supervisor | 15 min |
 | Forecast delivery risk | Decision-ready forecast gives a committed order at least 50% late probability | Production planner | 240 min |
+| Schedule recovery review | A current deviation has an actionable, non-stale recovery assessment | Production planner | 30 min |
 
 The fixed catalog and thresholds live in `src/alerting.py`. Change them only
 through a reviewed management-of-change decision after observing real factory
@@ -89,7 +90,7 @@ Receivers must deduplicate on `X-HIVE-Delivery` or the CloudEvents `id`.
 
 ## Commissioning Sequence
 
-1. Review and rationalize the 13 rule classes against actual roles and OEM alarms.
+1. Review and rationalize the 14 rule classes against actual roles and OEM alarms.
 2. Save a disabled webhook contract with a named operator.
 3. Run **Simulate**. This builds the exact envelope and headers without network I/O.
 4. Put the HMAC secret in the central PC environment, if required.

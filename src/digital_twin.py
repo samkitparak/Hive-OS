@@ -53,30 +53,72 @@ def _load_jobs(conn: sqlite3.Connection, job_names: list[str] | None = None) -> 
 
 
 def _operation_plan(conn: sqlite3.Connection, jobs: list[dict],
-                    resource_status: dict | None = None) -> tuple[list[dict], dict]:
+                    resource_status: dict | None = None, *,
+                    remaining_only: bool = False,
+                    simulated_at: datetime | None = None) -> tuple[list[dict], dict]:
     parts = []
     operation_count = modeled_count = observed_routes = 0
     missing_models: set[str] = set()
     learned_models = cycle_time.active_models(conn)
     with open(cycle_time.CONFIG_PATH) as config_file:
         cycle_config = yaml.safe_load(config_file) or {}
+    simulated_at = simulated_at or datetime.now(timezone.utc)
+    simulated_at = (simulated_at.replace(tzinfo=timezone.utc) if simulated_at.tzinfo is None
+                    else simulated_at.astimezone(timezone.utc))
     for job in jobs:
         for part in job["parts"]:
             route_info = routing.part_route(conn, part)
             quantity = max(int(part.get("qty") or 1), 1)
-            operations = []
-            for machine_key in route_info["machines"]:
+            progress = [dict(row) for row in conn.execute(
+                """SELECT prs.step_index,m.machine_key,
+                          COALESCE(ej.completed_qty,0) completed_qty,
+                          COALESCE(ej.in_process_qty,0) in_process_qty,
+                          ej.started_at
+                   FROM part_route_steps prs JOIN machines m ON m.id=prs.machine_id
+                   LEFT JOIN execution_jobs ej ON ej.route_step_id=prs.id
+                   WHERE prs.part_id=? AND prs.required=1 ORDER BY prs.step_index""",
+                (part["id"],),
+            ).fetchall()] if remaining_only else []
+            operation_templates = []
+            for step_index, machine_key in enumerate(route_info["machines"], start=1):
                 prediction = cycle_time.estimate_for_part(
                     conn, part, machine_key, learned_models=learned_models,
                     config=cycle_config,
                 )
-                operation_count += quantity
-                if prediction["seconds"] is None or prediction["seconds"] <= 0:
-                    missing_models.add(machine_key)
-                else:
-                    modeled_count += quantity
-                operations.append({"machine_key": machine_key, **prediction})
+                operation_templates.append({
+                    "machine_key": machine_key, "step_index": step_index, **prediction,
+                })
             for unit in range(quantity):
+                operations = []
+                for operation in operation_templates:
+                    item = dict(operation)
+                    step_progress = next((row for row in progress
+                                          if row["step_index"] == item["step_index"]), None)
+                    if remaining_only and step_progress:
+                        completed = int(step_progress["completed_qty"] or 0)
+                        in_process = int(step_progress["in_process_qty"] or 0)
+                        if unit < completed:
+                            continue
+                        if unit < completed + in_process:
+                            item["frozen_in_process"] = True
+                            if item["seconds"] and step_progress.get("started_at"):
+                                started = datetime.fromisoformat(
+                                    step_progress["started_at"].replace("Z", "+00:00")
+                                )
+                                if started.tzinfo is None:
+                                    started = started.replace(tzinfo=timezone.utc)
+                                elapsed_per_unit = max(
+                                    0.0, (simulated_at - started.astimezone(timezone.utc)).total_seconds()
+                                ) / max(1, in_process)
+                                item["seconds"] = max(1.0, float(item["seconds"]) - elapsed_per_unit)
+                    operation_count += 1
+                    if item["seconds"] is None or item["seconds"] <= 0:
+                        missing_models.add(item["machine_key"])
+                    else:
+                        modeled_count += 1
+                    operations.append(item)
+                if not operations:
+                    continue
                 observed_routes += route_info["confidence"] in ("high", "confirmed")
                 parts.append({
                     "id": part["id"], "unit": unit + 1,
@@ -156,7 +198,8 @@ def _order_jobs(conn: sqlite3.Connection, jobs: list[dict], parts: list[dict], p
 
 def _single_run(conn: sqlite3.Connection, jobs: list[dict], parts: list[dict],
                 policy: str, stochastic: bool, seed: int, cfg: dict,
-                simulated_at: datetime, resource_context: dict) -> dict:
+                simulated_at: datetime, resource_context: dict,
+                ordered_job_names: list[str] | None = None) -> dict:
     randomizer = random.Random(seed)
     env = simpy.Environment()
     machine_keys = sorted({operation["machine_key"] for part in parts for operation in part["operations"]})
@@ -193,7 +236,12 @@ def _single_run(conn: sqlite3.Connection, jobs: list[dict], parts: list[dict],
     transfer_s = float(cfg.get("transfer_time_s", 30))
     changeover_s = float(cfg.get("material_changeover_s", 600))
 
-    ordered_jobs = _order_jobs(conn, jobs, parts, policy)
+    if ordered_job_names is None:
+        ordered_jobs = _order_jobs(conn, jobs, parts, policy)
+    else:
+        by_name = {job["job_name"]: job for job in jobs}
+        ordered_jobs = [by_name[name] for name in ordered_job_names if name in by_name]
+        ordered_jobs.extend(job for job in jobs if job["job_name"] not in ordered_job_names)
     rank = {job["job_name"]: index for index, job in enumerate(ordered_jobs)}
     ordered_parts = sorted(parts, key=lambda part: (
         rank[part["job_name"]], part["id"], part["unit"]
@@ -394,4 +442,72 @@ def compare(conn: sqlite3.Connection, job_names: list[str] | None = None,
         },
         "scenarios": scenarios,
         "recommendation": recommendation,
+    }
+
+
+def compare_orders(conn: sqlite3.Connection, orders: dict[str, list[str]], *,
+                   job_names: list[str] | None = None, stochastic: bool = False,
+                   seed: int = 1, simulated_at: datetime | None = None) -> dict:
+    """Compare explicit recovery orders against only unfinished shop-floor work."""
+    if not orders:
+        raise ValueError("at least one recovery order is required")
+    jobs = _load_jobs(conn, job_names)
+    selected_names = [job["job_name"] for job in jobs]
+    expected = set(selected_names)
+    for strategy, ordered_names in orders.items():
+        if len(ordered_names) != len(set(ordered_names)):
+            raise ValueError(f"recovery order '{strategy}' contains duplicate jobs")
+        if set(ordered_names) != expected:
+            raise ValueError(f"recovery order '{strategy}' must contain every selected job")
+    simulated_at = simulated_at or datetime.now(timezone.utc)
+    simulated_at = (simulated_at.replace(tzinfo=timezone.utc) if simulated_at.tzinfo is None
+                    else simulated_at.astimezone(timezone.utc)).replace(microsecond=0)
+    resource_status = factory_resources.snapshot(conn, selected_names or job_names)
+    parts, readiness_result = _operation_plan(
+        conn, jobs, resource_status, remaining_only=True, simulated_at=simulated_at,
+    )
+    active_names = {part["job_name"] for part in parts}
+    jobs = [job for job in jobs if job["job_name"] in active_names]
+    normalized_orders = {
+        strategy: [name for name in ordered_names if name in active_names]
+        for strategy, ordered_names in orders.items()
+    }
+    if not jobs:
+        return {
+            "readiness": readiness_result, "mode": "residual",
+            "simulated_at": simulated_at.isoformat(), "seed": seed,
+            "scenarios": [], "recommendation": None,
+            "assumptions": {"execution_progress": "No unfinished operations remain."},
+        }
+    if readiness_result["model_coverage"] < 1:
+        return {
+            "readiness": readiness_result, "mode": "residual",
+            "simulated_at": simulated_at.isoformat(), "seed": seed,
+            "scenarios": [], "recommendation": None,
+            "assumptions": {"execution_progress": "Only unfinished operations are modeled."},
+        }
+    cfg = _config()
+    resource_context = factory_resources.simulation_context(conn, jobs, simulated_at)
+    scenarios = [
+        _single_run(
+            conn, jobs, parts, strategy, stochastic, seed, cfg, simulated_at,
+            resource_context, ordered_job_names=ordered_names,
+        )
+        for strategy, ordered_names in normalized_orders.items()
+    ]
+    return {
+        "readiness": readiness_result,
+        "mode": "stochastic_residual" if stochastic else "deterministic_residual",
+        "simulated_at": simulated_at.isoformat(), "seed": seed,
+        "assumptions": {
+            "execution_progress": "Completed operations are removed from the model.",
+            "in_process_work": (
+                "Started work is frozen; elapsed time is spread conservatively across its "
+                "in-process quantity and subtracted from modeled duration."
+            ),
+            "transfer_time_s": cfg.get("transfer_time_s", 30),
+            "material_changeover_s": cfg.get("material_changeover_s", 600),
+            "resources": resource_status["assumptions"],
+        },
+        "scenarios": scenarios, "recommendation": None,
     }

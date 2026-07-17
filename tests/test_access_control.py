@@ -167,6 +167,7 @@ def test_http_setup_session_csrf_roles_actor_binding_and_service_scope(conn, mon
         assert admin_client.get("/api/machines").status_code == 200
         forbidden = admin_client.post("/api/planning/scenarios", headers={"X-CSRF-Token": operator_csrf}, json={})
         assert forbidden.status_code == 403
+        assert admin_client.post("/api/recovery/analyze", headers={"X-CSRF-Token": operator_csrf}, json={}).status_code == 403
         allowed = admin_client.post("/api/downtime", headers={"X-CSRF-Token": operator_csrf}, json={
             "machine_key": "morbidelli_cx100", "reason_code": "breakdown", "notes": "Test stop",
         })

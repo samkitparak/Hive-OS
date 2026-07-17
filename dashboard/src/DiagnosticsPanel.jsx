@@ -4,6 +4,7 @@ const STATUS_COLOR = {
   learning: "#f59e0b",
   waiting: "#60a5fa",
   stale: "#f59e0b",
+  attention: "#ef4444",
   offline: "#ef4444",
   missing: "#ef4444",
   needs_site_value: "#f59e0b",
