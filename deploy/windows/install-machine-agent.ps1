@@ -141,7 +141,7 @@ set PYTHONPATH=src
 
 schtasks /Create /TN "HIVE Agent - $MachineKey" /SC ONSTART /RU SYSTEM /RL HIGHEST `
     /TR "$InstallDir\start-agent.cmd" /F | Out-Null
-Start-Process "$InstallDir\start-agent.cmd"
+Start-ScheduledTask -TaskName "HIVE Agent - $MachineKey"
 
 $LatestLog = Get-ChildItem $LogFolder -Filter *.log | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 $AnalysisPath = $null

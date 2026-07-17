@@ -33,6 +33,7 @@ operations are limited to the HIVE database and site configuration.
 - **Serialized unit identity** — one auditable identity per physical part, alias-safe scanner resolution, duplicate suppression, browser labels, and native Zebra ZPL.
 - **Preventive maintenance control** — commissioned calendar/usage/condition plans, machine-specific inspections, named LOTO evidence, maintenance-aware schedules, and audited spare reservations.
 - **Tool lifecycle control** — serialized blades, cutters, and drills; exact CNC-program usage attribution; rated and locally learned life; quality-linked service triggers; reconditioning history; and planning capacity gates.
+- **Remote machine commissioning** — Windows OpenSSH bootstrap, explicit host-fingerprint trust, key-only folder discovery, automatic MQTT enrollment, agent install/restart/log retrieval, and immutable run evidence.
 - **Factory integration boundary** — versioned mappings, read-only SQL discovery, credential references, sample fingerprints, issue audits, and idempotent import batches.
 - **Industrial telemetry gateway** — commissioned Modbus TCP, OPC-UA, and MQTT signals; read-only probes; immutable contracts; debounced machine state; raw/latest/hourly telemetry; and offsite simulation.
 - **Warehouse intelligence** — derived edge demand, component lots, usable-remnant allocation, schedule reservations, immutable movements, and evidence-labeled purchase suggestions.
@@ -116,6 +117,7 @@ hive-os/
 │   ├── identity.py            # physical units, scanner aliases, QR/ZPL labels
 │   ├── maintenance.py         # preventive plans, inspections, spares, reliability
 │   ├── tooling.py             # individual tools, usage, service, life prediction
+│   ├── remote_setup.py        # trusted SSH commissioning and deployment audit
 │   ├── operations.py         # downtime, manual work, quality/rework, barcode
 │   ├── connectors.py         # versioned connector commissioning + imports
 │   ├── cv_sql_connector.py   # Cabinet Vision SQL placeholder adapter
@@ -140,6 +142,7 @@ hive-os/
 ├── ALARM_MANAGEMENT.md        # alert rules, lifecycle, escalation, and webhook contract
 ├── PREDICTIVE_CONTROL.md      # ensemble forecast, credibility, and calibration contract
 ├── SCHEDULE_RECOVERY.md       # trigger, freeze-horizon, stability, and approval contract
+├── REMOTE_COMMISSIONING.md    # Windows SSH trust, bootstrap, install, and recovery
 ├── ACCESS_CONTROL.md          # local identity, role, session, and transport security
 └── INDIA_CHECKLIST.md        # on-site configuration checklist
 ```
@@ -371,12 +374,15 @@ unprefixed routes remain available for compatibility and local tooling.
 | GET | `/deployment` | Windows install package readiness and commands |
 | GET | `/config` | Current editable site setup configuration |
 | PUT | `/config` | Save editable site setup configuration with backup |
-| GET | `/remote-setup/plan/{machine_key}` | Dry-run remote agent deployment plan |
+| GET | `/remote-setup/plan/{machine_key}`, `/remote-setup/snapshot` | SSH readiness, trust, and immutable run history |
+| POST | `/remote-setup/identity` | Generate the protected central deployment identity |
 | POST | `/remote-setup/test-connection` | Probe an SSH TCP port without authentication |
-| POST | `/remote-setup/detect-folders` | Preview remote Maestro folder discovery |
-| POST | `/remote-setup/install-agent` | Preview a remote machine-agent install |
-| POST | `/remote-setup/restart-agent` | Preview a remote agent restart |
-| POST | `/remote-setup/fetch-log` | Preview retrieval of the remote agent log |
+| POST | `/remote-setup/scan-host-key`, `/trust-host` | Scan then explicitly approve a verified host fingerprint |
+| DELETE | `/remote-setup/trust-host/{machine_key}` | Revoke host trust and remove it from strict known-hosts |
+| POST | `/remote-setup/authenticate` | Verify key authentication and administrator context |
+| POST | `/remote-setup/detect-folders` | Preview or execute remote Maestro folder discovery |
+| POST | `/remote-setup/install-agent`, `/install-agent/live` | Preview or administrator-execute a remote install |
+| POST | `/remote-setup/restart-agent`, `/fetch-log` | Preview or execute agent support actions |
 | GET | `/operations/summary` | Downtime, work-order, rework, defect, and scan summary |
 | GET | `/downtime` | Downtime events, optionally filtered by status |
 | POST | `/downtime` | Create a downtime event |
@@ -422,6 +428,8 @@ See [SCHEDULE_RECOVERY.md](SCHEDULE_RECOVERY.md) for deviation triggers,
 residual simulation, schedule-stability limits, and approval workflow.
 See [TOOLING_LIFECYCLE.md](TOOLING_LIFECYCLE.md) for tool identity, life
 evidence, planning authority, service prediction, and commissioning.
+See [REMOTE_COMMISSIONING.md](REMOTE_COMMISSIONING.md) for the one-time Windows
+bootstrap, SSH fingerprint approval, central installation, and recovery flow.
 
 ---
 

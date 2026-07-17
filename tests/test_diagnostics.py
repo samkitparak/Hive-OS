@@ -26,11 +26,14 @@ def conn():
 
 def test_diagnostics_reports_services_and_machines(conn):
     result = diagnostics.build(conn, CFG, mqtt_connected=False, cv_watcher_running=False)
-    assert len(result["services"]) == 15
+    assert len(result["services"]) == 16
     assert result["summary"]["verified_maintenance_plans"] == 0
     maintenance_service = next(item for item in result["services"]
                                if item["key"] == "maintenance")
     assert maintenance_service["status"] == "needs_site_value"
+    remote_service = next(item for item in result["services"]
+                          if item["key"] == "remote_commissioning")
+    assert remote_service["status"] == "needs_site_value"
     connector_service = next(item for item in result["services"]
                              if item["key"] == "connectors")
     assert connector_service["status"] == "needs_site_value"
@@ -121,8 +124,20 @@ def test_deployment_readiness_lists_windows_assets():
     keys = {asset["key"] for asset in result["assets"]}
     assert "central_installer" in keys
     assert "machine_agent_installer" in keys
+    assert "ssh_bootstrap" in keys
     assert "install_tester" in keys
     assert "industrial_preflight" in keys
+
+    bootstrap = (CFG.parent.parent / "deploy/windows/enable-hive-ssh.ps1").read_text()
+    assert "OpenSSH.Server" in bootstrap
+    assert "administrators_authorized_keys" in bootstrap
+    assert "RemoteAddress LocalSubnet" in bootstrap
+    assert "ssh-keygen.exe -lf" in bootstrap
+
+    central = (CFG.parent.parent / "deploy/windows/install-central.ps1").read_text()
+    assert "data\\ssh\\id_ed25519" in central
+    assert "HIVE Machine Bootstrap" in central
+    assert "Start-Process -FilePath ssh-keygen.exe" in central
 
     preflight = (CFG.parent.parent / "deploy/windows/test-industrial-network.ps1").read_text()
     assert preflight.index('$Protocol -eq "mqtt_json"') < preflight.index("-not $Endpoint")

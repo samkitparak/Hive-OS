@@ -40,6 +40,11 @@ Require-Admin
 Ensure-WingetPackage "Python.Python.3.12" "python"
 Ensure-WingetPackage "OpenJS.NodeJS.LTS" "node"
 Ensure-WingetPackage "EclipseMosquitto.Mosquitto" "mosquitto"
+if (-not (Get-Command ssh-keygen.exe -ErrorAction SilentlyContinue)) {
+    $SshClient = Get-WindowsCapability -Online | Where-Object Name -Like 'OpenSSH.Client*' | Select-Object -First 1
+    if (-not $SshClient) { throw "Windows OpenSSH Client is required for remote machine setup." }
+    if ($SshClient.State -ne 'Installed') { Add-WindowsCapability -Online -Name $SshClient.Name | Out-Null }
+}
 if (-not (Get-OdbcDriver -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "ODBC Driver 18 for SQL Server*" })) {
     Write-Host "Installing Microsoft ODBC Driver 18 for SQL Server..."
     winget install --id Microsoft.msodbcsql.18 --exact --silent `
@@ -61,6 +66,28 @@ robocopy $SourceDir $InstallDir /E /XD .git .pytest_cache node_modules dist dash
     /XF *.db *.db-shm *.db-wal hive-bootstrap.token hive-agent.token | Out-Null
 New-Item -ItemType Directory -Force -Path "$InstallDir\logs" | Out-Null
 New-Item -ItemType Directory -Force -Path "$InstallDir\data" | Out-Null
+New-Item -ItemType Directory -Force -Path "$InstallDir\data\ssh" | Out-Null
+
+$SshIdentity = "$InstallDir\data\ssh\id_ed25519"
+if (-not (Test-Path -LiteralPath $SshIdentity)) {
+    $KeygenArgs = "-q -t ed25519 -N `"`" -C `"HIVE OS deployment`" -f `"$SshIdentity`""
+    $Keygen = Start-Process -FilePath ssh-keygen.exe -ArgumentList $KeygenArgs -Wait -PassThru -NoNewWindow
+    if ($Keygen.ExitCode -ne 0) { throw "Could not generate the HIVE SSH deployment identity." }
+}
+& icacls.exe "$InstallDir\data\ssh" /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" | Out-Null
+
+$MachineBootstrapDir = "$env:PUBLIC\Desktop\HIVE Machine Bootstrap"
+New-Item -ItemType Directory -Force -Path $MachineBootstrapDir | Out-Null
+Copy-Item "$InstallDir\deploy\windows\enable-hive-ssh.ps1" "$MachineBootstrapDir\" -Force
+Copy-Item "$SshIdentity.pub" "$MachineBootstrapDir\hive-deploy.pub" -Force
+@"
+Open an Administrator PowerShell window in this folder and run:
+
+Set-ExecutionPolicy -Scope Process Bypass
+.\enable-hive-ssh.ps1 -PublicKeyPath .\hive-deploy.pub
+
+Then compare the printed SSH fingerprint with HIVE Setup before approving it.
+"@ | Set-Content "$MachineBootstrapDir\README.txt" -Encoding ASCII
 
 $BootstrapTokenPath = "$InstallDir\data\hive-bootstrap.token"
 if (-not (Test-Path $BootstrapTokenPath)) {
@@ -128,3 +155,4 @@ if (Test-Path $BootstrapTokenPath) {
 }
 Write-Host "Diagnostics: open the dashboard and click Diagnostics."
 Write-Host "Logs: $InstallDir\logs"
+Write-Host "Machine SSH bootstrap folder: $MachineBootstrapDir"

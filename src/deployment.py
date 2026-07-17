@@ -24,6 +24,13 @@ INSTALL_ASSETS = [
         ),
     },
     {
+        "key": "ssh_bootstrap",
+        "label": "Machine-PC SSH bootstrap",
+        "path": "deploy/windows/enable-hive-ssh.ps1",
+        "target": "Each Maestro machine PC once",
+        "command": ".\\enable-hive-ssh.ps1 -PublicKeyPath .\\hive-deploy.pub",
+    },
+    {
         "key": "machine_agent_installer",
         "label": "Maestro machine-agent installer",
         "path": "deploy/windows/install-machine-agent.ps1",
@@ -110,7 +117,7 @@ def build(cfg_path: Path) -> dict:
     agent_ready = all(
         asset["exists"]
         for asset in assets
-        if asset["key"] in {"machine_agent_installer", "install_tester", "maestro_capture"}
+        if asset["key"] in {"ssh_bootstrap", "machine_agent_installer", "install_tester", "maestro_capture"}
     )
     cv_configured = _configured_cv_folder(cfg)
     maestro_count = _configured_maestro_count(cfg)
@@ -127,7 +134,7 @@ def build(cfg_path: Path) -> dict:
             "key": "agent_package",
             "label": "Machine-agent package present",
             "status": "ready" if agent_ready else "missing",
-            "detail": "Machine installer, Maestro capture script, and health checker exist",
+            "detail": "SSH bootstrap, machine installer, Maestro capture, and health checker exist",
         },
         {
             "key": "cv_folder",
@@ -162,8 +169,9 @@ def build(cfg_path: Path) -> dict:
             "Copy or unzip the hive-os folder onto the target Windows PC.",
             "Open PowerShell as Administrator.",
             "Run the central installer on the CV or HIVE PC.",
-            "Issue a device enrollment ZIP in Access control for each machine.",
-            "Extract its ZIP and run the included machine-agent installer on that Maestro PC.",
+            "Run the public-key-only HIVE SSH bootstrap once on each Maestro PC.",
+            "Compare and approve each machine host fingerprint in Setup.",
+            "Detect its folders and install the machine agent centrally over SSH.",
             "Open Diagnostics in the dashboard and confirm services and agents report online.",
         ],
     }

@@ -148,6 +148,7 @@ from api_models import (
     QualityCheckCreate,
     RemoteConnectionRequest,
     RemoteMachineRequest,
+    RemoteTrustRequest,
     RemnantCreate,
     RemnantUpdate,
     ResourceUnavailabilityCreate,
@@ -174,7 +175,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.19.0"
+APP_VERSION = "0.20.0"
 
 
 class ApiPrefixMiddleware:
@@ -577,6 +578,15 @@ def _principal(request: Request) -> dict:
     if not principal:
         raise HTTPException(401, "Authentication required")
     return principal
+
+
+def _principal_name(request: Request) -> str:
+    principal = getattr(request.state, "principal", None)
+    if principal:
+        return principal["display_name"]
+    if not access_control_module.auth_required():
+        return "Development Admin"
+    raise HTTPException(401, "Authentication required")
 
 
 @app.get("/auth/status")
@@ -1955,9 +1965,22 @@ def put_config(payload: SiteConfigUpdate):
 @app.get("/remote-setup/plan/{machine_key}")
 def get_remote_setup_plan(machine_key: str):
     try:
-        return remote_setup_module.plan(CONFIG_PATH, machine_key)
+        return remote_setup_module.plan(_get_conn(), CONFIG_PATH, machine_key)
     except ValueError as error:
         raise HTTPException(404, str(error)) from error
+
+
+@app.get("/remote-setup/snapshot")
+def get_remote_setup_snapshot():
+    return remote_setup_module.snapshot(_get_conn(), CONFIG_PATH)
+
+
+@app.post("/remote-setup/identity")
+def post_remote_setup_identity():
+    try:
+        return remote_setup_module.generate_identity()
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
 
 
 @app.post("/remote-setup/test-connection")
@@ -1968,39 +1991,103 @@ def post_remote_connection_test(payload: RemoteConnectionRequest):
         raise HTTPException(400, str(error)) from error
 
 
+@app.post("/remote-setup/scan-host-key")
+def post_remote_host_key_scan(payload: RemoteMachineRequest):
+    try:
+        return remote_setup_module.scan_host_key(
+            _get_conn(), CONFIG_PATH, payload.model_dump(exclude_none=True)
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/remote-setup/trust-host")
+def post_remote_host_trust(payload: RemoteTrustRequest, request: Request):
+    try:
+        return remote_setup_module.trust_host(
+            _get_conn(), CONFIG_PATH, payload.model_dump(exclude_none=True),
+            _principal_name(request),
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.delete("/remote-setup/trust-host/{machine_key}")
+def delete_remote_host_trust(machine_key: str, request: Request):
+    try:
+        return remote_setup_module.forget_host(
+            _get_conn(), machine_key, _principal_name(request)
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/remote-setup/authenticate")
+def post_remote_authentication(payload: RemoteMachineRequest, request: Request):
+    try:
+        return remote_setup_module.authenticate(
+            _get_conn(), CONFIG_PATH, payload.model_dump(exclude_none=True),
+            _principal_name(request),
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
 @app.post("/remote-setup/detect-folders")
-def post_remote_folder_detection(payload: RemoteMachineRequest):
+def post_remote_folder_detection(payload: RemoteMachineRequest, request: Request):
     try:
         return remote_setup_module.detect_folders(
-            CONFIG_PATH, payload.model_dump(exclude_none=True)
+            _get_conn(), CONFIG_PATH, payload.model_dump(exclude_none=True),
+            _principal_name(request),
         )
     except (KeyError, ValueError) as error:
         raise HTTPException(400, str(error)) from error
 
 
 @app.post("/remote-setup/install-agent")
-def post_remote_agent_install(payload: RemoteMachineRequest):
+def post_remote_agent_install(payload: RemoteMachineRequest, request: Request):
     try:
+        if payload.execute:
+            raise ValueError("Use the administrator-only live install endpoint")
         return remote_setup_module.install_agent(
-            CONFIG_PATH, payload.model_dump(exclude_none=True)
+            _get_conn(), CONFIG_PATH, payload.model_dump(exclude_none=True),
+            _principal_name(request),
+        )
+    except (KeyError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/remote-setup/install-agent/live")
+def post_remote_agent_live_install(payload: RemoteMachineRequest, request: Request):
+    try:
+        data = payload.model_dump(exclude_none=True)
+        data["execute"] = True
+        return remote_setup_module.install_agent(
+            _get_conn(), CONFIG_PATH, data, _principal_name(request),
         )
     except (KeyError, ValueError) as error:
         raise HTTPException(400, str(error)) from error
 
 
 @app.post("/remote-setup/restart-agent")
-def post_remote_agent_restart(payload: RemoteMachineRequest):
+def post_remote_agent_restart(payload: RemoteMachineRequest, request: Request):
     try:
-        return remote_setup_module.restart_agent(payload.model_dump(exclude_none=True))
-    except KeyError as error:
+        return remote_setup_module.restart_agent(
+            _get_conn(), CONFIG_PATH, payload.model_dump(exclude_none=True),
+            _principal_name(request),
+        )
+    except (KeyError, ValueError) as error:
         raise HTTPException(400, str(error)) from error
 
 
 @app.post("/remote-setup/fetch-log")
-def post_remote_agent_log(payload: RemoteMachineRequest):
+def post_remote_agent_log(payload: RemoteMachineRequest, request: Request):
     try:
-        return remote_setup_module.fetch_log(payload.model_dump(exclude_none=True))
-    except KeyError as error:
+        return remote_setup_module.fetch_log(
+            _get_conn(), CONFIG_PATH, payload.model_dump(exclude_none=True),
+            _principal_name(request),
+        )
+    except (KeyError, ValueError) as error:
         raise HTTPException(400, str(error)) from error
 
 

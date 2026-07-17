@@ -240,6 +240,9 @@ export const saveConfig = (payload) =>
 
 export const fetchRemoteSetupPlan = (machineKey) =>
   request(`/remote-setup/plan/${encodeURIComponent(machineKey)}`);
+export const forgetRemoteHost = machineKey => request(`/remote-setup/trust-host/${encodeURIComponent(machineKey)}`, {
+  method: "DELETE",
+});
 
 export const fetchOperationsSummary = () => request("/operations/summary");
 export const fetchDowntime = () => request("/downtime?status=open");

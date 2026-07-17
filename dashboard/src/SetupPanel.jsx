@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Download, FileSearch, Fingerprint, FolderSearch, KeyRound, PlugZap, RefreshCw, RotateCw, ShieldCheck, ShieldX, Terminal } from "lucide-react";
 
 function cloneConfig(config) {
   return JSON.parse(JSON.stringify(config ?? {}));
@@ -50,6 +51,11 @@ export function SetupPanel({ config, onClose, onSave, onRemoteAction }) {
   const [sshPort, setSshPort] = useState(22);
   const [remoteBusy, setRemoteBusy] = useState(false);
   const [remoteResult, setRemoteResult] = useState(null);
+  const [remotePlan, setRemotePlan] = useState(null);
+  const [scanResult, setScanResult] = useState(null);
+  const [fingerprint, setFingerprint] = useState("");
+  const [fingerprintConfirmed, setFingerprintConfirmed] = useState(false);
+  const [liveMode, setLiveMode] = useState(false);
 
   const setMqtt = (key, value) => {
     setDraft(prev => ({ ...prev, mqtt: { ...(prev.mqtt ?? {}), [key]: value } }));
@@ -96,14 +102,46 @@ export function SetupPanel({ config, onClose, onSave, onRemoteAction }) {
     setRemoteBusy(true);
     setRemoteResult(null);
     try {
-      const result = await onRemoteAction(kind, {
+      const payload = {
         machine_key: remoteMachineKey,
         host: selectedRemoteAgent?.host,
         log_folder: selectedRemoteAgent?.log_folder,
+        cnc_folder: selectedRemoteAgent?.cnc_folder,
         username: remoteUser,
         port: sshPort,
-      });
+        execute: ["folders", "install", "restart", "log"].includes(kind) && liveMode,
+      };
+      if (kind === "trust") {
+        payload.fingerprint = fingerprint;
+        payload.expected_version = remotePlan?.host_trust?.version;
+      }
+      const result = await onRemoteAction(kind, payload);
       setRemoteResult(result);
+      if (kind === "plan") setRemotePlan(result);
+      if (kind === "scan") {
+        setScanResult(result);
+        setFingerprint(result.keys?.[0]?.fingerprint ?? "");
+        setFingerprintConfirmed(false);
+      }
+      if (kind === "folders" && payload.execute) {
+        const log = result.log_candidates?.find(item => item.exists)?.path;
+        const cnc = result.cnc_candidates?.find(item => item.exists)?.path;
+        const index = (draft.maestro_agents ?? []).findIndex(agent => agent.machine_key === remoteMachineKey);
+        if (index >= 0 && (log || cnc)) {
+          setDraft(current => ({
+            ...current,
+            maestro_agents: updateListItem(
+              current.maestro_agents ?? [], index, "log_folder", log ?? current.maestro_agents[index].log_folder
+            ).map((agent, agentIndex) => agentIndex === index && cnc ? { ...agent, cnc_folder: cnc } : agent),
+          }));
+          setMessage("Detected machine folders added to the setup draft.");
+        }
+      }
+      if (["identity", "trust", "forget", "install"].includes(kind)) {
+        const refreshed = await onRemoteAction("plan", payload);
+        setRemotePlan(refreshed);
+        if (kind === "forget") setLiveMode(false);
+      }
     } catch (error) {
       setRemoteResult({ status: "error", detail: error.message || "Remote setup action failed" });
     } finally {
@@ -117,7 +155,7 @@ export function SetupPanel({ config, onClose, onSave, onRemoteAction }) {
          onClick={onClose}>
       <form style={{ width: "min(1180px, 100%)", maxHeight: "90vh", overflowY: "auto",
                      background: "#0d1117", border: "1px solid #374151", borderRadius: 8,
-                     padding: 20 }} onSubmit={submit} onClick={event => event.stopPropagation()}>
+                     padding: 20, boxSizing: "border-box" }} onSubmit={submit} onClick={event => event.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16,
                       alignItems: "center", marginBottom: 18 }}>
           <div>
@@ -132,7 +170,7 @@ export function SetupPanel({ config, onClose, onSave, onRemoteAction }) {
         </div>
 
         {message && (
-          <div style={{ color: message.startsWith("Saved") ? "#22c55e" : "#ef4444",
+          <div style={{ color: /^(Saved|Detected)/.test(message) ? "#22c55e" : "#ef4444",
                         fontSize: 11, marginBottom: 12, overflowWrap: "anywhere" }}>
             {message}
           </div>
@@ -191,15 +229,27 @@ export function SetupPanel({ config, onClose, onSave, onRemoteAction }) {
         <div style={{ marginBottom: 16 }}>
           <Section title="Remote Agent Setup">
             <div style={{ border: "1px solid #1f2937", borderRadius: 6, padding: 12 }}>
-              <div style={{ color: "#6b7280", fontSize: 10, lineHeight: 1.5, marginBottom: 10 }}>
-                Safe scaffold: connection testing is real, while folder discovery and machine changes
-                remain dry-run previews until an SSH or WinRM adapter is enabled. Credentials are not stored.
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+                <span style={{ ...statusStyle, color: remotePlan?.identity?.status === "ready" ? "#86efac" : "#fbbf24" }}>
+                  Key {remotePlan?.identity?.status ?? "unchecked"}
+                </span>
+                <span style={{ ...statusStyle, color: remotePlan?.host_trust?.status === "trusted" ? "#86efac" : "#fbbf24" }}>
+                  Host {remotePlan?.host_trust?.status ?? "untrusted"}
+                </span>
+                <span style={{ ...statusStyle, color: liveMode ? "#fca5a5" : "#93c5fd" }}>
+                  {liveMode ? "Live SSH" : "Preview"}
+                </span>
               </div>
               <div style={{ ...formGridStyle, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
                 <Field label="Machine">
                   <select value={remoteMachineKey} onChange={event => {
                     setRemoteMachineKey(event.target.value);
                     setRemoteResult(null);
+                    setRemotePlan(null);
+                    setScanResult(null);
+                    setFingerprint("");
+                    setFingerprintConfirmed(false);
+                    setLiveMode(false);
                   }} style={inputStyle}>
                     {(draft.maestro_agents ?? []).map(agent => (
                       <option key={agent.machine_key} value={agent.machine_key}>{agent.label}</option>
@@ -220,24 +270,61 @@ export function SetupPanel({ config, onClose, onSave, onRemoteAction }) {
                 </Field>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
-                <button type="button" disabled={remoteBusy} onClick={() => runRemote("plan")} style={buttonStyle}>
-                  View plan
+                <button type="button" disabled={remoteBusy} onClick={() => runRemote("plan")} style={actionButtonStyle}>
+                  <RefreshCw size={13} /> Status
                 </button>
-                <button type="button" disabled={remoteBusy} onClick={() => runRemote("test")} style={buttonStyle}>
-                  Test SSH port
+                <button type="button" disabled={remoteBusy} onClick={() => runRemote("identity")} style={actionButtonStyle}>
+                  <KeyRound size={13} /> Generate key
                 </button>
-                <button type="button" disabled={remoteBusy} onClick={() => runRemote("folders")} style={buttonStyle}>
-                  Detect folders
+                <button type="button" disabled={remoteBusy || !selectedRemoteAgent?.host} onClick={() => runRemote("test")} style={actionButtonStyle}>
+                  <PlugZap size={13} /> Test port
                 </button>
-                <button type="button" disabled={remoteBusy} onClick={() => runRemote("install")} style={buttonStyle}>
-                  Preview install
+                <button type="button" disabled={remoteBusy || !selectedRemoteAgent?.host} onClick={() => runRemote("scan")} style={actionButtonStyle}>
+                  <Fingerprint size={13} /> Scan fingerprint
                 </button>
-                <button type="button" disabled={remoteBusy} onClick={() => runRemote("restart")} style={buttonStyle}>
-                  Preview restart
+                <button type="button" disabled={remoteBusy || !remotePlan?.ready_for_live_execution} onClick={() => runRemote("auth")} style={actionButtonStyle}>
+                  <Terminal size={13} /> Authenticate
                 </button>
-                <button type="button" disabled={remoteBusy} onClick={() => runRemote("log")} style={buttonStyle}>
-                  Preview log fetch
+              </div>
+              {scanResult?.keys?.length > 0 && <div style={{ borderTop: "1px solid #1f2937", marginTop: 12, paddingTop: 10 }}>
+                <div style={labelStyle}>Machine host fingerprint</div>
+                <div style={{ display: "grid", gap: 6, marginTop: 7 }}>
+                  {scanResult.keys.map(key => <label key={key.fingerprint} style={{ display: "flex", gap: 8, alignItems: "center", color: "#d1d5db", fontSize: 10, minWidth: 0 }}>
+                    <input type="radio" name="host-fingerprint" checked={fingerprint === key.fingerprint} onChange={() => { setFingerprint(key.fingerprint); setFingerprintConfirmed(false); }} />
+                    <code style={{ overflowWrap: "anywhere" }}>{key.key_type} {key.fingerprint}</code>
+                  </label>)}
+                </div>
+                <label style={{ display: "flex", gap: 8, alignItems: "center", color: fingerprintConfirmed ? "#86efac" : "#fbbf24", fontSize: 10, marginTop: 9 }}>
+                  <input type="checkbox" checked={fingerprintConfirmed} onChange={event => setFingerprintConfirmed(event.target.checked)} />
+                  Fingerprint matches the machine screen
+                </label>
+                <button type="button" disabled={remoteBusy || !remoteUser || !fingerprint || !fingerprintConfirmed} onClick={() => runRemote("trust")}
+                        style={{ ...actionButtonStyle, marginTop: 8, opacity: !remoteUser || !fingerprintConfirmed ? .45 : 1 }}>
+                  <ShieldCheck size={13} /> Trust host
                 </button>
+              </div>}
+              <div style={{ borderTop: "1px solid #1f2937", marginTop: 12, paddingTop: 10 }}>
+                <label style={{ display: "inline-flex", gap: 8, alignItems: "center", color: liveMode ? "#fca5a5" : "#9ca3af", fontSize: 10 }}>
+                  <input type="checkbox" checked={liveMode} disabled={!remotePlan?.ready_for_live_execution}
+                         onChange={event => setLiveMode(event.target.checked)} />
+                  Execute approved SSH actions
+                </label>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 9 }}>
+                  <button type="button" disabled={remoteBusy} onClick={() => runRemote("folders")} style={actionButtonStyle}>
+                    <FolderSearch size={13} /> {liveMode ? "Detect folders" : "Preview folders"}
+                  </button>
+                  <button type="button" disabled={remoteBusy} onClick={() => runRemote("install")} style={actionButtonStyle}>
+                    <Download size={13} /> {liveMode ? "Install agent" : "Preview install"}
+                  </button>
+                  <button type="button" disabled={remoteBusy || !liveMode} onClick={() => runRemote("restart")} style={actionButtonStyle}>
+                    <RotateCw size={13} /> Restart
+                  </button>
+                  <button type="button" disabled={remoteBusy || !liveMode} onClick={() => runRemote("log")} style={actionButtonStyle}>
+                    <FileSearch size={13} /> Fetch log
+                  </button>
+                  {remotePlan?.host_trust?.status === "trusted" && <button type="button" disabled={remoteBusy || liveMode} onClick={() => runRemote("forget")}
+                    style={{ ...actionButtonStyle, color: "#fca5a5" }}><ShieldX size={13} /> Revoke trust</button>}
+                </div>
               </div>
               {remoteBusy && <div style={{ color: "#60a5fa", fontSize: 11, marginTop: 10 }}>Working...</div>}
               {remoteResult && (
@@ -345,6 +432,7 @@ const formGridStyle = {
 
 const inputStyle = {
   width: "100%",
+  boxSizing: "border-box",
   minHeight: 32,
   background: "#111827",
   border: "1px solid #374151",
@@ -362,6 +450,20 @@ const buttonStyle = {
   borderRadius: 6,
   fontSize: 11,
   cursor: "pointer",
+};
+
+const actionButtonStyle = {
+  ...buttonStyle,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 6,
+};
+
+const statusStyle = {
+  fontSize: 9,
+  fontWeight: 800,
+  textTransform: "uppercase",
 };
 
 const cardStyle = {

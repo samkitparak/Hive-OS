@@ -247,6 +247,13 @@ def test_remote_plain_http_rejects_credentials(conn, monkeypatch):
     ) is False
 
 
+def test_remote_install_and_host_trust_require_administrator():
+    assert access_control.required_permissions("POST", "/remote-setup/install-agent") == ("commission",)
+    assert access_control.required_permissions("POST", "/remote-setup/install-agent/live") == ("admin",)
+    assert access_control.required_permissions("POST", "/remote-setup/trust-host") == ("admin",)
+    assert access_control.required_permissions("DELETE", "/remote-setup/trust-host/morbidelli_cx100") == ("admin",)
+
+
 def test_failed_mutation_rolls_back_before_audit(conn, monkeypatch):
     session = _bootstrap_direct(conn, now=datetime.now(timezone.utc))
     monkeypatch.setenv("HIVE_AUTH_MODE", "required")

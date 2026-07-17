@@ -17,6 +17,7 @@ import mqtt_security
 import forecasting
 import recovery
 import tooling
+import remote_setup
 
 PLACEHOLDER_HOSTS = {
     *(f"192.168.1.{number}" for number in range(51, 55)),
@@ -189,6 +190,8 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
     recovery_state = recovery.snapshot(conn)
     tooling_state = tooling.snapshot(conn)
     tooling_summary = tooling_state["summary"]
+    remote_state = remote_setup.snapshot(conn, cfg_path)
+    remote_summary = remote_state["summary"]
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -203,6 +206,9 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "registered_tools": tooling_summary["registered"],
             "usable_tools": tooling_summary["usable"],
             "tools_service_due": tooling_summary["service_due"] + tooling_summary["expired"] + tooling_summary["broken"],
+            "ssh_trusted_hosts": remote_summary["trusted_hosts"],
+            "ssh_installed_hosts": remote_summary["installed_hosts"],
+            "ssh_failed_runs": remote_summary["failed_runs"],
             "verified_connectors": connector_verified,
             "enabled_connectors": connector_enabled,
             "verified_industrial_profiles": industrial_verified,
@@ -255,6 +261,18 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
                  "offline" if cv_configured else "not_configured"
              ),
              "detail": cv_folder or "No export folder configured"},
+            {"key": "remote_commissioning", "name": "Remote machine commissioning",
+             "status": "offline" if remote_summary["failed_runs"] else (
+                 "ready" if remote_state["identity"]["status"] == "ready"
+                 and remote_summary["trusted_hosts"] == remote_summary["configured_machines"]
+                 else "needs_site_value"
+             ),
+             "detail": (
+                 f"SSH identity {remote_state['identity']['status']}; "
+                 f"{remote_summary['trusted_hosts']}/{remote_summary['configured_machines']} hosts trusted; "
+                 f"{remote_summary['installed_hosts']} successful installs; "
+                 f"{remote_summary['failed_runs']} failed runs"
+             )},
             {"key": "maintenance", "name": "Preventive maintenance",
              "status": "ready" if maintenance_ready else "needs_site_value",
              "detail": (

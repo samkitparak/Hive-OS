@@ -12,6 +12,23 @@ Each item has the file to edit and exactly what to do.
 - [ ] Update `config/machines.yaml` → `mqtt.broker_host` with real broker IP
 - [ ] Confirm factory LAN allows Modbus TCP (port 502) and mutual-TLS MQTT (port 8883)
 
+## Remote Machine Bootstrap (Day 1)
+
+Dashboard -> **Setup** -> **Remote Agent Setup**
+
+- [ ] Copy the installer-created `HIVE Machine Bootstrap` folder to an approved USB
+- [ ] On each Maestro PC, run `enable-hive-ssh.ps1` once as Administrator
+- [ ] Confirm the OpenSSH firewall rule is limited to `LocalSubnet`
+- [ ] Enter the static IP and existing local Administrator username in HIVE
+- [ ] Scan the host key and compare its SHA-256 fingerprint with the machine screen
+- [ ] Approve only the matching fingerprint; never approve from the scan alone
+- [ ] Authenticate and confirm the returned Windows context reports `is_admin: true`
+- [ ] Run live folder detection and save the confirmed log/CNC paths
+- [ ] Install the agent centrally, fetch its log, and confirm its MQTT heartbeat
+- [ ] Revoke trust and investigate any unexpected host-key change
+
+See `REMOTE_COMMISSIONING.md` for the exact secure workflow.
+
 ## Identity and Access (Day 1)
 
 - [ ] On the central PC, use the installer-generated token to create the first administrator

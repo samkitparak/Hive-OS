@@ -291,8 +291,19 @@ class RemoteMachineRequest(RequestModel):
     machine_key: str = Field(min_length=1, pattern=r"^[a-z0-9_]+$")
     host: Optional[str] = None
     log_folder: Optional[str] = None
+    cnc_folder: Optional[str] = None
     username: Optional[str] = None
     port: int = Field(default=22, ge=1, le=65535)
+    execute: bool = False
+
+
+class RemoteTrustRequest(RequestModel):
+    machine_key: str = Field(min_length=1, pattern=r"^[a-z0-9_]+$")
+    host: Optional[str] = None
+    username: str = Field(min_length=1, max_length=120)
+    port: int = Field(default=22, ge=1, le=65535)
+    fingerprint: str = Field(min_length=8, max_length=160, pattern=r"^SHA256:")
+    expected_version: Optional[int] = Field(default=None, ge=1)
 
 
 class RemoteConnectionRequest(RequestModel):

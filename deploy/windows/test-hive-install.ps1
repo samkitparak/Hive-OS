@@ -80,6 +80,7 @@ $checks += Test-ProtectedHttp "API MQTT trust" "http://$HostName`:$ApiPort/api/m
 $checks += Test-ProtectedHttp "API warehouse" "http://$HostName`:$ApiPort/api/inventory/snapshot"
 $checks += Test-ProtectedHttp "API procurement" "http://$HostName`:$ApiPort/api/procurement/snapshot"
 $checks += Test-ProtectedHttp "API tooling lifecycle" "http://$HostName`:$ApiPort/api/tooling"
+$checks += Test-ProtectedHttp "API remote commissioning" "http://$HostName`:$ApiPort/api/remote-setup/snapshot"
 $checks += Test-Port "MQTT" $HostName $MqttPort
 
 $odbc = Get-OdbcDriver -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "ODBC Driver 18 for SQL Server*" }
@@ -109,6 +110,15 @@ if (Test-Path "C:\HIVE-OS") {
 
 if (Test-Path "C:\HIVE-OS\logs") {
     Write-Host "[OK] C:\HIVE-OS\logs exists" -ForegroundColor Green
+}
+
+if ((Test-Path "C:\HIVE-OS\data\ssh\id_ed25519") -and
+    (Test-Path "C:\HIVE-OS\data\ssh\id_ed25519.pub")) {
+    Write-Host "[OK] HIVE SSH deployment identity exists" -ForegroundColor Green
+    $checks += $true
+} else {
+    Write-Host "[FAIL] HIVE SSH deployment identity is missing" -ForegroundColor Red
+    $checks += $false
 }
 
 if ((Test-Path "C:\HIVE-OS\data\mqtt-pki\ca.key") -and

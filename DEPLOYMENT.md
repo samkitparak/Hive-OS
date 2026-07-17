@@ -35,6 +35,8 @@ The installer:
 - Creates a random, one-time administrator bootstrap token
 - Creates a public-desktop HIVE OS shortcut
 - Writes logs to `C:\HIVE-OS\logs`
+- Generates a protected Ed25519 machine-deployment identity
+- Places a public-key-only **HIVE Machine Bootstrap** folder on the desktop
 
 The installer prints the one-time administrator token. Open the desktop HIVE OS
 shortcut on the central PC, create the first administrator, and then store the
@@ -77,6 +79,22 @@ and maps each certificate identity to one machine topic. The private certificate
 authority key is restricted to Administrators and SYSTEM on the central PC.
 
 ## Maestro Machine PCs
+
+When SSH is not already commissioned, copy the installer-created **HIVE Machine
+Bootstrap** folder to the machine PC once and run locally as Administrator:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\enable-hive-ssh.ps1 -PublicKeyPath .\hive-deploy.pub
+```
+
+Compare the printed machine fingerprint with **Setup > Remote Agent Setup**,
+approve it, authenticate, detect the real folders, and select **Install agent**.
+HIVE then issues the MQTT enrollment, transfers it over strict SCP, runs the
+installer, removes temporary package files, and records the result centrally.
+
+The manual enrollment-ZIP workflow below remains available as an offline repair
+path.
 
 In HIVE, open **Access control > Device certificates**, choose a machine, and
 download its enrollment ZIP. Extract that ZIP on the machine PC and run:
@@ -137,11 +155,14 @@ Open the dashboard and click **Setup** first to fill in site-specific values:
 Every save writes a timestamped backup under `config/backups/` and replaces the
 active YAML atomically.
 
-The **Remote Agent Setup** area provides a safe deployment scaffold. It can
-probe whether SSH port 22 is reachable and preview folder discovery, agent
-installation, restart, and log-fetch actions. Remote command execution and
-credential persistence remain disabled until an SSH or WinRM adapter is chosen
-and enabled explicitly.
+The **Remote Agent Setup** area defaults to preview. Live execution becomes
+available only after the central key exists and an administrator has physically
+verified and approved that machine's SSH fingerprint. Authentication, folder
+discovery, installation, restart, and log retrieval are then key-only and
+audited. Credentials are never accepted or persisted by the setup API.
+
+See `REMOTE_COMMISSIONING.md` for trust, failure cleanup, host-key rotation, and
+the exact site sequence.
 
 Then open **Diagnostics**. The view shows both live system health and deployment
 package readiness:

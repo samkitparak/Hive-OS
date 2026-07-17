@@ -327,6 +327,9 @@ def required_permissions(method: str, path: str) -> tuple[str, ...]:
         return ("commission",)
     if path.startswith("/alerts"):
         return ("alerts", "supervise")
+    if path in {"/remote-setup/identity", "/remote-setup/trust-host", "/remote-setup/install-agent/live"} \
+            or (method == "DELETE" and path.startswith("/remote-setup/trust-host/")):
+        return ("admin",)
     if path.startswith(("/config", "/remote-setup", "/industrial", "/cycle-times")):
         return ("commission",)
     if path == "/commissioning/log/analyze":

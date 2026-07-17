@@ -72,6 +72,12 @@ MQTT transport is independent of HTTP access control. The bundled anonymous
 LAN listener is for controlled commissioning only; broker identities, ACLs, and
 TLS must be commissioned before the network includes untrusted devices.
 
+Remote machine setup uses a separate SSH trust boundary. Generating the central
+deployment identity, approving or revoking a machine host key, and executing a
+live agent install require an administrator. Other SSH diagnostics require the
+commissioning permission. HIVE accepts no SSH passwords and stores no SSH
+private key in SQLite. See `REMOTE_COMMISSIONING.md`.
+
 ## Standards Basis
 
 - NIST SP 800-63B-4, Digital Identity Guidelines: https://doi.org/10.6028/NIST.SP.800-63b-4

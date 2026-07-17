@@ -730,6 +730,45 @@ CREATE TABLE IF NOT EXISTS tool_quality_links (
     created_at              TEXT NOT NULL
 );
 
+-- Approved SSH identities for machine-PC commissioning. Host public keys and
+-- fingerprints are configuration evidence, not credentials. The HIVE private
+-- deployment key remains on disk with OS ACLs and is never stored in SQLite.
+CREATE TABLE IF NOT EXISTS remote_setup_hosts (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    machine_id          INTEGER NOT NULL UNIQUE REFERENCES machines(id),
+    host                TEXT NOT NULL,
+    port                INTEGER NOT NULL DEFAULT 22 CHECK(port BETWEEN 1 AND 65535),
+    username            TEXT NOT NULL,
+    host_key_type       TEXT NOT NULL,
+    host_key_sha256     TEXT NOT NULL,
+    known_hosts_line    TEXT NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'trusted',
+    trusted_by          TEXT NOT NULL,
+    trusted_at          TEXT NOT NULL,
+    last_connected_at   TEXT,
+    last_error          TEXT,
+    version             INTEGER NOT NULL DEFAULT 1,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS remote_setup_runs (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    machine_id          INTEGER NOT NULL REFERENCES machines(id),
+    action              TEXT NOT NULL,
+    mode                TEXT NOT NULL,
+    status              TEXT NOT NULL,
+    host                TEXT NOT NULL,
+    port                INTEGER NOT NULL,
+    username            TEXT,
+    command_summary     TEXT NOT NULL,
+    exit_code           INTEGER,
+    stdout_tail         TEXT,
+    stderr_tail         TEXT,
+    actor               TEXT NOT NULL,
+    started_at          TEXT NOT NULL,
+    completed_at        TEXT
+);
+
 CREATE TABLE IF NOT EXISTS machine_resource_profiles (
     machine_id          INTEGER PRIMARY KEY REFERENCES machines(id),
     labor_role_id       INTEGER REFERENCES labor_roles(id),
@@ -1882,6 +1921,8 @@ CREATE INDEX IF NOT EXISTS idx_tool_usage_tool_time ON tool_usage_events(tool_id
 CREATE INDEX IF NOT EXISTS idx_tool_usage_machine_event ON tool_usage_events(machine_event_id);
 CREATE INDEX IF NOT EXISTS idx_tool_program_machine_file ON tool_program_mappings(machine_id, cnc_file, verified);
 CREATE INDEX IF NOT EXISTS idx_tool_service_tool_time ON tool_service_records(tool_id, performed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_remote_setup_runs_machine_time ON remote_setup_runs(machine_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_remote_setup_runs_status_time ON remote_setup_runs(status, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_resource_unavailability_window ON resource_unavailability(resource_type, resource_key, starts_at, ends_at);
 CREATE INDEX IF NOT EXISTS idx_resource_change_events_key_ts ON resource_change_events(resource_type, resource_key, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_execution_jobs_machine_state_sequence ON execution_jobs(machine_id, state, dispatch_sequence);
