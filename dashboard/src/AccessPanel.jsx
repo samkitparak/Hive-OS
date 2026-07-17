@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { Check, Clipboard, KeyRound, LogOut, RefreshCw, Shield, Trash2, UserPlus, X } from "lucide-react";
+import { Check, Clipboard, Download, KeyRound, LockKeyhole, LogOut, RefreshCw, Shield, ShieldCheck, Trash2, UserPlus, X } from "lucide-react";
 import {
   changeAuthPassword, createAuthApiKey, createAuthUser, fetchAuthApiKeys, fetchAuthEvents,
-  fetchAuthUsers, logoutAuth, resetAuthPassword, revokeAuthApiKey, updateAuthUser,
+  fetchAuthUsers, fetchMachines, fetchMqttSecurity, logoutAuth,
+  downloadMqttEnrollment, resetAuthPassword, revokeAuthApiKey, revokeMqttEnrollment, updateAuthUser,
 } from "./api";
 
 const input = { width: "100%", minWidth: 0, minHeight: 33, background: "#0d1117", border: "1px solid #374151",
@@ -98,6 +99,44 @@ function KeysTab({ data, onRefresh }) {
   </div>;
 }
 
+function CertificatesTab({ data, onRefresh }) {
+  const security = data.mqtt;
+  const [machineKey, setMachineKey] = useState(data.machines[0]?.machine_key || "");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const run = async action => { setBusy(true); setMessage(""); try { await action(); await onRefresh(); }
+    catch (error) { setMessage(error.message); } finally { setBusy(false); } };
+  const issue = () => run(() => downloadMqttEnrollment({ machine_key: machineKey, validity_days: 397 }));
+  const revoke = enrollment => run(() => revokeMqttEnrollment(enrollment.id, { reason: "Revoked by administrator" }));
+  if (!security.initialized) return <div style={{ display: "grid", gap: 13, maxWidth: 680 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}><LockKeyhole size={17} color="#60a5fa" />
+      <div><h3 style={{ fontSize: 13 }}>Machine trust is not provisioned</h3><div style={{ color: "#9ca3af", fontSize: 10, marginTop: 3 }}>
+        Run install-central.ps1 on the central PC to create the site authority and secure broker identity.</div></div></div>
+    {message && <div style={{ color: "#f87171", fontSize: 10 }}>{message}</div>}
+  </div>;
+  return <div style={{ minWidth: 0 }}>
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+      <div><div style={{ display: "flex", gap: 7, alignItems: "center", fontSize: 12, fontWeight: 800 }}><ShieldCheck size={16} color="#22c55e" /> Mutual TLS active</div>
+        <div style={{ color: "#6b7280", fontSize: 9, marginTop: 4 }}>{security.broker_host}:{security.broker_port} · {security.active_enrollments} active · {security.expiring_within_30_days} expiring soon</div></div>
+      {security.broker_restart_required && <div style={{ border: "1px solid #92400e", background: "#451a03", color: "#fdba74", borderRadius: 5, padding: "7px 9px", fontSize: 9 }}>Run restart-hive-mqtt.ps1 on the central PC</div>}
+    </div>
+    <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap", marginTop: 16 }}>
+      <div style={{ flex: "1 1 260px" }}><Field name="Machine"><select value={machineKey} onChange={event => setMachineKey(event.target.value)} style={input}>
+        <option value="">Select a machine</option>{data.machines.map(machine => <option key={machine.machine_key} value={machine.machine_key}>{machine.name}</option>)}</select></Field></div>
+      <button disabled={busy || !machineKey} onClick={issue} style={{ ...button, opacity: busy || !machineKey ? .45 : 1 }}><Download size={14} /> Issue enrollment ZIP</button>
+    </div>
+    <div style={{ marginTop: 16 }}>{security.enrollments.map(enrollment => <div key={enrollment.id} style={{ display: "flex", justifyContent: "space-between", gap: 12,
+      alignItems: "center", borderTop: "1px solid #263244", padding: "10px 0" }}>
+      <div><div style={{ fontSize: 11, fontWeight: 800 }}>{enrollment.machine_name}</div><div style={{ color: "#6b7280", fontSize: 9, marginTop: 3 }}>
+        {enrollment.status} · expires {new Date(enrollment.expires_at).toLocaleDateString()} · {enrollment.certificate_sha256.slice(0, 16)}…</div></div>
+      <button disabled={busy || enrollment.status !== "active"} onClick={() => revoke(enrollment)} style={{ ...button, color: "#fca5a5", opacity: enrollment.status === "active" ? 1 : .45 }}>
+        <Trash2 size={14} /> {enrollment.status === "active" ? "Revoke" : "Revoked"}</button>
+    </div>)}</div>
+    {!security.enrollments.length && <div style={{ color: "#6b7280", fontSize: 10, marginTop: 15 }}>No machine certificates issued yet.</div>}
+    {message && <div style={{ color: "#f87171", fontSize: 10, marginTop: 8 }}>{message}</div>}
+  </div>;
+}
+
 function AccountTab({ auth, onLogout }) {
   const [form, setForm] = useState({ current_password: "", new_password: "", confirm: "" });
   const [message, setMessage] = useState("");
@@ -131,13 +170,13 @@ function AuditTab({ events }) {
 export function AccessPanel({ auth, onClose, onExpired }) {
   const admin = auth.user.role === "admin";
   const [tab, setTab] = useState(admin ? "users" : "account");
-  const [data, setData] = useState({ users: [], roles: [], api_keys: [], events: [] });
+  const [data, setData] = useState({ users: [], roles: [], api_keys: [], events: [], machines: [], mqtt: { initialized: false, enrollments: [] } });
   const [message, setMessage] = useState("");
   const refresh = useCallback(async () => {
     if (!admin) return;
     try {
-      const [users, keys, audit] = await Promise.all([fetchAuthUsers(), fetchAuthApiKeys(), fetchAuthEvents()]);
-      setData({ users: users.users, roles: users.roles, api_keys: keys.api_keys, events: audit.events });
+      const [users, keys, audit, machines, mqtt] = await Promise.all([fetchAuthUsers(), fetchAuthApiKeys(), fetchAuthEvents(), fetchMachines(), fetchMqttSecurity()]);
+      setData({ users: users.users, roles: users.roles, api_keys: keys.api_keys, events: audit.events, machines, mqtt });
     } catch (error) { setMessage(error.message); }
   }, [admin]);
   useEffect(() => {
@@ -145,7 +184,7 @@ export function AccessPanel({ auth, onClose, onExpired }) {
     return () => window.clearTimeout(timer);
   }, [refresh]);
   const signOut = async () => { try { await logoutAuth(); } finally { onExpired(); } };
-  const tabs = admin ? [["users", "Users"], ["keys", "Machine keys"], ["audit", "Access audit"], ["account", "My account"]]
+  const tabs = admin ? [["users", "Users"], ["keys", "HTTP keys"], ["certificates", "Device certificates"], ["audit", "Access audit"], ["account", "My account"]]
     : [["account", "My account"]];
   return <div style={{ position: "fixed", inset: 0, zIndex: 1150, background: "rgba(2,6,23,.88)", display: "grid", placeItems: "center", padding: 18 }}>
     <div style={{ width: "min(1100px,96vw)", maxHeight: "92vh", overflow: "hidden", display: "flex", flexDirection: "column",
@@ -161,6 +200,7 @@ export function AccessPanel({ auth, onClose, onExpired }) {
       <main style={{ overflow: "auto", padding: 16, minWidth: 0 }}>
         {tab === "users" && <UsersTab auth={auth} data={data} onRefresh={refresh} />}
         {tab === "keys" && <KeysTab data={data} onRefresh={refresh} />}
+        {tab === "certificates" && <CertificatesTab data={data} onRefresh={refresh} />}
         {tab === "audit" && <AuditTab events={data.events} />}
         {tab === "account" && <AccountTab auth={auth} onLogout={signOut} />}
         {message && <div style={{ color: "#f87171", fontSize: 10, marginTop: 10 }}>{message}</div>}

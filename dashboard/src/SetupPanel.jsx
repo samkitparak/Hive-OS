@@ -22,17 +22,17 @@ function Section({ title, children }) {
   );
 }
 
-function TextInput({ value, onChange, placeholder }) {
+function TextInput({ value, onChange, placeholder, disabled = false }) {
   return (
     <input value={value ?? ""} onChange={event => onChange(event.target.value)}
-           placeholder={placeholder} style={inputStyle} />
+           placeholder={placeholder} disabled={disabled} style={{ ...inputStyle, opacity: disabled ? .55 : 1 }} />
   );
 }
 
-function NumberInput({ value, onChange, placeholder }) {
+function NumberInput({ value, onChange, placeholder, disabled = false }) {
   return (
     <input type="number" value={value ?? ""} onChange={event => onChange(event.target.value === "" ? "" : Number(event.target.value))}
-           placeholder={placeholder} style={inputStyle} />
+           placeholder={placeholder} disabled={disabled} style={{ ...inputStyle, opacity: disabled ? .55 : 1 }} />
   );
 }
 
@@ -151,17 +151,17 @@ export function SetupPanel({ config, onClose, onSave, onRemoteAction }) {
               <Field label="MQTT broker host">
                 <TextInput value={draft.mqtt?.broker_host}
                            onChange={value => setMqtt("broker_host", value)}
-                           placeholder="Central PC IP" />
+                           placeholder="Central PC IP" disabled={draft.mqtt?.require_tls} />
               </Field>
               <Field label="MQTT broker port">
                 <NumberInput value={draft.mqtt?.broker_port}
                              onChange={value => setMqtt("broker_port", value)}
-                             placeholder="1883" />
+                             placeholder="8883" disabled={draft.mqtt?.require_tls} />
               </Field>
               <Field label="Topic prefix">
                 <TextInput value={draft.mqtt?.topic_prefix}
                            onChange={value => setMqtt("topic_prefix", value)}
-                           placeholder="hive/machines" />
+                           placeholder="hive/machines" disabled={draft.mqtt?.require_tls} />
               </Field>
             </div>
           </Section>

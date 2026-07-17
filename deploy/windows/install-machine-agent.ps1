@@ -2,6 +2,7 @@
 # Copy the HIVE OS folder to the machine PC, then run as Administrator.
 
 param(
+    [string]$EnrollmentBundle,
     [string]$MachineKey,
     [string]$BrokerHost,
     [string]$LogFolder,
@@ -11,7 +12,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 $InstallDir = "C:\HIVE-Agent"
-$SourceDir = (Resolve-Path "$PSScriptRoot\..\..").Path
+$SourceDir = if (Test-Path "$PSScriptRoot\payload") { "$PSScriptRoot\payload" } else { (Resolve-Path "$PSScriptRoot\..\..").Path }
+$BundleRoot = $null
+$TemporaryBundleRoot = $null
 
 function Require-Admin {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -40,6 +43,15 @@ function ConvertFrom-HiveSecureString([Security.SecureString]$Value) {
     }
 }
 
+function Select-EnrollmentBundle {
+    Add-Type -AssemblyName System.Windows.Forms
+    $Dialog = New-Object System.Windows.Forms.OpenFileDialog
+    $Dialog.Title = "Select the HIVE machine enrollment ZIP"
+    $Dialog.Filter = "HIVE enrollment (*.zip)|*.zip"
+    if ($Dialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { return $null }
+    return $Dialog.FileName
+}
+
 Require-Admin
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
     winget install --id Python.Python.3.12 --silent --accept-package-agreements --accept-source-agreements
@@ -47,13 +59,26 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
         [Environment]::GetEnvironmentVariable("Path", "User")
 }
 
-if ([string]::IsNullOrWhiteSpace($MachineKey)) {
-    $MachineKey = Read-Host "Machine key, for example morbidelli_cx100"
+if (Test-Path "$PSScriptRoot\enrollment.json") {
+    $BundleRoot = $PSScriptRoot
+} else {
+    if ([string]::IsNullOrWhiteSpace($EnrollmentBundle)) { $EnrollmentBundle = Select-EnrollmentBundle }
+    if ([string]::IsNullOrWhiteSpace($EnrollmentBundle) -or -not (Test-Path $EnrollmentBundle)) {
+        throw "A HIVE enrollment ZIP is required. Issue one in Access control > Device certificates."
+    }
+    $TemporaryBundleRoot = Join-Path $env:TEMP "hive-enrollment-$([Guid]::NewGuid().ToString('N'))"
+    Expand-Archive -Path $EnrollmentBundle -DestinationPath $TemporaryBundleRoot
+    $BundleRoot = $TemporaryBundleRoot
 }
+$ManifestPath = Join-Path $BundleRoot "enrollment.json"
+if (-not (Test-Path $ManifestPath)) { throw "The selected ZIP is not a HIVE enrollment bundle." }
+$Manifest = Get-Content $ManifestPath -Raw | ConvertFrom-Json
+if ($Manifest.format -ne "hive-mqtt-enrollment-v1") { throw "Unsupported HIVE enrollment format." }
+if ([string]::IsNullOrWhiteSpace($MachineKey)) { $MachineKey = $Manifest.machine_key }
+if ([string]::IsNullOrWhiteSpace($BrokerHost)) { $BrokerHost = $Manifest.broker_host }
+$BrokerPort = [int]$Manifest.broker_port
+
 if ($MachineKey -notmatch '^[a-z0-9_]+$') { throw "Invalid machine key: $MachineKey" }
-if ([string]::IsNullOrWhiteSpace($BrokerHost)) {
-    $BrokerHost = Read-Host "Central HIVE/CV PC IP address"
-}
 if ([string]::IsNullOrWhiteSpace($BrokerHost)) { throw "Central HIVE IP is required." }
 if ([string]::IsNullOrWhiteSpace($LogFolder)) { $LogFolder = Find-MaestroLogFolder }
 if ([string]::IsNullOrWhiteSpace($LogFolder)) {
@@ -63,24 +88,35 @@ if (-not (Test-Path $LogFolder)) {
     throw "Maestro log folder does not exist: $LogFolder"
 }
 
-$MqttTest = Test-NetConnection -ComputerName $BrokerHost -Port 1883 -WarningAction SilentlyContinue
+$MqttTest = Test-NetConnection -ComputerName $BrokerHost -Port $BrokerPort -WarningAction SilentlyContinue
 if (-not $MqttTest.TcpTestSucceeded) {
-    throw "Cannot reach MQTT at $BrokerHost`:1883. Check the central PC and firewall first."
+    throw "Cannot reach secure MQTT at $BrokerHost`:$BrokerPort. Check the central PC and firewall first."
 }
 
 New-Item -ItemType Directory -Force -Path "$InstallDir\src" | Out-Null
 New-Item -ItemType Directory -Force -Path "$InstallDir\config" | Out-Null
 New-Item -ItemType Directory -Force -Path "$InstallDir\logs" | Out-Null
+New-Item -ItemType Directory -Force -Path "$InstallDir\certs" | Out-Null
 Copy-Item "$SourceDir\src\maestro_agent.py" "$InstallDir\src\" -Force
-Copy-Item "$SourceDir\requirements.txt" "$InstallDir\" -Force
+Copy-Item "$SourceDir\src\mqtt_client.py" "$InstallDir\src\" -Force
+Copy-Item "$BundleRoot\certs\ca.crt" "$InstallDir\certs\" -Force
+Copy-Item "$BundleRoot\certs\client.crt" "$InstallDir\certs\" -Force
+Copy-Item "$BundleRoot\certs\client.key" "$InstallDir\certs\" -Force
+& icacls "$InstallDir\certs" /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" | Out-Null
 
 $EscapedLogFolder = $LogFolder.Replace("\", "\\")
 @"
 mqtt:
   broker_host: "$BrokerHost"
-  broker_port: 1883
+  broker_port: $BrokerPort
   keepalive: 60
   topic_prefix: "hive/machines"
+  require_tls: true
+  tls:
+    enabled: true
+    ca_cert: "../certs/ca.crt"
+    client_cert: "../certs/client.crt"
+    client_key: "../certs/client.key"
 maestro_agents:
   - machine_key: "$MachineKey"
     label: "$MachineKey"
@@ -93,6 +129,8 @@ Set-Location $InstallDir
 python -m venv .venv
 & "$InstallDir\.venv\Scripts\python.exe" -m pip install --upgrade pip
 & "$InstallDir\.venv\Scripts\pip.exe" install "paho-mqtt>=2.1,<3" "PyYAML>=6,<7"
+& "$InstallDir\.venv\Scripts\python.exe" "$InstallDir\src\maestro_agent.py" `
+    --machine $MachineKey --config "$InstallDir\config\machines.yaml" --check-mqtt
 
 @"
 @echo off
@@ -147,8 +185,10 @@ if ($LatestLog -and -not [string]::IsNullOrWhiteSpace($CentralApiBase)) {
 
 Write-Host ""
 Write-Host "HIVE machine agent installed for $MachineKey." -ForegroundColor Green
+Write-Host "Mutual-TLS MQTT identity verified." -ForegroundColor Green
 Write-Host "It should appear online in Central HIVE Diagnostics within 1-3 minutes."
 Write-Host "Agent log: $InstallDir\logs\agent.log"
 if ($AnalysisPath) {
     Write-Host "Commissioning analysis: $AnalysisPath"
 }
+if ($TemporaryBundleRoot) { Remove-Item $TemporaryBundleRoot -Recurse -Force -ErrorAction SilentlyContinue }

@@ -53,6 +53,12 @@ def _clean(value):
 def save(cfg_path: Path, payload: dict) -> dict:
     current = yaml.safe_load(cfg_path.read_text()) or {}
     editable = {key: _clean(payload[key]) for key in EDITABLE_KEYS if key in payload}
+    current_mqtt = current.get("mqtt", {})
+    requested_mqtt = editable.get("mqtt", current_mqtt)
+    if current_mqtt.get("require_tls") and requested_mqtt != current_mqtt:
+        raise ValueError(
+            "Secure MQTT identity settings are locked; reprovision certificates to change the broker address"
+        )
     updated = {**current, **editable}
     backup_path = _backup(cfg_path)
     temp_path = cfg_path.with_suffix(f"{cfg_path.suffix}.tmp")

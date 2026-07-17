@@ -1654,6 +1654,26 @@ CREATE TABLE IF NOT EXISTS auth_api_keys (
     version             INTEGER NOT NULL DEFAULT 1
 );
 
+-- Machine MQTT identities. Private client keys are generated directly into a
+-- one-time enrollment bundle and are never persisted in the database.
+CREATE TABLE IF NOT EXISTS mqtt_enrollments (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    machine_id          INTEGER NOT NULL REFERENCES machines(id),
+    common_name         TEXT NOT NULL,
+    certificate_serial  TEXT NOT NULL UNIQUE,
+    certificate_sha256  TEXT NOT NULL UNIQUE,
+    certificate_pem     TEXT NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'active',
+    issued_by           TEXT NOT NULL,
+    issued_at           TEXT NOT NULL,
+    expires_at          TEXT NOT NULL,
+    revoked_by          TEXT,
+    revoked_at          TEXT,
+    revocation_reason   TEXT,
+    bundle_downloaded_at TEXT,
+    version             INTEGER NOT NULL DEFAULT 1
+);
+
 CREATE TABLE IF NOT EXISTS auth_events (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     event_type          TEXT NOT NULL,
@@ -1756,6 +1776,7 @@ CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id, revo
 CREATE INDEX IF NOT EXISTS idx_auth_api_keys_token ON auth_api_keys(token_hash, active);
 CREATE INDEX IF NOT EXISTS idx_auth_events_time ON auth_events(ts DESC);
 CREATE INDEX IF NOT EXISTS idx_auth_events_actor ON auth_events(actor_user_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_mqtt_enrollments_machine_status ON mqtt_enrollments(machine_id, status, expires_at);
 
 -- Seed the 14 in-scope HAEEV machines (aluminium pair excluded, compressors/dust collectors as utility)
 INSERT OR IGNORE INTO machines (name, machine_key, type, brand, model, has_maestro, has_opcua, active) VALUES

@@ -12,6 +12,7 @@ simpy>=4.1,<5
 segno>=1.6,<2
 pyodbc>=5.2,<6
 argon2-cffi>=21.3,<26
+cryptography>=42,<47
 
 # Development and test tooling
 pytest>=7.4,<9

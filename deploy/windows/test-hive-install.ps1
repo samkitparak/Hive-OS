@@ -2,7 +2,7 @@ param(
     [string]$HostName = "localhost",
     [int]$DashboardPort = 8000,
     [int]$ApiPort = 8000,
-    [int]$MqttPort = 1883
+    [int]$MqttPort = 8883
 )
 
 # HIVE OS post-install health checker.
@@ -74,6 +74,7 @@ $checks += Test-ProtectedHttp "API root-cause diagnostics" "http://$HostName`:$A
 $checks += Test-ProtectedHttp "API alert management" "http://$HostName`:$ApiPort/api/alerts"
 $checks += Test-ProtectedHttp "API connectors" "http://$HostName`:$ApiPort/api/connectors/snapshot"
 $checks += Test-ProtectedHttp "API industrial I/O" "http://$HostName`:$ApiPort/api/industrial/snapshot"
+$checks += Test-ProtectedHttp "API MQTT trust" "http://$HostName`:$ApiPort/api/mqtt-security"
 $checks += Test-ProtectedHttp "API warehouse" "http://$HostName`:$ApiPort/api/inventory/snapshot"
 $checks += Test-ProtectedHttp "API procurement" "http://$HostName`:$ApiPort/api/procurement/snapshot"
 $checks += Test-Port "MQTT" $HostName $MqttPort
@@ -105,6 +106,15 @@ if (Test-Path "C:\HIVE-OS") {
 
 if (Test-Path "C:\HIVE-OS\logs") {
     Write-Host "[OK] C:\HIVE-OS\logs exists" -ForegroundColor Green
+}
+
+if ((Test-Path "C:\HIVE-OS\data\mqtt-pki\ca.key") -and
+    (Select-String -Path "C:\HIVE-OS\config\mosquitto.conf" -Pattern "require_certificate true" -Quiet)) {
+    Write-Host "[OK] MQTT mutual-TLS authority and broker policy exist" -ForegroundColor Green
+    $checks += $true
+} else {
+    Write-Host "[FAIL] MQTT mutual-TLS files or policy are missing" -ForegroundColor Red
+    $checks += $false
 }
 
 $centralTask = Get-ScheduledTask -TaskName "HIVE OS Central" -ErrorAction SilentlyContinue

@@ -64,7 +64,7 @@ def test_get_machines_returns_list(client):
 def test_api_prefix_routes_to_backend(client):
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "service": "hive-os", "version": "0.15.0"}
+    assert response.json() == {"status": "ok", "service": "hive-os", "version": "0.16.0"}
     assert client.get("/api/machines").status_code == 200
 
 

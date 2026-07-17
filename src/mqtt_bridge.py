@@ -17,6 +17,7 @@ import yaml
 
 import event_pipeline
 import industrial_gateway
+import mqtt_client as mqtt_client_config
 
 log = logging.getLogger("mqtt_bridge")
 
@@ -122,6 +123,7 @@ def start(conn: sqlite3.Connection, cfg_path: Path = CONFIG_PATH) -> mqtt.Client
 
     client.on_connect = on_connect
     client.on_message = on_message
+    mqtt_client_config.configure(client, mqtt_cfg, cfg_path)
 
     client.connect(mqtt_cfg["broker_host"], mqtt_cfg["broker_port"],
                    keepalive=mqtt_cfg.get("keepalive", 60))

@@ -28,9 +28,10 @@ The installer:
 - Creates the Python virtual environment and dashboard build
 - Asks for the Cabinet Vision export folder
 - Creates a startup task
-- Configures a LAN MQTT listener for machine agents
+- Creates a local MQTT certificate authority, broker identity, and central identity
+- Configures a mutual-TLS MQTT listener for machine agents
 - Serves the built dashboard and API on central-PC localhost port `8000`
-- Opens only MQTT port `1883` to the factory LAN
+- Opens only mutual-TLS MQTT port `8883` to the factory LAN
 - Creates a random, one-time administrator bootstrap token
 - Creates a public-desktop HIVE OS shortcut
 - Writes logs to `C:\HIVE-OS\logs`
@@ -47,7 +48,7 @@ After installation, run:
 ```
 
 This checks the dashboard, public health and access-control status, protected API
-reachability, MQTT port,
+reachability, secure MQTT port,
 ODBC driver, Modbus/OPC-UA client libraries, install folder, logs folder, and
 startup task.
 
@@ -64,59 +65,64 @@ remain in **Commission > Industrial I/O**.
 The dashboard/API is intentionally bound to localhost because credentials must
 not cross plain HTTP. Before using HIVE from another PC or tablet, commission an
 HTTPS reverse proxy or approved OT gateway and keep FastAPI itself on localhost.
-The MQTT listener is limited to `LocalSubnet`; anonymous MQTT is a temporary
-commissioning boundary and must be replaced with broker credentials and TLS
-before untrusted devices can join the factory network.
+The MQTT listener is limited to `LocalSubnet`, requires a client certificate,
+and maps each certificate identity to one machine topic. The private certificate
+authority key is restricted to Administrators and SYSTEM on the central PC.
 
 ## Maestro Machine PCs
 
-Copy the HIVE OS folder to each machine PC and run:
+In HIVE, open **Access control > Device certificates**, choose a machine, and
+download its enrollment ZIP. Extract that ZIP on the machine PC and run:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
-.\deploy\windows\install-machine-agent.ps1
+.\install-machine-agent.ps1
 ```
 
-It asks for:
-
-- Machine key, such as `morbidelli_cx100`
-- Central HIVE/CV PC IP address
-- Maestro log folder
+The ZIP contains the machine identity, central broker address, trusted CA, agent
+code, and installer. The installer auto-detects the Maestro log folder and asks
+only when it cannot find one. The private key is restricted to Administrators
+and SYSTEM.
 
 The agent is installed at `C:\HIVE-Agent`, starts with Windows, and emits a
 heartbeat even while the machine is idle.
 
-For repeatable installs, pass values directly. The installer auto-detects common
-Maestro log locations when `LogFolder` is omitted, verifies MQTT reachability,
-and submits the latest log sample to central HIVE for dry-run parser analysis:
+For a repo-based repair install, select a previously issued enrollment ZIP in the
+file picker or pass it directly. The installer verifies secure MQTT reachability
+and submits the latest log sample for dry-run parser analysis when optional HTTPS
+API settings are supplied:
 
 ```powershell
 .\deploy\windows\install-machine-agent.ps1 `
-  -MachineKey morbidelli_cx100 `
-  -BrokerHost 192.168.1.20
+  -EnrollmentBundle C:\Install\hive-enrollment-morbidelli_cx100.zip
 ```
 
 The agent always writes the latest sample to
 `C:\HIVE-Agent\logs\commissioning-sample.txt`. Automatic submission is optional
-and requires an HTTPS HIVE URL plus a one-time-visible integration key created
-under **Access > Machine keys**:
+and requires an HTTPS HIVE URL plus a one-time-visible HTTP integration key
+created under **Access control > HTTP keys**. It is separate from the MQTT
+device certificate:
 
 ```powershell
 .\deploy\windows\install-machine-agent.ps1 `
-  -MachineKey morbidelli_cx100 `
-  -BrokerHost 192.168.1.20 `
+  -EnrollmentBundle C:\Install\hive-enrollment-morbidelli_cx100.zip `
   -CentralApiBase https://hive.factory.example
 ```
 
 The installer prompts for the integration key without echoing it or placing it
 in PowerShell history.
 
+When an administrator revokes a device certificate, run
+`deploy\windows\restart-hive-mqtt.ps1` as Administrator on the central PC. This
+restarts only the HIVE-owned broker process and clears the dashboard warning
+after the new revocation list is active.
+
 ## Diagnostics
 
 Open the dashboard and click **Setup** first to fill in site-specific values:
 
 - Cabinet Vision export folder
-- MQTT broker host and port
+- MQTT broker host, port, and central certificate paths
 - Maestro machine PC IPs
 - Maestro log folders and CNC folders
 - Energy meter Modbus IPs and thresholds
@@ -134,6 +140,7 @@ Then open **Diagnostics**. The view shows both live system health and deployment
 package readiness:
 
 - Database, MQTT bridge, and Cabinet Vision watcher status
+- Mutual-TLS initialization, active device certificates, and expiry warnings
 - Approved and enabled factory connector counts
 - Approved, polling, and failing industrial I/O profile counts
 - Component shortages, verified remnants, and warehouse source issues

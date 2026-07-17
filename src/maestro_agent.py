@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,6 +35,8 @@ from typing import Optional
 
 import paho.mqtt.client as mqtt
 import yaml
+
+import mqtt_client as mqtt_client_config
 
 logging.basicConfig(
     level=logging.INFO,
@@ -213,7 +216,9 @@ class LogTailer:
 
 # ── MQTT ─────────────────────────────────────────────────────────────────────
 
-def _make_mqtt_client(broker_host: str, broker_port: int) -> mqtt.Client:
+def _make_mqtt_client(mqtt_cfg: dict, cfg_path: Path) -> mqtt.Client:
+    broker_host = mqtt_cfg["broker_host"]
+    broker_port = mqtt_cfg["broker_port"]
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
     def on_connect(c, userdata, flags, rc, props):
@@ -221,9 +226,37 @@ def _make_mqtt_client(broker_host: str, broker_port: int) -> mqtt.Client:
             log.info("MQTT connected to %s:%s", broker_host, broker_port)
 
     client.on_connect = on_connect
+    mqtt_client_config.configure(client, mqtt_cfg, cfg_path)
     client.connect(broker_host, broker_port, keepalive=60)
     client.loop_start()
     return client
+
+
+def check_mqtt(mqtt_cfg: dict, cfg_path: Path, timeout_s: float = 15) -> None:
+    """Verify the configured client identity completes an authenticated handshake."""
+    connected = threading.Event()
+    rejected: list[str] = []
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+
+    def on_connect(c, userdata, flags, reason_code, properties):
+        if reason_code == 0:
+            connected.set()
+        else:
+            rejected.append(str(reason_code))
+            connected.set()
+
+    client.on_connect = on_connect
+    mqtt_client_config.configure(client, mqtt_cfg, cfg_path)
+    client.connect(mqtt_cfg["broker_host"], mqtt_cfg["broker_port"], mqtt_cfg.get("keepalive", 60))
+    client.loop_start()
+    try:
+        if not connected.wait(timeout_s):
+            raise RuntimeError("Timed out waiting for the MQTT TLS handshake")
+        if rejected:
+            raise RuntimeError(f"MQTT broker rejected the client certificate: {rejected[0]}")
+    finally:
+        client.loop_stop()
+        client.disconnect()
 
 
 def _publish(client: mqtt.Client, topic_prefix: str, machine_key: str, payload: dict):
@@ -258,7 +291,7 @@ def run(machine_key: str,
 
     owns_mqtt = mqtt_client is None
     if owns_mqtt:
-        mqtt_client = _make_mqtt_client(mqtt_cfg["broker_host"], mqtt_cfg["broker_port"])
+        mqtt_client = _make_mqtt_client(mqtt_cfg, cfg_path)
         time.sleep(0.5)
 
     if log_lines_iter is None:
@@ -363,11 +396,15 @@ if __name__ == "__main__":
     parser.add_argument("--machine",  required=True, help="machine_key from config")
     parser.add_argument("--config",   default=str(CONFIG_PATH))
     parser.add_argument("--simulate", action="store_true")
+    parser.add_argument("--check-mqtt", action="store_true")
     parser.add_argument("--cycles",   type=int, default=5)
     args = parser.parse_args()
 
     cfg_path = Path(args.config)
-    if args.simulate:
+    if args.check_mqtt:
+        check_mqtt(yaml.safe_load(cfg_path.read_text())["mqtt"], cfg_path)
+        print("MQTT mutual-TLS handshake passed")
+    elif args.simulate:
         simulate(args.machine, cfg_path, cycles=args.cycles)
     else:
         run(args.machine, cfg_path)

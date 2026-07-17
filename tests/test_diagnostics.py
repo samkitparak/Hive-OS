@@ -147,6 +147,23 @@ def test_config_editor_saves_backup(tmp_path):
     assert not cfg_path.with_suffix(".yaml.tmp").exists()
 
 
+def test_config_editor_locks_provisioned_mqtt_identity(tmp_path):
+    cfg_path = tmp_path / "machines.yaml"
+    cfg_path.write_text(
+        "mqtt:\n  broker_host: 10.0.0.5\n  broker_port: 8883\n  keepalive: 60\n"
+        "  topic_prefix: hive/machines\n  require_tls: true\n  tls:\n    enabled: true\n"
+        "    ca_cert: ca.crt\n    client_cert: central.crt\n    client_key: central.key\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="locked"):
+        config_editor.save(cfg_path, {"mqtt": {
+            "broker_host": "10.0.0.6", "broker_port": 8883, "keepalive": 60,
+            "topic_prefix": "hive/machines", "require_tls": True,
+            "tls": {"enabled": True, "ca_cert": "ca.crt", "client_cert": "central.crt",
+                    "client_key": "central.key"},
+        }})
+
+
 def test_config_endpoint(conn):
     from fastapi.testclient import TestClient
     import main

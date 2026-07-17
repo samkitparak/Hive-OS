@@ -13,6 +13,7 @@ import procurement
 import root_cause
 import alerting
 import access_control
+import mqtt_security
 
 PLACEHOLDER_HOSTS = {
     *(f"192.168.1.{number}" for number in range(51, 55)),
@@ -177,6 +178,7 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
         bool(item["enabled"]) for item in alerts["destinations"]
     )
     access = access_control.snapshot(conn)
+    mqtt_trust = mqtt_security.status(conn)
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -215,13 +217,19 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "active_access_users": access["active_users"],
             "active_access_sessions": access["active_sessions"],
             "failed_logins_24h": access["failed_logins_24h"],
+            "active_mqtt_enrollments": mqtt_trust["active_enrollments"],
+            "expiring_mqtt_enrollments": mqtt_trust["expiring_within_30_days"],
         },
         "services": [
             {"key": "database", "name": "Database", "status": "online",
              "detail": "SQLite connection active"},
             {"key": "mqtt", "name": "MQTT broker bridge",
              "status": "online" if mqtt_connected else "offline",
-             "detail": f"{cfg['mqtt']['broker_host']}:{cfg['mqtt']['broker_port']}"},
+             "detail": (
+                 f"{cfg['mqtt']['broker_host']}:{cfg['mqtt']['broker_port']} · "
+                 f"{'mutual TLS' if mqtt_trust['initialized'] else 'development transport'} · "
+                 f"{mqtt_trust['active_enrollments']} device certificates"
+             )},
             {"key": "cabinet_vision", "name": "Cabinet Vision watcher",
              "status": "online" if cv_watcher_running else (
                  "offline" if cv_configured else "not_configured"

@@ -10,7 +10,7 @@ Each item has the file to edit and exactly what to do.
 - [ ] Assign static IPs to all machine PCs on factory LAN
 - [ ] Note down the central broker PC IP (this is what everything talks to)
 - [ ] Update `config/machines.yaml` → `mqtt.broker_host` with real broker IP
-- [ ] Confirm factory LAN allows Modbus TCP (port 502) and MQTT (port 1883)
+- [ ] Confirm factory LAN allows Modbus TCP (port 502) and mutual-TLS MQTT (port 8883)
 
 ## Identity and Access (Day 1)
 

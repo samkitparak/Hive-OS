@@ -49,7 +49,7 @@ revoke the affected user's browser sessions.
 
 ## Machine Credentials
 
-Create a separate key under **Access > Machine keys** for each agent or tightly
+Create a separate key under **Access control > HTTP keys** for each agent or tightly
 related machine group. The plaintext key is shown once and only its SHA-256 hash
 is stored. Machine keys have only `integration` permission: they can submit
 approved ingestion payloads but cannot persist commissioning history, approve or

@@ -55,7 +55,7 @@ PUBLIC_PATHS = {
     "/health", "/auth/status", "/auth/login", "/auth/bootstrap",
 }
 SELF_AUTH_PATHS = {"/auth/me", "/auth/logout", "/auth/password"}
-ADMIN_AUTH_PREFIXES = ("/auth/users", "/auth/api-keys", "/auth/events")
+ADMIN_AUTH_PREFIXES = ("/auth/users", "/auth/api-keys", "/auth/events", "/mqtt-security")
 ACTOR_FIELDS = ("actor", "completed_by", "inspector", "operator")
 
 

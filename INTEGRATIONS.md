@@ -59,7 +59,7 @@ Legacy placeholder endpoints remain available for demo/test compatibility only.
 See `MAINTENANCE_CONTROL.md` for preventive trigger and evidence contracts.
 
 Machine-to-HIVE HTTP ingestion uses a distinct integration key created under
-**Access > Machine keys**. The plaintext token is shown once; HIVE stores only
+**Access control > HTTP keys**. The plaintext token is shown once; HIVE stores only
 its SHA-256 hash. These keys cannot receive human or administrator permissions,
 cannot read dashboards, and are rejected over remote plain HTTP. Use HTTPS for
 all machine HTTP submission. MQTT broker authentication/TLS remains a separate

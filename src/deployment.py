@@ -34,6 +34,13 @@ INSTALL_ASSETS = [
         ),
     },
     {
+        "key": "mqtt_restart",
+        "label": "Secure MQTT restart helper",
+        "path": "deploy/windows/restart-hive-mqtt.ps1",
+        "target": "Central HIVE PC after certificate revocation",
+        "command": ".\\deploy\\windows\\restart-hive-mqtt.ps1",
+    },
+    {
         "key": "install_tester",
         "label": "Post-install health checker",
         "path": "deploy/windows/test-hive-install.ps1",
@@ -98,7 +105,7 @@ def build(cfg_path: Path) -> dict:
     central_ready = all(
         asset["exists"]
         for asset in assets
-        if asset["key"] in {"central_installer", "install_tester", "uninstaller"}
+        if asset["key"] in {"central_installer", "mqtt_restart", "install_tester", "uninstaller"}
     )
     agent_ready = all(
         asset["exists"]
@@ -148,14 +155,15 @@ def build(cfg_path: Path) -> dict:
         "agent_dir": r"C:\HIVE-Agent",
         "central_url": "http://localhost:8000",
         "api_url": "http://localhost:8000",
-        "mqtt_port": 1883,
+        "mqtt_port": 8883,
         "assets": assets,
         "checklist": checklist,
         "copy_steps": [
             "Copy or unzip the hive-os folder onto the target Windows PC.",
             "Open PowerShell as Administrator.",
             "Run the central installer on the CV or HIVE PC.",
-            "Run the machine-agent installer on each Maestro PC.",
+            "Issue a device enrollment ZIP in Access control for each machine.",
+            "Extract its ZIP and run the included machine-agent installer on that Maestro PC.",
             "Open Diagnostics in the dashboard and confirm services and agents report online.",
         ],
     }

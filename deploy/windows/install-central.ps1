@@ -49,6 +49,12 @@ Refresh-Path
 
 $CvFolder = Read-Host "Cabinet Vision export folder [C:\CabinetVision\Export]"
 if ([string]::IsNullOrWhiteSpace($CvFolder)) { $CvFolder = "C:\CabinetVision\Export" }
+$DetectedAddress = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*" } |
+    Sort-Object InterfaceMetric | Select-Object -First 1 -ExpandProperty IPAddress
+$BrokerAddress = Read-Host "Central PC static LAN IP or DNS name [$DetectedAddress]"
+if ([string]::IsNullOrWhiteSpace($BrokerAddress)) { $BrokerAddress = $DetectedAddress }
+if ([string]::IsNullOrWhiteSpace($BrokerAddress)) { throw "A stable central PC LAN IP or DNS name is required." }
 
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 robocopy $SourceDir $InstallDir /E /XD .git .pytest_cache node_modules dist dashboard\node_modules dashboard\dist `
@@ -67,6 +73,15 @@ python -m venv .venv
 & "$InstallDir\.venv\Scripts\python.exe" -m pip install --upgrade pip
 & "$InstallDir\.venv\Scripts\pip.exe" install -r requirements.txt
 
+$env:PYTHONPATH = "$InstallDir\src"
+if (-not (Test-Path "$InstallDir\data\mqtt-pki\ca.key")) {
+    & "$InstallDir\.venv\Scripts\python.exe" "$InstallDir\src\mqtt_security.py" $BrokerAddress `
+        --additional-host $env:COMPUTERNAME --port 8883
+} else {
+    Write-Host "Preserving the existing MQTT certificate authority and machine identities."
+}
+& icacls "$InstallDir\data\mqtt-pki" /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" | Out-Null
+
 Set-Location "$InstallDir\dashboard"
 npm ci
 npm run build
@@ -77,13 +92,6 @@ $EscapedCvFolder = $CvFolder.Replace("\", "\\")
 $Config = $Config -replace 'cv_watch_folder:.*', "cv_watch_folder: `"$EscapedCvFolder`""
 Set-Content $ConfigPath $Config -Encoding UTF8
 
-@"
-listener 1883
-allow_anonymous true
-persistence true
-persistence_location C:\HIVE-OS\data\
-log_dest file C:\HIVE-OS\logs\mosquitto.log
-"@ | Set-Content "$InstallDir\config\mosquitto.conf" -Encoding ASCII
 Stop-Service mosquitto -ErrorAction SilentlyContinue
 Set-Service mosquitto -StartupType Disabled -ErrorAction SilentlyContinue
 
@@ -99,7 +107,7 @@ schtasks /Create /TN "HIVE OS Central" /SC ONSTART /RU SYSTEM /RL HIGHEST `
 
 Remove-NetFirewallRule -DisplayName "HIVE OS API" -ErrorAction SilentlyContinue
 New-NetFirewallRule -DisplayName "HIVE OS MQTT" -Direction Inbound `
-    -Protocol TCP -LocalPort 1883 -RemoteAddress LocalSubnet `
+    -Protocol TCP -LocalPort 8883 -RemoteAddress LocalSubnet `
     -Action Allow -ErrorAction SilentlyContinue | Out-Null
 
 Start-Process "$InstallDir\start-hive.cmd"
@@ -113,6 +121,7 @@ URL=http://localhost:8000
 Write-Host ""
 Write-Host "HIVE OS central installation complete." -ForegroundColor Green
 Write-Host "Dashboard: http://localhost:8000"
+Write-Host "Secure MQTT: $BrokerAddress`:8883"
 if (Test-Path $BootstrapTokenPath) {
     Write-Host "One-time administrator token: $(Get-Content $BootstrapTokenPath -Raw)" -ForegroundColor Yellow
     Write-Host "This token is deleted automatically after the first administrator is created."

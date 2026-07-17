@@ -63,6 +63,32 @@ export const fetchAuthApiKeys = () => request("/auth/api-keys");
 export const createAuthApiKey = payload => postJson("/auth/api-keys", payload);
 export const revokeAuthApiKey = id => request(`/auth/api-keys/${id}`, { method: "DELETE" });
 export const fetchAuthEvents = () => request("/auth/events?limit=150");
+export const fetchMqttSecurity = () => request("/mqtt-security");
+export const revokeMqttEnrollment = (id, payload = {}) =>
+  postJson(`/mqtt-security/enrollments/${id}/revoke`, payload);
+export const downloadMqttEnrollment = async payload => {
+  const headers = new Headers({ "Content-Type": "application/json" });
+  if (csrfToken) headers.set("X-CSRF-Token", csrfToken);
+  const response = await fetch(`${BASE}/mqtt-security/enrollments`, {
+    method: "POST", headers, credentials: "same-origin", body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    if (response.status === 401) window.dispatchEvent(new CustomEvent("hive-auth-expired"));
+    let detail = `Request failed: ${response.status}`;
+    try { detail = (await response.json())?.detail || detail; } catch { /* response was not JSON */ }
+    throw new Error(detail);
+  }
+  const disposition = response.headers.get("content-disposition") || "";
+  const filename = disposition.match(/filename="?([^";]+)"?/)?.[1] || `hive-machine-enrollment.zip`;
+  const url = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+};
 
 export const fetchMachines = () => request("/machines");
 

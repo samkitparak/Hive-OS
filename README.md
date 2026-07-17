@@ -184,7 +184,7 @@ python -m pytest -v
 All TODOs are in two files:
 
 **`config/machines.yaml`**
-- MQTT broker IP (currently `127.0.0.1`)
+- MQTT broker address (the Windows installer provisions mutual TLS on `8883`)
 - Modbus IPs for energy meters (Elgi compressors, Aarco dust collectors)
 - Maestro log file paths per machine
 - Cabinet Vision watch folder path
@@ -198,9 +198,11 @@ See `INDIA_CHECKLIST.md` for the full on-site setup sequence.
 See `DEPLOYMENT.md` for Windows one-click installation and diagnostics.
 
 The Windows installer binds the dashboard/API to central-PC localhost and opens
-only MQTT to the local subnet. Commission HTTPS before allowing browser or agent
-API access from another device. Remote setup probes remain restricted to private
-LAN addresses. See `ACCESS_CONTROL.md`.
+only mutual-TLS MQTT to the local subnet. Machine identities are issued and
+revoked under **Access control > Device certificates**. Commission HTTPS before
+allowing browser or agent API access from another device. Remote setup probes
+remain restricted to private LAN addresses. See `ACCESS_CONTROL.md` and
+`MQTT_SECURITY.md`.
 
 ---
 

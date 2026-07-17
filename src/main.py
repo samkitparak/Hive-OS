@@ -36,6 +36,7 @@ from fastapi.staticfiles import StaticFiles
 
 import db as db_module
 import mqtt_bridge
+import mqtt_security as mqtt_security_module
 import cv_watcher
 import oee as oee_module
 import progress as progress_module
@@ -103,6 +104,8 @@ from api_models import (
     AuthPasswordReset,
     AuthUserCreate,
     AuthUserUpdate,
+    MqttEnrollmentCreate,
+    MqttEnrollmentRevoke,
     InventoryItemUpdate,
     InventoryLotBalanceUpdate,
     InventoryRequirementUpdate,
@@ -159,7 +162,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.15.0"
+APP_VERSION = "0.16.0"
 
 
 class ApiPrefixMiddleware:
@@ -693,6 +696,50 @@ def delete_auth_api_key(key_id: int, request: Request):
 @app.get("/auth/events")
 def get_auth_events(limit: int = Query(default=100, ge=1, le=500)):
     return {"events": access_control_module.recent_events(_get_conn(), limit)}
+
+
+@app.get("/mqtt-security")
+def get_mqtt_security():
+    return mqtt_security_module.status(_get_conn())
+
+
+@app.post("/mqtt-security/enrollments")
+def post_mqtt_enrollment(payload: MqttEnrollmentCreate, request: Request):
+    principal = _principal(request)
+    try:
+        bundle, manifest = mqtt_security_module.issue_bundle(
+            _get_conn(), payload.machine_key, principal["display_name"],
+            days=payload.validity_days,
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    filename = f"hive-enrollment-{payload.machine_key}.zip"
+    return Response(
+        content=bundle,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+            "X-HIVE-Certificate-SHA256": manifest["certificate_sha256"],
+        },
+    )
+
+
+@app.post("/mqtt-security/enrollments/{enrollment_id}/revoke")
+def post_mqtt_enrollment_revoke(
+    enrollment_id: int, payload: MqttEnrollmentRevoke, request: Request,
+):
+    principal = _principal(request)
+    try:
+        return mqtt_security_module.revoke(
+            _get_conn(), enrollment_id, principal["display_name"], payload.reason,
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
 
 @app.get("/machines")
 def get_machines():
@@ -1827,9 +1874,12 @@ def get_config():
 
 @app.put("/config")
 def put_config(payload: SiteConfigUpdate):
-    return config_editor_module.save(
-        CONFIG_PATH, payload.model_dump(exclude_none=True)
-    )
+    try:
+        return config_editor_module.save(
+            CONFIG_PATH, payload.model_dump(exclude_none=True)
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
 
 
 @app.get("/remote-setup/plan/{machine_key}")

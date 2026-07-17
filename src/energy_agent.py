@@ -26,6 +26,8 @@ from typing import Optional, Protocol
 import paho.mqtt.client as mqtt
 import yaml
 
+import mqtt_client as mqtt_client_config
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-7s  %(name)s  %(message)s",
@@ -152,7 +154,10 @@ def _build_telemetry(meter: MeterState, power_w: float) -> dict:
 
 # --- MQTT publisher ---
 
-def _make_mqtt_client(broker_host: str, broker_port: int, keepalive: int) -> mqtt.Client:
+def _make_mqtt_client(mqtt_cfg: dict, cfg_path: Path) -> mqtt.Client:
+    broker_host = mqtt_cfg["broker_host"]
+    broker_port = mqtt_cfg["broker_port"]
+    keepalive = mqtt_cfg.get("keepalive", 60)
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
     def on_connect(c, userdata, flags, reason_code, properties):
@@ -166,6 +171,7 @@ def _make_mqtt_client(broker_host: str, broker_port: int, keepalive: int) -> mqt
 
     client.on_connect    = on_connect
     client.on_disconnect = on_disconnect
+    mqtt_client_config.configure(client, mqtt_cfg, cfg_path)
     client.connect(broker_host, broker_port, keepalive)
     client.loop_start()
     return client
@@ -214,9 +220,7 @@ def run(cfg_path: Path = CONFIG_PATH,
 
     owns_mqtt = mqtt_client is None
     if owns_mqtt:
-        mqtt_client = _make_mqtt_client(
-            mqtt_cfg["broker_host"], mqtt_cfg["broker_port"], mqtt_cfg.get("keepalive", 60)
-        )
+        mqtt_client = _make_mqtt_client(mqtt_cfg, cfg_path)
         time.sleep(0.5)  # let MQTT handshake complete
 
     telemetry_every = max(1, 60 // poll_interval)  # publish telemetry ~every 60s

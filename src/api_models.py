@@ -303,11 +303,29 @@ class RemoteConnectionRequest(RequestModel):
     username: Optional[str] = None
 
 
+class MqttTlsConfig(RequestModel):
+    enabled: bool = False
+    ca_cert: Optional[str] = None
+    client_cert: Optional[str] = None
+    client_key: Optional[str] = None
+
+
 class MqttConfig(RequestModel):
     broker_host: str = Field(min_length=1)
     broker_port: int = Field(ge=1, le=65535)
     keepalive: int = Field(default=60, ge=5, le=3600)
     topic_prefix: str = Field(default="hive/machines", min_length=1)
+    require_tls: bool = False
+    tls: Optional[MqttTlsConfig] = None
+
+
+class MqttEnrollmentCreate(RequestModel):
+    machine_key: str = Field(min_length=1, pattern=r"^[a-z0-9_]+$")
+    validity_days: int = Field(default=397, ge=30, le=825)
+
+
+class MqttEnrollmentRevoke(RequestModel):
+    reason: Optional[str] = Field(default=None, max_length=500)
 
 
 class EnergyDefaults(RequestModel):
