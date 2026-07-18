@@ -1,8 +1,8 @@
 # Factory Machine Readiness
 
-HIVE OS 0.25 turns machine connection work into an evidence-led commissioning
-sequence. It does not assume that a model name proves an installed PC, protocol,
-log folder, register map, or license.
+HIVE OS 0.28 turns machine connection work into an evidence-led, resumable
+commissioning mission. It does not assume that a model name proves an installed
+PC, protocol, log folder, register map, or license.
 
 ## Readiness sequence
 
@@ -24,13 +24,34 @@ Each of the 15 machines advances through six independent gates:
 A passing TCP check is not a data contract. A confirmed passport is not proof
 that a signal is correct. A research profile is never site evidence.
 
+## Commissioning missions
+
+Open **Commission > Machine links**, select a machine, and start its mission.
+HIVE builds the runbook from the selected telemetry strategy and separates work
+that can be completed before travel from evidence that requires the factory.
+
+- Maestro missions verify the deployment identity and offline agent payload,
+  then route through fingerprint trust, folder discovery, installation,
+  machine-specific log approval, heartbeat proof, and calibration.
+- Industrial missions verify that a draft read-only profile exists, then route
+  through endpoint capture, transport tests, immutable contract approval, a
+  representative poll, and calibration.
+- Operator-evidence missions skip network gates and route through timed field
+  observations, review, live-run evidence, and calibration.
+
+Missions are append-audited, versioned, and resumable. Operators can start,
+pause, resume, or cancel them, but cannot tick evidence gates complete. HIVE
+reconciles every step from the underlying passport, transport, contract, signal,
+and cycle-model records. A telemetry-strategy change is reported as mission
+drift and requires a new mission instead of silently changing the old plan.
+
 ## Operator workflow
 
 Open **Commission > Machine links**.
 
 1. Download the hashed field pack before travel. It contains a prefilled atomic
-   inventory CSV, probe plan, official-source register, and one checklist per
-   machine.
+   inventory CSV, probe plan, commissioning plan in CSV and JSON, an
+   official-source register, and one checklist per machine.
 2. At the machine, copy facts from the nameplate, HMI About screen, managed
    switch, and actual Windows folders. Save inventory while work is incomplete.
 3. Import the completed CSV in preview mode. HIVE rejects unknown columns,
@@ -69,7 +90,7 @@ application version on macOS, Linux, or Windows:
 
 ```bash
 PYTHONPATH=src python src/offline_release.py \
-  release/HIVE-OS-0.27.0-offline.zip --version 0.27.0
+  release/HIVE-OS-0.28.0-offline.zip --version 0.28.0
 ```
 
 Static verification does not prove Windows service startup, firewall behavior,
@@ -79,6 +100,12 @@ machine still needs identity, network, transport, contract, and live-signal
 commissioning.
 
 ## Research boundary
+
+The workflow follows the asset-inventory, segmentation, remote-access control,
+and test-before-production principles in [NIST SP 800-82 Rev. 3](https://csrc.nist.gov/pubs/sp/800/82/r3/final)
+and the joint [CISA OT asset inventory guidance](https://www.cisa.gov/sites/default/files/2025-08/joint-guide-foundations-for-OT-cybersecurity-asset-inventory-guidance_508c.pdf).
+These references guide the process; they do not establish that any particular
+HAEEV machine supports an interface.
 
 The built-in profiles summarize official public material and expose the links
 inside Machine Links. Key sources include [SCM IoT Solution](https://www.scmgroup.com/en_US/scmwood/news-events/news/maestro-connect-becomes-iot-solution.n235793.html),

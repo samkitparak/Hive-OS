@@ -271,6 +271,9 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "machine_transports_ready": factory_summary["transports_ready"],
             "machine_contracts_ready": factory_summary["contracts_ready"],
             "machines_plug_and_play_ready": factory_summary["plug_and_play_ready"],
+            "commissioning_missions_active": factory_summary["missions_active"],
+            "commissioning_missions_completed": factory_summary["missions_completed"],
+            "machines_offsite_ready": factory_summary["offsite_ready"],
         },
         "services": [
             {"key": "database", "name": "Database", "status": "online",
@@ -296,6 +299,8 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
                  f"{factory_summary['passports_confirmed']}/{factory_summary['machines']} passports confirmed; "
                  f"{factory_summary['transports_ready']} transport paths; "
                  f"{factory_summary['contracts_ready']} data contracts; "
+                 f"{factory_summary['missions_active']} active missions; "
+                 f"{factory_summary['offsite_ready']}/{factory_summary['machines']} offsite-ready; "
                  f"{factory_summary['plug_and_play_ready']} fully ready"
              )},
             {"key": "mqtt", "name": "MQTT broker bridge",

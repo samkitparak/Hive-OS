@@ -107,6 +107,12 @@ def test_virtual_lab_requires_commission_or_optimize_permission():
     assert access_control.required_permissions(
         "POST", "/factory-readiness/machines/action_e/probe"
     ) == ("commission",)
+    assert access_control.required_permissions(
+        "POST", "/factory-readiness/machines/action_e/mission"
+    ) == ("commission",)
+    assert access_control.required_permissions(
+        "POST", "/factory-readiness/machines/action_e/mission/action"
+    ) == ("commission",)
     assert access_control.required_permissions("GET", "/bottlenecks") == ("view",)
     assert access_control.required_permissions("POST", "/constraints/sync") == (
         "optimize", "supervise",

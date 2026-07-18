@@ -346,12 +346,20 @@ function DataConnectors({ profiles, onConnectorAction }) {
   </div>;
 }
 
-export function CommissioningPanel({ machines, connectors, industrial, factoryReadiness, onAnalyze, onConnectorAction, onIndustrialAction, onFactoryAction, onClose }) {
+export function CommissioningPanel({ machines, connectors, industrial, factoryReadiness, onAnalyze, onConnectorAction, onIndustrialAction, onFactoryAction, onOpenSetup, onClose }) {
   const [tab, setTab] = useState("links");
   const panelRef = useRef(null);
   const selectTab = next => {
     setTab(next);
     panelRef.current?.scrollTo({ top: 0 });
+  };
+  const navigateMission = surface => {
+    if (surface === "setup") {
+      onOpenSetup();
+      return;
+    }
+    const tabs = { evidence: "evidence", industrial: "industrial", machine_logs: "machines" };
+    if (tabs[surface]) selectTab(tabs[surface]);
   };
   const profiles = connectors?.profiles ?? [];
   const maestroProfile = profiles.find(profile => profile.connector_key === "maestro_logs");
@@ -375,7 +383,7 @@ export function CommissioningPanel({ machines, connectors, industrial, factoryRe
         <button onClick={() => selectTab("industrial")} style={{ ...button, minHeight: 30, border: 0, background: tab === "industrial" ? "#374151" : "transparent" }}><Cpu size={13} /> Industrial I/O</button>
         <button onClick={() => selectTab("machines")} style={{ ...button, minHeight: 30, border: 0, background: tab === "machines" ? "#374151" : "transparent" }}><FileUp size={13} /> Machine logs</button>
       </div>
-      {tab === "links" ? <MachineLinksPanel data={factoryReadiness} onAction={onFactoryAction} /> : tab === "lab" ? <VirtualLabPanel /> : tab === "evidence" ? <EvidenceCapturePanel /> : tab === "industrial" ? (industrial?.profiles?.length
+      {tab === "links" ? <MachineLinksPanel data={factoryReadiness} onAction={onFactoryAction} onNavigate={navigateMission} /> : tab === "lab" ? <VirtualLabPanel /> : tab === "evidence" ? <EvidenceCapturePanel /> : tab === "industrial" ? (industrial?.profiles?.length
           ? <IndustrialIoPanel data={industrial} onAction={onIndustrialAction} />
           : <div style={{ color: "#6b7280", fontSize: 11 }}>Loading industrial registry…</div>)
         : !profiles.length ? <div style={{ color: "#6b7280", fontSize: 11 }}>Loading connector registry…</div>

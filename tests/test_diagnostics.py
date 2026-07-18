@@ -36,6 +36,9 @@ def test_diagnostics_reports_services_and_machines(conn):
     assert readiness_service["status"] == "needs_site_value"
     assert result["summary"]["machine_passports_confirmed"] == 0
     assert result["summary"]["machines_plug_and_play_ready"] == 0
+    assert result["summary"]["commissioning_missions_active"] == 0
+    assert result["summary"]["commissioning_missions_completed"] == 0
+    assert 0 <= result["summary"]["machines_offsite_ready"] <= 15
     lab_service = next(item for item in result["services"]
                        if item["key"] == "virtual_factory_lab")
     assert lab_service["status"] == "needs_site_value"

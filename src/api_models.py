@@ -478,6 +478,18 @@ class FactoryConnectionProbe(RequestModel):
     actor: str = Field(default="commissioning", min_length=1, max_length=120)
 
 
+class FactoryMissionStart(RequestModel):
+    actor: str = Field(default="commissioning", min_length=1, max_length=120)
+    notes: Optional[str] = Field(default=None, max_length=2000)
+
+
+class FactoryMissionAction(RequestModel):
+    action: Literal["pause", "resume", "cancel"]
+    expected_version: int = Field(ge=1)
+    actor: str = Field(default="commissioning", min_length=1, max_length=120)
+    notes: Optional[str] = Field(default=None, max_length=2000)
+
+
 class DigitalTwinRequest(RequestModel):
     job_names: Optional[list[str]] = None
     policies: Optional[list[str]] = None

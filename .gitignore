@@ -26,6 +26,9 @@ env/
 config/backups/
 config/*.bak
 data/hive-bootstrap.token
+/data/ssh/
+/data/mqtt-pki/
+/data/offline-agent/
 /backups/
 /release/
 

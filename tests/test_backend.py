@@ -64,7 +64,7 @@ def test_get_machines_returns_list(client):
 def test_api_prefix_routes_to_backend(client):
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "service": "hive-os", "version": "0.27.0"}
+    assert response.json() == {"status": "ok", "service": "hive-os", "version": "0.28.0"}
     assert client.get("/api/machines").status_code == 200
 
 
@@ -177,6 +177,18 @@ def test_factory_readiness_endpoints_pack_passport_import_and_probe_preview(clie
     assert probe.status_code == 200
     assert probe.json()["status"] == "preview_ready"
     assert probe.json()["will_write_device"] is False
+
+    mission = client.post("/api/factory-readiness/machines/action_e/mission", json={
+        "actor": "api-test", "notes": "Assembly commissioning",
+    })
+    assert mission.status_code == 200
+    assert mission.json()["status"] == "in_progress"
+    assert mission.json()["current_step"]["key"] == "passport"
+    paused = client.post("/api/factory-readiness/machines/action_e/mission/action", json={
+        "action": "pause", "expected_version": mission.json()["version"], "actor": "api-test",
+    })
+    assert paused.status_code == 200
+    assert paused.json()["status"] == "paused"
 
 
 def test_twin_rejects_unknown_policy(client):

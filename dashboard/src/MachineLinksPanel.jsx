@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import {
-  Check, CircleAlert, Download, ExternalLink, FileUp, Play,
-  RefreshCw, Save, ShieldCheck, X,
+  Check, CircleAlert, Clock3, Download, ExternalLink, FileUp, LockKeyhole, Pause,
+  Play, RefreshCw, RotateCcw, Save, ShieldCheck, X,
 } from "lucide-react";
 
 const button = {
@@ -42,11 +42,12 @@ function Summary({ data }) {
   const total = data.summary.machines;
   const metrics = [
     ["Passports", data.summary.passports_confirmed], ["Endpoints", data.summary.endpoints_ready],
+    ["Offsite", data.summary.offsite_ready],
     ["Transports", data.summary.transports_ready], ["Contracts", data.summary.contracts_ready],
     ["Online", data.summary.online], ["Calibrated", data.summary.calibrated],
     ["Ready", data.summary.plug_and_play_ready],
   ];
-  return <div className="machine-link-summary" style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)",
+  return <div className="machine-link-summary" style={{ display: "grid", gridTemplateColumns: "repeat(8,1fr)",
     border: "1px solid #263244", borderRadius: 6, overflow: "hidden", marginTop: 15 }}>
     {metrics.map(([name, value]) => <div key={name} style={{ padding: "10px 11px", borderRight: "1px solid #263244" }}>
       <div style={label}>{name}</div>
@@ -68,8 +69,77 @@ function StageStrip({ stages }) {
   </div>;
 }
 
-export function MachineLinksPanel({ data, onAction }) {
+function MissionRunbook({ mission, busy, onStart, onAction, onStep }) {
+  const active = ["in_progress", "paused"].includes(mission.status);
+  const statusColor = mission.status === "completed" ? "#86efac"
+    : mission.status === "in_progress" ? "#60a5fa" : "#fbbf24";
+  return <section style={{ marginTop: 18, padding: "14px 0", borderTop: "1px solid #263244",
+    borderBottom: "1px solid #263244" }}>
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 12,
+      alignItems: "flex-start", flexWrap: "wrap" }}>
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+          <ShieldCheck size={15} color={statusColor} />
+          <div style={{ fontSize: 11, fontWeight: 800 }}>Commissioning mission</div>
+          <Badge color={statusColor}>{mission.status.replaceAll("_", " ")}</Badge>
+        </div>
+        <div style={{ color: "#6b7280", fontSize: 9, marginTop: 5 }}>
+          {mission.progress_percent}% evidence complete · about {mission.estimated_site_minutes_remaining} site minutes remaining
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+        {["not_started", "cancelled", "completed"].includes(mission.status) &&
+          <button onClick={onStart} disabled={!!busy} style={{ ...button, background: "#14532d", borderColor: "#22c55e" }}>
+            {mission.status === "completed" ? <RotateCcw size={13} /> : <Play size={13} />}
+            {mission.status === "completed" ? "Recommission" : "Start mission"}
+          </button>}
+        {mission.status === "in_progress" && <button onClick={() => onAction("pause")} disabled={!!busy} style={button}>
+          <Pause size={13} /> Pause
+        </button>}
+        {mission.status === "paused" && <button onClick={() => onAction("resume")} disabled={!!busy} style={button}>
+          <Play size={13} /> Resume
+        </button>}
+        {active && <button onClick={() => onAction("cancel")} disabled={!!busy}
+          style={{ ...button, color: "#fca5a5" }}><X size={13} /> Cancel</button>}
+      </div>
+    </div>
+    <div style={{ height: 4, background: "#1f2937", marginTop: 11, overflow: "hidden" }}>
+      <div style={{ height: "100%", width: `${mission.progress_percent}%`, background: statusColor }} />
+    </div>
+    {mission.blockers.length > 0 && <div style={{ color: "#fbbf24", fontSize: 9, marginTop: 10,
+      display: "flex", gap: 6, alignItems: "flex-start" }}>
+      <CircleAlert size={12} style={{ flex: "0 0 auto" }} />{mission.blockers[0]}
+    </div>}
+    <div style={{ marginTop: 12 }}>
+      {mission.steps.map((step, index) => <div key={step.key} className="mission-step" style={{
+        display: "grid", gridTemplateColumns: "26px minmax(0,1fr) auto", gap: 9,
+        alignItems: "center", padding: "8px 0", borderTop: "1px solid #1f2937",
+      }}>
+        <div style={{ width: 22, height: 22, display: "grid", placeItems: "center", borderRadius: 4,
+          border: `1px solid ${step.complete ? "#22c55e55" : "#374151"}`,
+          color: step.complete ? "#86efac" : step.status === "blocked" ? "#4b5563" : "#93c5fd" }}>
+          {step.complete ? <Check size={12} /> : step.status === "blocked" ? <LockKeyhole size={11} /> : <Clock3 size={11} />}
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 9, fontWeight: 800 }}>{index + 1}. {step.label}</span>
+            <span style={{ color: step.phase === "offsite" ? "#a78bfa" : "#60a5fa", fontSize: 7,
+              fontWeight: 800, textTransform: "uppercase" }}>{step.phase}</span>
+          </div>
+          <div style={{ color: "#6b7280", fontSize: 8, marginTop: 3 }}>{step.detail}</div>
+        </div>
+        {!step.complete && step.status === "available" && <button onClick={() => onStep(step)}
+          disabled={mission.status !== "in_progress" || !!busy} style={{ ...button, minHeight: 29, padding: "5px 8px",
+            opacity: mission.status === "in_progress" ? 1 : .4 }}>{step.action_label}</button>}
+      </div>)}
+    </div>
+    <div style={{ color: "#4b5563", fontSize: 8, marginTop: 9 }}>{mission.guardrail}</div>
+  </section>;
+}
+
+export function MachineLinksPanel({ data, onAction, onNavigate }) {
   const fileRef = useRef(null);
+  const passportRef = useRef(null);
   const [selectedKey, setSelectedKey] = useState(data?.machines?.[0]?.machine_key ?? "");
   const [machineDrafts, setMachineDrafts] = useState({});
   const [csv, setCsv] = useState({ name: "", text: "", preview: null });
@@ -158,6 +228,31 @@ export function MachineLinksPanel({ data, onAction }) {
     if (result) setNotice({ type: "success", text: `${result.filename} downloaded. SHA-256 ${result.sha256?.slice(0, 16)}…` });
   };
 
+  const startMission = async () => {
+    const result = await execute("mission", () => onAction("missionStart", machine.machine_key, {
+      actor: "commissioning-console",
+    }));
+    if (result) setNotice({ type: "success", text: "Commissioning mission started." });
+  };
+
+  const actOnMission = async action => {
+    if (action === "cancel" && !window.confirm("Cancel this commissioning mission? Recorded evidence remains intact.")) return;
+    const result = await execute("mission", () => onAction("missionAction", machine.machine_key, {
+      action, expected_version: machine.mission.version, actor: "commissioning-console",
+    }));
+    if (result) setNotice({ type: "success", text: `Commissioning mission ${action === "pause" ? "paused" : action === "resume" ? "resumed" : "cancelled"}.` });
+  };
+
+  const openMissionStep = step => {
+    if (step.action_surface === "field_pack") {
+      download();
+    } else if (step.action_surface === "machine_links") {
+      passportRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      onNavigate(step.action_surface, machine.machine_key);
+    }
+  };
+
   return <div>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
       <div><div style={{ fontSize: 13, fontWeight: 800 }}>Machine links</div>
@@ -210,7 +305,10 @@ export function MachineLinksPanel({ data, onAction }) {
           <CircleAlert size={13} style={{ flex: "0 0 auto" }} /><span><b>Next:</b> {machine.next_action}</span>
         </div>
 
-        <section style={{ marginTop: 17 }}>
+        <MissionRunbook mission={machine.mission} busy={busy} onStart={startMission}
+          onAction={actOnMission} onStep={openMissionStep} />
+
+        <section ref={passportRef} style={{ marginTop: 17, scrollMarginTop: 12 }}>
           <div style={{ fontSize: 10, fontWeight: 800, marginBottom: 9 }}>Installed machine passport</div>
           <div className="machine-link-form" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 9 }}>
             <label style={label}>Record status<select value={form.status ?? "assumption"} onChange={event => set("status", event.target.value)} style={input}><option value="assumption">Assumption</option><option value="inventory">Inventory captured</option><option value="confirmed">Confirmed on site</option></select></label>
@@ -269,6 +367,6 @@ export function MachineLinksPanel({ data, onAction }) {
         </section>
       </div>
     </div>
-    <style>{`@media(max-width:760px){.machine-link-summary{grid-template-columns:repeat(3,1fr)!important}.machine-link-layout{grid-template-columns:1fr!important}.machine-link-list{border-right:0!important;border-bottom:1px solid #263244;padding-right:0!important;padding-bottom:8px;display:grid;grid-template-columns:1fr 1fr}.machine-link-stages{grid-template-columns:repeat(2,1fr)!important}.machine-link-form,.machine-link-probe,.machine-link-research{grid-template-columns:1fr!important}.machine-link-form label{grid-column:auto!important}}`}</style>
+    <style>{`@media(max-width:760px){.machine-link-summary{grid-template-columns:repeat(3,1fr)!important}.machine-link-layout{grid-template-columns:1fr!important}.machine-link-list{border-right:0!important;border-bottom:1px solid #263244;padding-right:0!important;padding-bottom:8px;display:grid;grid-template-columns:1fr 1fr}.machine-link-stages{grid-template-columns:repeat(2,1fr)!important}.machine-link-form,.machine-link-probe,.machine-link-research{grid-template-columns:1fr!important}.machine-link-form label{grid-column:auto!important}.mission-step{grid-template-columns:26px minmax(0,1fr)!important}.mission-step button{grid-column:2;width:100%}}`}</style>
   </div>;
 }

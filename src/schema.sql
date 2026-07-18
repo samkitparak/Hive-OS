@@ -2103,6 +2103,40 @@ CREATE TABLE IF NOT EXISTS factory_connection_probes (
     created_at          TEXT NOT NULL
 );
 
+-- Resumable factory visits. Mission state records coordination only; step
+-- completion is reconciled from passports, trusted transports, approved data
+-- contracts, live signals, and calibrated models rather than operator ticks.
+CREATE TABLE IF NOT EXISTS factory_commissioning_missions (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    machine_id          INTEGER NOT NULL REFERENCES machines(id),
+    strategy            TEXT NOT NULL CHECK(strategy IN
+                        ('maestro_agent','modbus_tcp','opcua','mqtt_json','energy_meter','operator_evidence')),
+    status              TEXT NOT NULL DEFAULT 'in_progress'
+                        CHECK(status IN ('in_progress','paused','completed','cancelled')),
+    passport_version_at_start INTEGER NOT NULL,
+    step_state_json     TEXT NOT NULL DEFAULT '{}',
+    evidence_sha256     TEXT NOT NULL,
+    started_by          TEXT NOT NULL,
+    started_at          TEXT NOT NULL,
+    paused_at           TEXT,
+    completed_at        TEXT,
+    cancelled_at        TEXT,
+    notes               TEXT,
+    version             INTEGER NOT NULL DEFAULT 1,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS factory_commissioning_mission_events (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    mission_id          INTEGER NOT NULL REFERENCES factory_commissioning_missions(id),
+    event_type          TEXT NOT NULL,
+    actor               TEXT NOT NULL,
+    details_json        TEXT NOT NULL,
+    evidence_sha256     TEXT NOT NULL,
+    ts                  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS auth_events (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     event_type          TEXT NOT NULL,
@@ -2233,6 +2267,12 @@ CREATE INDEX IF NOT EXISTS idx_commissioning_observations_study_time ON commissi
 CREATE INDEX IF NOT EXISTS idx_commissioning_analyses_study_time ON commissioning_evidence_analyses(study_id, created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_commissioning_events_study_time ON commissioning_evidence_events(study_id, ts, id);
 CREATE INDEX IF NOT EXISTS idx_machine_passport_events_machine_time ON machine_passport_events(machine_id, ts DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_factory_missions_machine_time ON factory_commissioning_missions(machine_id, id DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_missions_one_active
+    ON factory_commissioning_missions(machine_id)
+    WHERE status IN ('in_progress','paused');
+CREATE INDEX IF NOT EXISTS idx_factory_mission_events_mission_time
+    ON factory_commissioning_mission_events(mission_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_factory_connection_probes_machine_time ON factory_connection_probes(machine_id, created_at DESC, id DESC);
 
 -- Seed the 15 in-scope HAEEV machines (aluminium pair excluded, compressors/dust collectors as utility).

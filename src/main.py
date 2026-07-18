@@ -94,6 +94,8 @@ from api_models import (
     CommissioningStudyCreate,
     FactoryConnectionProbe,
     FactoryInventoryImport,
+    FactoryMissionAction,
+    FactoryMissionStart,
     MachinePassportUpdate,
     ConnectorAnalyzeRequest,
     ConnectorApprovalRequest,
@@ -191,7 +193,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.27.0"
+APP_VERSION = "0.28.0"
 
 
 class ApiPrefixMiddleware:
@@ -2009,6 +2011,33 @@ def post_factory_connection_probe(machine_key: str, payload: FactoryConnectionPr
             _get_conn(), CONFIG_PATH, machine_key,
             probe_type=payload.probe_type, host=payload.host, port=payload.port,
             execute=payload.execute, timeout_s=payload.timeout_s, actor=payload.actor,
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/factory-readiness/machines/{machine_key}/mission")
+def post_factory_mission(machine_key: str, payload: FactoryMissionStart):
+    try:
+        return factory_readiness_module.start_mission(
+            _get_conn(), CONFIG_PATH, machine_key,
+            actor=payload.actor, notes=payload.notes,
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/factory-readiness/machines/{machine_key}/mission/action")
+def post_factory_mission_action(machine_key: str, payload: FactoryMissionAction):
+    try:
+        return factory_readiness_module.mission_action(
+            _get_conn(), CONFIG_PATH, machine_key, action=payload.action,
+            actor=payload.actor, expected_version=payload.expected_version,
+            notes=payload.notes,
         )
     except KeyError as error:
         raise HTTPException(404, str(error)) from error

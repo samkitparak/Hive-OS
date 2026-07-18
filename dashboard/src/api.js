@@ -323,6 +323,10 @@ export const updateMachinePassport = (machineKey, payload) => request(
 export const importFactoryInventory = payload => postJson("/factory-readiness/import", payload);
 export const probeFactoryConnection = (machineKey, payload) =>
   postJson(`/factory-readiness/machines/${encodeURIComponent(machineKey)}/probe`, payload);
+export const startFactoryMission = (machineKey, payload) =>
+  postJson(`/factory-readiness/machines/${encodeURIComponent(machineKey)}/mission`, payload);
+export const actOnFactoryMission = (machineKey, payload) =>
+  postJson(`/factory-readiness/machines/${encodeURIComponent(machineKey)}/mission/action`, payload);
 export const downloadFactoryReadinessPack = async () => {
   const response = await fetch(`${BASE}/factory-readiness/pack`, { credentials: "same-origin" });
   if (!response.ok) {
