@@ -14,7 +14,7 @@ OpenSSH Client.
 
 ```powershell
 .\deploy\windows\build-offline-bundle.ps1 `
-  -Version 0.29.0 `
+  -Version 0.31.0 `
   -PythonInstaller C:\ReleaseInputs\python-3.12.exe `
   -MosquittoInstaller C:\ReleaseInputs\mosquitto.exe `
   -OdbcInstaller C:\ReleaseInputs\msodbcsql18.msi `
@@ -26,8 +26,8 @@ wheels, creates a separate machine-agent wheelhouse, embeds the Python 3.12 x64
 installer for each machine PC, packages the prebuilt dashboard, hashes every
 bundled file, and emits:
 
-- `release\HIVE-OS-0.29.0-offline.zip`
-- `release\HIVE-OS-0.29.0-offline.zip.sha256`
+- `release\HIVE-OS-0.31.0-offline.zip`
+- `release\HIVE-OS-0.31.0-offline.zip.sha256`
 
 Keep both files. Compare the ZIP SHA-256 after copying it to USB and again on
 the factory PC.
@@ -36,7 +36,7 @@ Independently rehearse the complete outer and nested manifests before USB copy:
 
 ```bash
 PYTHONPATH=src python src/offline_release.py \
-  release/HIVE-OS-0.29.0-offline.zip --version 0.29.0
+  release/HIVE-OS-0.31.0-offline.zip --version 0.31.0
 ```
 
 This static check is cross-platform. Installation, scheduled-task startup,
@@ -108,15 +108,15 @@ For an existing 0.21 or later installation, place the release ZIP and its
 
 ```powershell
 C:\HIVE-OS\deploy\windows\upgrade-hive.ps1 `
-  -BundlePath D:\HIVE-OS-0.29.0-offline.zip
+  -BundlePath D:\HIVE-OS-0.31.0-offline.zip
 ```
 
-To upgrade a 0.20 installation, extract the 0.29 release and run the upgrader
+To upgrade a 0.20 installation, extract the 0.31 release and run the upgrader
 included at its root; it carries the new backup implementation itself:
 
 ```powershell
-D:\HIVE-OS-0.29.0-offline\upgrade-hive.ps1 `
-  -BundlePath D:\HIVE-OS-0.29.0-offline
+D:\HIVE-OS-0.31.0-offline\upgrade-hive.ps1 `
+  -BundlePath D:\HIVE-OS-0.31.0-offline
 ```
 
 The upgrader verifies the release, creates and verifies a pre-upgrade backup,

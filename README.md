@@ -14,8 +14,9 @@ operations are limited to the HIVE database and site configuration.
 
 - **Live machine dashboard** — 15 machines across 7 process areas (Cutting, CNC, Edge Banding, Pressing, Sanding, Finishing, Utilities). Real-time state (RUNNING / IDLE / OFF / ALARM), power draw, current CNC program, OEE bars.
 - **Job progress** — pulls cut lists from Cabinet Vision exports, tracks parts completed per job via Maestro cycle events. Shows done/total, progress bar, ETA, on-time status.
-- **OEE** — Availability × Performance × Quality per machine, updated every shift.
-- **Daily score + streak** — gamified production score (0–100) combining OEE and on-time job completion. Streak tracks consecutive days beating the 7-day rolling average.
+- **Evidence-gated OEE** — verified shift calendar, state coverage, active cycle model, complete quality disposition, and exact waterfall reconciliation before a value is decision-ready.
+- **Production-loss waterfall** — partitions every scheduled machine second, separates availability from equivalent speed/quality loss, and ranks factory machine-minute exposure without double counting.
+- **Daily score + streak** — combines trusted OEE and on-time job completion only after both inputs exist; incomplete shifts remain pending.
 - **Explainable optimization engine** — ranks dynamic constraints using active periods, queue depth, inferred downstream starvation, alarms, and a separate telemetry-confidence gate.
 - **Closed-loop improvement learning** — turns priorities into owned experiments with frozen baselines, minimum sample gates, confidence intervals, guardrails, immutable outcomes, and conservative advisory promotion.
 - **Evidence-backed root-cause diagnostics** — correlates alarms, downtime, quality, programs, maintenance, spares, and utility telemetry; preserves ranked alternatives and learns local priors only from named operator confirmations.
@@ -101,6 +102,7 @@ hive-os/
 │   ├── maestro_agent.py      # Maestro log file watcher
 │   ├── mqtt_bridge.py        # MQTT subscriber → DB + event broadcast
 │   ├── oee.py                # OEE calculator
+│   ├── production_loss.py    # shift loss ledger, Pareto, and trusted OEE gate
 │   ├── progress.py           # job progress tracker
 │   ├── score.py              # daily score + streak
 │   ├── bottleneck.py         # current factory constraint detector
@@ -287,6 +289,7 @@ unprefixed routes remain available for compatibility and local tooling.
 | GET | `/bottlenecks` | Current constraint ranking and recommendation |
 | GET | `/data-quality` | Telemetry confidence, cycle integrity, part links, and clock drift |
 | GET | `/optimization` | Confidence-gated factory priorities and constraint persistence |
+| GET | `/production-losses` | Verified-shift loss waterfall, Pareto, reconciliation, and trusted OEE |
 | GET | `/improvements` | Recommendation lifecycle, experiments, outcomes, and learned advisories |
 | POST | `/improvements/sync` | Materialize current optimization priorities without GET-side writes |
 | GET | `/improvements/recommendations/{id}` | One recommendation's experiment and immutable event history |
@@ -453,6 +456,8 @@ unprefixed routes remain available for compatibility and local tooling.
 
 See [OPTIMIZATION_MODEL.md](OPTIMIZATION_MODEL.md) for the evidence model,
 research basis, assumptions, confidence gate, and learning stages.
+See [PRODUCTION_LOSS_INTELLIGENCE.md](PRODUCTION_LOSS_INTELLIGENCE.md) for the
+shift boundary, loss taxonomy, OEE evidence gates, reconciliation, and site validation.
 See [VIRTUAL_FACTORY_COMMISSIONING.md](VIRTUAL_FACTORY_COMMISSIONING.md) for the
 offsite reference model, isolation contract, sensitivity logic, and site measurements.
 See [COMMISSIONING_EVIDENCE.md](COMMISSIONING_EVIDENCE.md) for the offline field

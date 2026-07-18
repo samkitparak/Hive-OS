@@ -20,11 +20,15 @@ def conn():
 
 
 def test_daily_score_no_data(conn):
+    before = conn.execute("SELECT COUNT(*) FROM oee_snapshots").fetchone()[0]
     result = s.get_daily_score(conn)
     assert isinstance(result, s.DailyScore)
     assert result.score == 0.0
     assert result.streak == 0
     assert result.jobs_done == 0
+    assert result.score_ready is False
+    assert result.oee_ready is False
+    assert conn.execute("SELECT COUNT(*) FROM oee_snapshots").fetchone()[0] == before
 
 
 def test_score_formula(conn):

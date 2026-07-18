@@ -115,6 +115,7 @@ export const updateConstraintSettings = (payload) => request("/constraints/setti
 });
 export const fetchDataQuality = () => request("/data-quality");
 export const fetchOptimization = () => request("/optimization");
+export const fetchProductionLosses = () => request("/production-losses");
 export const fetchImprovements = () => request("/improvements");
 export const syncImprovements = (payload = {}) => postJson("/improvements/sync", payload);
 export const actOnImprovement = (id, payload) =>

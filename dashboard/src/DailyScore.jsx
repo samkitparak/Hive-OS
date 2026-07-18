@@ -56,6 +56,18 @@ export function DailyScore({ data }) {
     );
   }
 
+  if (!data.score_ready) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
+        <div style={{ color: "#f59e0b", fontSize: 14, fontWeight: 800 }}>Daily score pending</div>
+        <div style={{ color: "#9ca3af", fontSize: 11 }}>
+          Trusted OEE: {data.oee_ready ? `${Math.round(data.oee_avg * 100)}%` : "pending"}
+          {` · ${data.oee_machines ?? 0} machines ready · ${data.jobs_done} completed jobs`}
+        </div>
+      </div>
+    );
+  }
+
   const trendIcon  = data.trend === "up" ? "▲" : data.trend === "down" ? "▼" : "●";
   const trendColor = data.trend === "up" ? "#22c55e" : data.trend === "down" ? "#ef4444" : "#6b7280";
   const vsText     = data.vs_avg > 0 ? `+${data.vs_avg}` : `${data.vs_avg}`;

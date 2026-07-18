@@ -58,6 +58,7 @@ import commissioning_evidence as commissioning_evidence_module
 import factory_readiness as factory_readiness_module
 import event_pipeline
 import optimization as optimization_module
+import production_loss as production_loss_module
 import improvement as improvement_module
 import root_cause as root_cause_module
 import alerting as alerting_module
@@ -199,7 +200,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.30.0"
+APP_VERSION = "0.31.0"
 
 
 class ApiPrefixMiddleware:
@@ -1007,6 +1008,19 @@ def get_data_quality(window_hours: int = Query(8, ge=1, le=168)):
 @app.get("/optimization")
 def get_optimization(window_hours: int = Query(8, ge=1, le=24)):
     return optimization_module.build(_get_conn(), window_hours)
+
+
+@app.get("/production-losses")
+def get_production_losses(date: Optional[str] = None,
+                          machine_key: Optional[str] = None):
+    try:
+        return production_loss_module.build(
+            _get_conn(), local_date=date, machine_key=machine_key
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
 
 
 @app.get("/improvements")

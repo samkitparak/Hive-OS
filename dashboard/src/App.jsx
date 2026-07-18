@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, UserRound } from "lucide-react";
-import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, syncConstraints, fetchConstraintTimeline, updateConstraintSettings, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchForecast, refreshForecast, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchRecovery, analyzeRecovery, decideRecovery, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, updateChangeoverStandard, recordChangeoverObservation, excludeChangeoverObservation, syncChangeovers, fetchProcurementSnapshot, updateProcurementSupplier, updateProcurementMapping, createPurchaseOrder, draftProcurementRecommendations, actOnPurchaseOrder, createGoodsReceipt, importProcurementCsv, updateMaterialStock, updateInventoryItem, updateInventoryLot, updateInventoryRequirement, createInventoryRemnant, updateInventoryRemnant, updateLaborRole, updateToolPool, createToolAsset, updateToolAsset, recordToolUsage, recordToolAction, recordToolService, updateToolProgramMapping, syncTooling, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchResilience, createSystemBackup, verifySystemBackup, fetchConfig, saveConfig, fetchRemoteSetupPlan, forgetRemoteHost, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, fetchConnectorSnapshot, analyzeConnector, approveConnector, importConnectorRecords, updateConnectorProfile, discoverCabinetVisionSql, syncCabinetVisionSql, fetchIndustrialSnapshot, updateIndustrialProfile, simulateIndustrialProfile, probeIndustrialProfile, probeIndustrialMqtt, approveIndustrialProfile, pollIndustrialProfile, browseIndustrialOpcua, fetchFactoryReadiness, updateMachinePassport, importFactoryInventory, probeFactoryConnection, startFactoryMission, actOnFactoryMission, downloadFactoryReadinessPack, fetchImprovements, syncImprovements, actOnImprovement, fetchRootCauses, syncRootCauses, decideRootCause, fetchAlerts, syncAlerts, actOnAlert, updateAlertDestination, testAlertDestination, dispatchAlerts, updateAlertSettings, postJson, simulateEvent } from "./api";
+import { fetchMachines, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, syncConstraints, fetchConstraintTimeline, updateConstraintSettings, fetchDataQuality, fetchOptimization, fetchProductionLosses, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchForecast, refreshForecast, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchRecovery, analyzeRecovery, decideRecovery, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, updateChangeoverStandard, recordChangeoverObservation, excludeChangeoverObservation, syncChangeovers, fetchProcurementSnapshot, updateProcurementSupplier, updateProcurementMapping, createPurchaseOrder, draftProcurementRecommendations, actOnPurchaseOrder, createGoodsReceipt, importProcurementCsv, updateMaterialStock, updateInventoryItem, updateInventoryLot, updateInventoryRequirement, createInventoryRemnant, updateInventoryRemnant, updateLaborRole, updateToolPool, createToolAsset, updateToolAsset, recordToolUsage, recordToolAction, recordToolService, updateToolProgramMapping, syncTooling, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchResilience, createSystemBackup, verifySystemBackup, fetchConfig, saveConfig, fetchRemoteSetupPlan, forgetRemoteHost, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, fetchConnectorSnapshot, analyzeConnector, approveConnector, importConnectorRecords, updateConnectorProfile, discoverCabinetVisionSql, syncCabinetVisionSql, fetchIndustrialSnapshot, updateIndustrialProfile, simulateIndustrialProfile, probeIndustrialProfile, probeIndustrialMqtt, approveIndustrialProfile, pollIndustrialProfile, browseIndustrialOpcua, fetchFactoryReadiness, updateMachinePassport, importFactoryInventory, probeFactoryConnection, startFactoryMission, actOnFactoryMission, downloadFactoryReadinessPack, fetchImprovements, syncImprovements, actOnImprovement, fetchRootCauses, syncRootCauses, decideRootCause, fetchAlerts, syncAlerts, actOnAlert, updateAlertDestination, testAlertDestination, dispatchAlerts, updateAlertSettings, postJson, simulateEvent } from "./api";
 import { MachineCard } from "./MachineCard";
 import { MachineDetail } from "./MachineDetail";
 import { JobProgress } from "./JobProgress";
@@ -12,6 +12,7 @@ import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { OperationsPanel } from "./OperationsPanel";
 import { SetupPanel } from "./SetupPanel";
 import { IntelligencePanel } from "./IntelligencePanel";
+import { ProductionLossPanel } from "./ProductionLossPanel";
 import { ImprovementPanel } from "./ImprovementPanel";
 import { RootCausePanel } from "./RootCausePanel";
 import { AlertCenter } from "./AlertCenter";
@@ -35,11 +36,14 @@ const ForecastPanel = lazy(() => import("./ForecastPanel").then(module => ({ def
 
 function factoryOee(oeeList) {
   if (!oeeList?.length) return null;
-  const active = oeeList.filter(m => m.run_time_s > 0 || m.idle_time_s > 0);
+  const active = oeeList.filter(m => m.decision_ready && m.oee != null);
   if (!active.length) return null;
-  const avg = k => active.reduce((s, m) => s + (m[k] ?? 0), 0) / active.length;
-  return { availability: avg("availability"), oee: avg("oee"), active: active.length,
-           provisional: active.some(machine => machine.provisional) };
+  const planned = active.reduce((sum, machine) => sum + machine.planned_production_s, 0);
+  const running = active.reduce((sum, machine) => sum + machine.running_s, 0);
+  const productive = active.reduce(
+    (sum, machine) => sum + (machine.waterfall?.fully_productive_s ?? 0), 0,
+  );
+  return { availability: running / planned, oee: productive / planned, active: active.length };
 }
 
 export default function App({ auth }) {
@@ -66,9 +70,6 @@ export default function App({ auth }) {
   const { data: machines = [] } = useQuery({
     queryKey: ["machines"], queryFn: fetchMachines, refetchInterval: 10000,
   });
-  const { data: oeeList = [] } = useQuery({
-    queryKey: ["oee"], queryFn: fetchOee, refetchInterval: 30000,
-  });
   const { data: jobs = [] } = useQuery({
     queryKey: ["jobs"], queryFn: fetchJobs, refetchInterval: 60000,
   });
@@ -92,6 +93,9 @@ export default function App({ auth }) {
   });
   const { data: optimization = null } = useQuery({
     queryKey: ["optimization"], queryFn: fetchOptimization, refetchInterval: 30000,
+  });
+  const { data: productionLosses = null } = useQuery({
+    queryKey: ["productionLosses"], queryFn: fetchProductionLosses, refetchInterval: 30000,
   });
   const { data: improvements = null } = useQuery({
     queryKey: ["improvements"], queryFn: fetchImprovements, refetchInterval: 30000,
@@ -192,12 +196,12 @@ export default function App({ auth }) {
     setMachineStates(prev => ({ ...prev, [ev.machine_key]: ev }));
     setLiveLog(prev => [ev, ...prev].slice(0, 40));
     if (ev.event_type === "cycle_end") {
-      qc.invalidateQueries({ queryKey: ["oee"] });
       qc.invalidateQueries({ queryKey: ["activeJobs"] });
       qc.invalidateQueries({ queryKey: ["dailyScore"] });
       qc.invalidateQueries({ queryKey: ["bottlenecks"] });
       qc.invalidateQueries({ queryKey: ["dataQuality"] });
       qc.invalidateQueries({ queryKey: ["optimization"] });
+      qc.invalidateQueries({ queryKey: ["productionLosses"] });
       qc.invalidateQueries({ queryKey: ["learning"] });
       qc.invalidateQueries({ queryKey: ["routing"] });
       qc.invalidateQueries({ queryKey: ["twin"] });
@@ -233,7 +237,11 @@ export default function App({ auth }) {
              last_seen:   live.ts };
   });
 
-  const safeOeeList = Array.isArray(oeeList) ? oeeList : [];
+  const safeOeeList = (productionLosses?.machines ?? []).map(machine => ({
+    ...machine, run_time_s: machine.running_s,
+    idle_time_s: machine.measured_availability_loss_s,
+    provisional: !machine.decision_ready,
+  }));
   const machineMap  = Object.fromEntries(enriched.map(m => [m.machine_key, m]));
   const oeeMap      = Object.fromEntries(safeOeeList.map(o => [o.machine_key, o]));
   const summary     = factoryOee(safeOeeList);
@@ -269,7 +277,7 @@ export default function App({ auth }) {
   };
 
   const refreshOperations = () => {
-    ["operationsSummary", "downtime", "workOrders", "maintenance", "rework", "barcodeEvents", "executionSnapshot", "identitySnapshot", "productionOrders", "resourceSnapshot", "jobs"].forEach(key => {
+    ["operationsSummary", "downtime", "workOrders", "maintenance", "rework", "barcodeEvents", "executionSnapshot", "identitySnapshot", "productionOrders", "resourceSnapshot", "jobs", "productionLosses", "dailyScore", "optimization", "diagnostics"].forEach(key => {
       qc.invalidateQueries({ queryKey: [key] });
     });
   };
@@ -426,7 +434,7 @@ export default function App({ auth }) {
   const runCommissioningAnalysis = async payload => {
     const result = await analyzeCommissioningLog(payload);
     if (payload.persist) {
-      ["machines", "oee", "bottlenecks", "dataQuality", "optimization", "diagnostics"].forEach(key => {
+      ["machines", "productionLosses", "bottlenecks", "dataQuality", "optimization", "diagnostics"].forEach(key => {
         qc.invalidateQueries({ queryKey: [key] });
       });
     }
@@ -542,7 +550,7 @@ export default function App({ auth }) {
   };
 
   const refreshPlanning = () => {
-    ["productionOrders", "productionReadiness", "planningScenarios", "activeSchedule", "recovery", "resourceSnapshot", "procurementSnapshot", "routeExceptions", "executionSnapshot", "identitySnapshot", "sequence", "twin", "forecast", "jobs", "optimization", "alerts", "diagnostics"].forEach(key => {
+    ["productionOrders", "productionReadiness", "planningScenarios", "activeSchedule", "recovery", "resourceSnapshot", "procurementSnapshot", "routeExceptions", "executionSnapshot", "identitySnapshot", "sequence", "twin", "forecast", "jobs", "optimization", "productionLosses", "dailyScore", "alerts", "diagnostics"].forEach(key => {
       qc.invalidateQueries({ queryKey: [key] });
     });
   };
@@ -608,7 +616,7 @@ export default function App({ auth }) {
       <div style={{ display: "flex", justifyContent: "space-between",
                     alignItems: "center", marginBottom: 24, gap: 16, flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: -0.5 }}>
+          <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: 0 }}>
             HIVE OS{" "}
             <span style={{ color: "#374151", fontWeight: 400 }}>/ HAEEV Factory</span>
           </div>
@@ -622,9 +630,9 @@ export default function App({ auth }) {
         {summary && (
           <div style={{ display: "flex", gap: 24, alignItems: "center" }}>
             <div style={{ textAlign: "right" }}>
-              <div title={summary.provisional ? "Performance or quality evidence is not calibrated yet" : "Calibrated factory OEE"}
+              <div title="Evidence-gated OEE for decision-ready production machines"
                    style={{ fontSize: 10, color: "#6b7280" }}>
-                FACTORY OEE{summary.provisional ? "*" : ""} (8h)
+                TRUSTED FACTORY OEE
               </div>
               <div style={{ fontSize: 28, fontWeight: 800,
                             color: summary.oee >= 0.75 ? "#22c55e"
@@ -728,6 +736,8 @@ export default function App({ auth }) {
           runtime={constraintTimeline?.runtime}
           onHistory={() => setShowConstraintHistory(true)} />
       </div>
+
+      <ProductionLossPanel data={productionLosses} />
 
       <Suspense fallback={<section style={{ borderTop: "1px solid #1f2937", borderBottom: "1px solid #1f2937",
         padding: "14px 0", marginBottom: 20, color: "#6b7280", fontSize: 11 }}>Loading production forecast…</section>}>
@@ -940,6 +950,8 @@ export default function App({ auth }) {
           .constraint-recommendation { grid-column: 1 / -1; }
           .intelligence-grid { grid-template-columns: 1fr 1fr !important; }
           .forecast-grid { grid-template-columns: 1fr 1fr !important; }
+          .loss-summary { grid-template-columns: 1fr 1fr !important; }
+          .loss-summary > div:first-child, .loss-summary > div:nth-child(4) { grid-column: 1 / -1; }
           .commission-controls { grid-template-columns: 1fr !important; }
           .lab-metrics, .lab-interventions, .lab-columns { grid-template-columns: 1fr !important; }
           .evidence-study-grid, .evidence-gates, .evidence-metrics, .evidence-form-primary, .evidence-form-secondary { grid-template-columns: 1fr !important; }

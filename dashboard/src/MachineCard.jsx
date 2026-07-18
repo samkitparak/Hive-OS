@@ -15,13 +15,14 @@ const STATE_LABEL = {
 };
 
 function OeeBar({ value, label }) {
-  const pct = Math.round((value ?? 0) * 100);
+  const available = value != null;
+  const pct = available ? Math.round(value * 100) : 0;
   const color = pct >= 75 ? "#22c55e" : pct >= 50 ? "#f59e0b" : "#ef4444";
   return (
     <div style={{ marginBottom: 4 }}>
       <div style={{ display: "flex", justifyContent: "space-between",
                     fontSize: 10, color: "#9ca3af", marginBottom: 2 }}>
-        <span>{label}</span><span>{pct}%</span>
+        <span>{label}</span><span>{available ? `${pct}%` : "—"}</span>
       </div>
       <div style={{ height: 4, background: "#1f2937", borderRadius: 2 }}>
         <div style={{ height: "100%", width: `${pct}%`,

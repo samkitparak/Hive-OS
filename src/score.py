@@ -1,14 +1,15 @@
 """
 Daily score and streak calculator.
 
-Score (0–100) = weighted average of:
+Decision-ready score (0–100) = weighted average of:
   - OEE component   (60 pts max): today's average OEE across production machines
   - On-time rate    (40 pts max): jobs completed on time / total jobs completed today
 
 Streak = consecutive calendar days the score was >= the rolling 7-day average.
 
-Historical scores are stored in the oee_snapshots table (we reuse it, filtering
-by window_start = today's date). If no data exists yet, returns zeroed result.
+Current OEE comes from the read-only production-loss waterfall. Missing OEE or
+completed-job evidence keeps the score pending rather than turning it into zero
+performance. Legacy OEE snapshots remain available for historical comparison.
 """
 
 import sqlite3
@@ -18,12 +19,10 @@ from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-import oee as oee_module
+import production_loss
 import yaml
 
 
-# Utility machines excluded from production score
-UTILITY_KEYS = {"elgi_1", "elgi_2", "aarco_1", "aarco_2"}
 CYCLE_CONFIG_PATH = Path(__file__).parent.parent / "config" / "cycle_times.yaml"
 
 
@@ -39,15 +38,17 @@ class DailyScore:
     rolling_avg:   float        # 7-day rolling score average
     vs_avg:        float        # today_score - rolling_avg (positive = beating it)
     trend:         str          # "up" | "down" | "same"
+    score_ready:   bool = True
+    oee_ready:     bool = True
+    oee_machines:  int = 0
 
 
-def _today_oee(conn: sqlite3.Connection) -> float:
-    """Average OEE for production machines over today's shift window."""
-    results = oee_module.calculate_all(conn, window_hours=9)
-    prod = [r for r in results if r.machine_key not in UTILITY_KEYS]
-    if not prod:
-        return 0.0
-    return sum(r.oee for r in prod) / len(prod)
+def _today_oee(conn: sqlite3.Connection) -> tuple[float, bool, int]:
+    """Return trusted shift OEE without writing snapshots from a GET path."""
+    report = production_loss.build(conn)
+    value = report["summary"]["decision_ready_oee"]
+    ready_machines = int(report["summary"]["decision_ready_machines"])
+    return (float(value or 0.0), value is not None, ready_machines)
 
 
 def _shift_context(cfg_path: Path, now: datetime) -> tuple[datetime, datetime, datetime]:
@@ -177,11 +178,12 @@ def _streak(conn: sqlite3.Connection, today_score: float, rolling_avg: float) ->
 
 def get_daily_score(conn: sqlite3.Connection) -> DailyScore:
     today     = datetime.now(timezone.utc).date().isoformat()
-    oee_avg   = _today_oee(conn)
+    oee_avg, oee_ready, oee_machines = _today_oee(conn)
     jobs_done, jobs_on_time = _jobs_completed_today(conn)
 
     on_time_rate = (jobs_on_time / jobs_done) if jobs_done > 0 else 0.0
-    score = round(oee_avg * 60 + on_time_rate * 40, 1)
+    score_ready = oee_ready and jobs_done > 0
+    score = round(oee_avg * 60 + on_time_rate * 40, 1) if score_ready else 0.0
 
     past = _past_scores(conn, days=7)
     rolling_avg = round(sum(past) / len(past), 1) if past else 0.0
@@ -201,4 +203,7 @@ def get_daily_score(conn: sqlite3.Connection) -> DailyScore:
         rolling_avg  = rolling_avg,
         vs_avg       = vs_avg,
         trend        = trend,
+        score_ready  = score_ready,
+        oee_ready    = oee_ready,
+        oee_machines = oee_machines,
     )

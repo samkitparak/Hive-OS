@@ -11,6 +11,7 @@ import bottleneck
 import data_quality
 import forecasting
 import procurement
+import production_loss
 import recovery
 
 
@@ -85,6 +86,7 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
     purchasing = procurement.snapshot(conn)
     forecast = forecasting.snapshot(conn)
     recovery_state = recovery.snapshot(conn, now)
+    loss_accounting = production_loss.build(conn, now=now)
     recommendations = []
 
     low_reporting = [
@@ -350,6 +352,12 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
             "action_required": recovery_state["action_required"],
             "trigger_count": len(recovery_state["current"]["triggers"]),
             "assessment_id": latest_recovery["id"] if latest_recovery else None,
+        },
+        "production_loss": {
+            "method_version": loss_accounting["method_version"],
+            "shift": loss_accounting["shift"],
+            "summary": loss_accounting["summary"],
+            "recommendation": loss_accounting["recommendation"],
         },
         "recommendations": _finalize(recommendations, start, end, now.isoformat()),
         "guardrail": (

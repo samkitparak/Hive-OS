@@ -23,6 +23,7 @@ import commissioning_lab
 import commissioning_evidence
 import factory_readiness
 import changeovers
+import production_loss
 
 PLACEHOLDER_HOSTS = {
     *(f"192.168.1.{number}" for number in range(51, 55)),
@@ -208,6 +209,8 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
     factory_summary = factory_state["summary"]
     changeover_state = changeovers.snapshot(conn)
     changeover_summary = changeover_state["summary"]
+    loss_state = production_loss.build(conn)
+    loss_summary = loss_state["summary"]
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -282,6 +285,9 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "verified_changeover_standards": changeover_summary["verified_standards"],
             "learned_changeover_models": changeover_summary["active_models"],
             "changeover_observations": changeover_summary["accepted_observations"],
+            "loss_reporting_machines": loss_summary["reporting_machines"],
+            "loss_decision_ready_machines": loss_summary["decision_ready_machines"],
+            "loss_classified_coverage": loss_summary["classified_coverage"],
         },
         "services": [
             {"key": "database", "name": "Database", "status": "online",
@@ -421,6 +427,18 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
                  f"{constraint_summary['open']} open episodes; "
                  f"{constraint_summary['shifts_sampled']} shifts sampled; "
                  f"worker {constraint_runtime['status']}"
+             )},
+            {"key": "production_loss", "name": "Production loss accounting",
+             "status": "ready" if (
+                 loss_summary["decision_ready_machines"] == loss_summary["production_machines"]
+                 and loss_summary["production_machines"] > 0
+             ) else (
+                 "learning" if loss_summary["reporting_machines"] else "needs_site_value"
+             ),
+             "detail": (
+                 f"{loss_summary['reporting_machines']}/{loss_summary['production_machines']} reporting; "
+                 f"{loss_summary['decision_ready_machines']} OEE-ready; "
+                 f"{round(loss_summary['classified_coverage'] * 100)}% scheduled machine time classified"
              )},
             {"key": "root_cause_diagnostics", "name": "Root-cause diagnostics",
              "status": "ready" if root_cause_summary["confirmed"] else (
