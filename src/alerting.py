@@ -98,6 +98,11 @@ RULES = {
         "owner_role": "production_planner", "response_minutes": 30,
         "rationale": "A material schedule deviation has an evidence-backed recovery sequence awaiting a named decision.",
     },
+    "constraint_worker_failed": {
+        "label": "Constraint intelligence worker", "domain": "integration",
+        "owner_role": "site_engineer", "response_minutes": 30,
+        "rationale": "Repeated sampling failures leave bottleneck episodes stale and require a runtime inspection.",
+    },
 }
 
 
@@ -479,6 +484,33 @@ def _schedule_recovery_review(conn: sqlite3.Connection) -> list[dict]:
     )]
 
 
+def _constraint_worker_failure(conn: sqlite3.Connection, now: datetime) -> list[dict]:
+    row = conn.execute("SELECT * FROM constraint_runtime_settings WHERE id=1").fetchone()
+    if not row or not bool(row["auto_sync"]):
+        return []
+    failures = int(row["consecutive_failures"] or 0)
+    stale = bool(
+        row["last_success_at"] and
+        (now - _parse(row["last_success_at"])).total_seconds()
+        > max(900, int(row["interval_seconds"]) * 3)
+    )
+    if failures < 3 and not stale:
+        return []
+    occurred_at = row["last_run_at"] or row["updated_at"]
+    reason = row["last_error"] or "No successful sample inside the runtime freshness gate"
+    return [_candidate(
+        "constraint_worker_failed", "constraint_worker_failed:runtime",
+        "constraint_runtime", 1, "Constraint intelligence sampling is degraded",
+        f"{failures} consecutive failures; latest detail: {reason}",
+        "Inspect the HIVE service log, database availability, and constraint runtime settings.",
+        "Constraint episodes and optimization priorities may become stale until sampling resumes.",
+        f"{failures}:{row['last_run_at']}:{row['last_error']}", occurred_at, {
+            "consecutive_failures": failures, "last_success_at": row["last_success_at"],
+            "last_error": row["last_error"], "stale": stale,
+        }, severity="critical" if failures >= 3 else "warning",
+    )]
+
+
 def collect_candidates(conn: sqlite3.Connection, now: Optional[datetime] = None) -> list[dict]:
     now = now or datetime.now(timezone.utc)
     candidates = [
@@ -488,6 +520,7 @@ def collect_candidates(conn: sqlite3.Connection, now: Optional[datetime] = None)
         *_industrial_failures(conn), *_diagnostic_reviews(conn), *_unacknowledged_dispatch(conn, now),
         *_forecast_delivery_risks(conn),
         *_schedule_recovery_review(conn),
+        *_constraint_worker_failure(conn, now),
     ]
     return sorted(candidates, key=lambda item: (-SEVERITY_ORDER[item["severity"]], item["occurred_at"], item["alert_key"]))
 

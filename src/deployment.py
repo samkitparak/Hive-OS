@@ -28,7 +28,7 @@ INSTALL_ASSETS = [
         "label": "Verified offline release builder",
         "path": "deploy/windows/build-offline-bundle.ps1",
         "target": "Internet-connected Windows build PC before travel",
-        "command": ".\\deploy\\windows\\build-offline-bundle.ps1 -Version 0.26.0 <installer paths>",
+        "command": ".\\deploy\\windows\\build-offline-bundle.ps1 -Version 0.27.0 <installer paths>",
     },
     {
         "key": "offline_installer",
@@ -42,7 +42,7 @@ INSTALL_ASSETS = [
         "label": "Cross-platform offline release verifier",
         "path": "src/offline_release.py",
         "target": "Build PC or travel laptop before copying the release to USB",
-        "command": "PYTHONPATH=src python src/offline_release.py <release.zip> --version 0.26.0",
+        "command": "PYTHONPATH=src python src/offline_release.py <release.zip> --version 0.27.0",
     },
     {
         "key": "backup",

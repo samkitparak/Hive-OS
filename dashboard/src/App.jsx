@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, UserRound } from "lucide-react";
-import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, syncConstraints, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchForecast, refreshForecast, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchRecovery, analyzeRecovery, decideRecovery, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, fetchProcurementSnapshot, updateProcurementSupplier, updateProcurementMapping, createPurchaseOrder, draftProcurementRecommendations, actOnPurchaseOrder, createGoodsReceipt, importProcurementCsv, updateMaterialStock, updateInventoryItem, updateInventoryLot, updateInventoryRequirement, createInventoryRemnant, updateInventoryRemnant, updateLaborRole, updateToolPool, createToolAsset, updateToolAsset, recordToolUsage, recordToolAction, recordToolService, updateToolProgramMapping, syncTooling, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchResilience, createSystemBackup, verifySystemBackup, fetchConfig, saveConfig, fetchRemoteSetupPlan, forgetRemoteHost, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, fetchConnectorSnapshot, analyzeConnector, approveConnector, importConnectorRecords, updateConnectorProfile, discoverCabinetVisionSql, syncCabinetVisionSql, fetchIndustrialSnapshot, updateIndustrialProfile, simulateIndustrialProfile, probeIndustrialProfile, probeIndustrialMqtt, approveIndustrialProfile, pollIndustrialProfile, browseIndustrialOpcua, fetchFactoryReadiness, updateMachinePassport, importFactoryInventory, probeFactoryConnection, downloadFactoryReadinessPack, fetchImprovements, syncImprovements, actOnImprovement, fetchRootCauses, syncRootCauses, decideRootCause, fetchAlerts, syncAlerts, actOnAlert, updateAlertDestination, testAlertDestination, dispatchAlerts, updateAlertSettings, postJson, simulateEvent } from "./api";
+import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, syncConstraints, fetchConstraintTimeline, updateConstraintSettings, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchForecast, refreshForecast, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchRecovery, analyzeRecovery, decideRecovery, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, fetchProcurementSnapshot, updateProcurementSupplier, updateProcurementMapping, createPurchaseOrder, draftProcurementRecommendations, actOnPurchaseOrder, createGoodsReceipt, importProcurementCsv, updateMaterialStock, updateInventoryItem, updateInventoryLot, updateInventoryRequirement, createInventoryRemnant, updateInventoryRemnant, updateLaborRole, updateToolPool, createToolAsset, updateToolAsset, recordToolUsage, recordToolAction, recordToolService, updateToolProgramMapping, syncTooling, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchResilience, createSystemBackup, verifySystemBackup, fetchConfig, saveConfig, fetchRemoteSetupPlan, forgetRemoteHost, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, fetchConnectorSnapshot, analyzeConnector, approveConnector, importConnectorRecords, updateConnectorProfile, discoverCabinetVisionSql, syncCabinetVisionSql, fetchIndustrialSnapshot, updateIndustrialProfile, simulateIndustrialProfile, probeIndustrialProfile, probeIndustrialMqtt, approveIndustrialProfile, pollIndustrialProfile, browseIndustrialOpcua, fetchFactoryReadiness, updateMachinePassport, importFactoryInventory, probeFactoryConnection, downloadFactoryReadinessPack, fetchImprovements, syncImprovements, actOnImprovement, fetchRootCauses, syncRootCauses, decideRootCause, fetchAlerts, syncAlerts, actOnAlert, updateAlertDestination, testAlertDestination, dispatchAlerts, updateAlertSettings, postJson, simulateEvent } from "./api";
 import { MachineCard } from "./MachineCard";
 import { MachineDetail } from "./MachineDetail";
 import { JobProgress } from "./JobProgress";
@@ -17,6 +17,7 @@ import { RootCausePanel } from "./RootCausePanel";
 import { AlertCenter } from "./AlertCenter";
 import { CommissioningPanel } from "./CommissioningPanel";
 import { PlanningPanel } from "./PlanningPanel";
+import { ConstraintHistoryPanel } from "./ConstraintHistoryPanel";
 import { useSSE } from "./useSSE";
 
 const GROUPS = [
@@ -58,6 +59,7 @@ export default function App({ auth }) {
   const [showRootCauses, setShowRootCauses] = useState(false);
   const [showAlerts, setShowAlerts] = useState(false);
   const [showAccess, setShowAccess] = useState(false);
+  const [showConstraintHistory, setShowConstraintHistory] = useState(false);
   const [constraintSyncing, setConstraintSyncing] = useState(false);
   const demoRef = useRef(null);
 
@@ -81,6 +83,9 @@ export default function App({ auth }) {
   });
   const { data: bottlenecks = null } = useQuery({
     queryKey: ["bottlenecks"], queryFn: fetchBottlenecks, refetchInterval: 30000,
+  });
+  const { data: constraintTimeline = null } = useQuery({
+    queryKey: ["constraintTimeline"], queryFn: fetchConstraintTimeline, refetchInterval: 30000,
   });
   const { data: dataQuality = null } = useQuery({
     queryKey: ["dataQuality"], queryFn: fetchDataQuality, refetchInterval: 30000,
@@ -407,10 +412,19 @@ export default function App({ auth }) {
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["bottlenecks"] }),
         qc.invalidateQueries({ queryKey: ["optimization"] }),
+        qc.invalidateQueries({ queryKey: ["constraintTimeline"] }),
       ]);
     } finally {
       setConstraintSyncing(false);
     }
+  };
+
+  const runConstraintSettings = async payload => {
+    const result = await updateConstraintSettings(payload);
+    ["constraintTimeline", "bottlenecks", "optimization", "diagnostics"].forEach(key => {
+      qc.invalidateQueries({ queryKey: [key] });
+    });
+    return result;
   };
 
   const runConnectorAction = async (kind, connectorKey, payload = {}) => {
@@ -676,7 +690,9 @@ export default function App({ auth }) {
                       letterSpacing: 1, marginBottom: 12 }}>CURRENT CONSTRAINT</div>
         <BottleneckPanel report={bottlenecks}
           onSync={can("optimize", "supervise") ? runConstraintSync : null}
-          syncing={constraintSyncing} />
+          syncing={constraintSyncing}
+          runtime={constraintTimeline?.runtime}
+          onHistory={() => setShowConstraintHistory(true)} />
       </div>
 
       <Suspense fallback={<section style={{ borderTop: "1px solid #1f2937", borderBottom: "1px solid #1f2937",
@@ -860,6 +876,14 @@ export default function App({ auth }) {
           onDispatch={payload => runAlertOperation("dispatch", null, payload)}
           onSettings={payload => runAlertOperation("settings", null, payload)}
           onClose={() => setShowAlerts(false)} />
+      )}
+      {showConstraintHistory && constraintTimeline && (
+        <ConstraintHistoryPanel data={constraintTimeline}
+          currentUser={auth.user.display_name}
+          canManage={can("optimize", "supervise")}
+          onSync={runConstraintSync}
+          onSettings={runConstraintSettings}
+          onClose={() => setShowConstraintHistory(false)} />
       )}
       {showAccess && (
         <Suspense fallback={<div style={{ position: "fixed", inset: 0, zIndex: 1150, background: "rgba(2,6,23,.88)",

@@ -2007,6 +2007,44 @@ CREATE TABLE IF NOT EXISTS constraint_episodes (
     updated_at          TEXT NOT NULL
 );
 
+-- Context is separate so installations that already created 0.26 snapshots
+-- gain shift provenance without an in-place SQLite table migration.
+CREATE TABLE IF NOT EXISTS constraint_snapshot_contexts (
+    snapshot_id         INTEGER PRIMARY KEY REFERENCES constraint_snapshots(id),
+    shift_key           TEXT NOT NULL,
+    shift_label         TEXT NOT NULL,
+    shift_source        TEXT NOT NULL,
+    timezone            TEXT NOT NULL,
+    local_date          TEXT NOT NULL,
+    active_shift        INTEGER NOT NULL,
+    calendar_verified   INTEGER NOT NULL,
+    created_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS constraint_runtime_settings (
+    id                  INTEGER PRIMARY KEY CHECK(id=1),
+    auto_sync           INTEGER NOT NULL DEFAULT 1,
+    interval_seconds    INTEGER NOT NULL DEFAULT 300,
+    window_hours        INTEGER NOT NULL DEFAULT 8,
+    retention_days      INTEGER NOT NULL DEFAULT 90,
+    last_run_at         TEXT,
+    last_success_at     TEXT,
+    last_snapshot_id    INTEGER REFERENCES constraint_snapshots(id),
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    last_error          TEXT,
+    version             INTEGER NOT NULL DEFAULT 1,
+    updated_by          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS constraint_runtime_events (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type          TEXT NOT NULL,
+    actor               TEXT NOT NULL,
+    payload_json        TEXT NOT NULL DEFAULT '{}',
+    ts                  TEXT NOT NULL
+);
+
 -- Machine passports hold site-observed identity and connection facts. Research
 -- candidates remain in code and are never copied here as confirmed evidence.
 CREATE TABLE IF NOT EXISTS machine_passports (
@@ -2083,6 +2121,10 @@ INSERT OR IGNORE INTO alert_runtime_settings
     (id,auto_sync,auto_dispatch,interval_seconds,updated_by,updated_at)
 VALUES (1,0,0,60,'schema','1970-01-01T00:00:00+00:00');
 
+INSERT OR IGNORE INTO constraint_runtime_settings
+    (id,auto_sync,interval_seconds,window_hours,retention_days,updated_by,updated_at)
+VALUES (1,1,300,8,90,'schema','1970-01-01T00:00:00+00:00');
+
 CREATE INDEX IF NOT EXISTS idx_parts_job ON parts(job_id);
 CREATE INDEX IF NOT EXISTS idx_production_orders_status_due ON production_orders(status, due_at, priority DESC);
 CREATE INDEX IF NOT EXISTS idx_production_order_events_order_ts ON production_order_events(production_order_id, ts DESC);
@@ -2094,6 +2136,8 @@ CREATE INDEX IF NOT EXISTS idx_machine_events_type_ts ON machine_events(event_ty
 CREATE INDEX IF NOT EXISTS idx_constraint_snapshots_created ON constraint_snapshots(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_constraint_machine_snapshots_machine ON constraint_machine_snapshots(machine_id, snapshot_id DESC);
 CREATE INDEX IF NOT EXISTS idx_constraint_episodes_status_machine ON constraint_episodes(status, machine_id, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_constraint_contexts_shift ON constraint_snapshot_contexts(shift_key, snapshot_id DESC);
+CREATE INDEX IF NOT EXISTS idx_constraint_runtime_events_ts ON constraint_runtime_events(ts DESC);
 CREATE INDEX IF NOT EXISTS idx_event_ingestion_machine_received ON event_ingestion_log(machine_id, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_event_ingestion_status_received ON event_ingestion_log(status, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cycle_observations_machine_valid ON cycle_observations(machine_id, validity, ended_at DESC);

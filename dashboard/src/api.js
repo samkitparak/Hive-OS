@@ -109,6 +109,10 @@ export const fetchActiveJobs = () => request("/jobs/active");
 export const fetchSequence = () => request("/sequence");
 export const fetchBottlenecks = () => request("/bottlenecks");
 export const syncConstraints = (payload = {}) => postJson("/constraints/sync", payload);
+export const fetchConstraintTimeline = () => request("/constraints/timeline?days=30&limit=100");
+export const updateConstraintSettings = (payload) => request("/constraints/settings", {
+  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+});
 export const fetchDataQuality = () => request("/data-quality");
 export const fetchOptimization = () => request("/optimization");
 export const fetchImprovements = () => request("/improvements");

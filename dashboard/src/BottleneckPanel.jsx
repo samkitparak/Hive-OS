@@ -1,4 +1,4 @@
-import { RefreshCw } from "lucide-react";
+import { History, RefreshCw } from "lucide-react";
 
 const CONFIDENCE_COLOR = { high: "#22c55e", medium: "#f59e0b", low: "#6b7280" };
 const STATE = {
@@ -11,15 +11,19 @@ const STATE = {
   insufficient_data: { label: "Evidence incomplete", color: "#6b7280" },
 };
 
-export function BottleneckPanel({ report, onSync, syncing = false }) {
+export function BottleneckPanel({ report, onSync, syncing = false, onHistory, runtime }) {
   const current = report?.current ?? report?.candidate ?? report?.focus;
   if (!current) {
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
         <div style={{ color: "#6b7280", fontSize: 11 }}>
           No released route demand or qualified constraint evidence.
+          {runtime && <div style={{ marginTop: 5, fontSize: 9, textTransform: "uppercase",
+            color: runtime.status === "healthy" ? "#22c55e" : "#6b7280" }}>
+            Automatic sampling {runtime.status} · every {Math.round(runtime.interval_seconds / 60)} min
+          </div>}
         </div>
-        <SyncButton onSync={onSync} syncing={syncing} />
+        <ActionButtons onSync={onSync} syncing={syncing} onHistory={onHistory} />
       </div>
     );
   }
@@ -59,7 +63,7 @@ export function BottleneckPanel({ report, onSync, syncing = false }) {
           </div>
           {current.recommendation}
         </div>
-        <SyncButton onSync={onSync} syncing={syncing} />
+        <ActionButtons onSync={onSync} syncing={syncing} onHistory={onHistory} />
       </div>
       {(evidence.length > 0 || counter.length > 0) && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: "5px 18px", marginTop: 11,
@@ -68,19 +72,30 @@ export function BottleneckPanel({ report, onSync, syncing = false }) {
           {counter.map(item => <span key={item} style={{ color: "#6b7280" }}>Limit: {item}</span>)}
         </div>
       )}
+      {runtime && <div style={{ color: runtime.status === "healthy" ? "#22c55e" : "#6b7280",
+        fontSize: 9, marginTop: 7, textTransform: "uppercase" }}>
+        Automatic sampling {runtime.status} · every {Math.round(runtime.interval_seconds / 60)} min
+      </div>}
     </div>
   );
 }
 
-function SyncButton({ onSync, syncing }) {
-  if (!onSync) return null;
+function ActionButtons({ onSync, syncing, onHistory }) {
   return (
-    <button onClick={onSync} disabled={syncing} title="Record constraint evidence snapshot"
-      style={{ display: "inline-flex", alignItems: "center", justifyContent: "center",
-        width: 32, height: 32, borderRadius: 6, border: "1px solid #374151",
-        background: "#1f2937", color: "#d1d5db", cursor: syncing ? "wait" : "pointer" }}>
-      <RefreshCw size={15} style={{ animation: syncing ? "spin 1s linear infinite" : "none" }} />
-    </button>
+    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+      {onHistory && <button onClick={onHistory} title="Constraint history"
+        style={{ display: "inline-flex", alignItems: "center", justifyContent: "center",
+          width: 32, height: 32, borderRadius: 6, border: "1px solid #374151",
+          background: "#1f2937", color: "#d1d5db", cursor: "pointer" }}>
+        <History size={15} />
+      </button>}
+      {onSync && <button onClick={onSync} disabled={syncing} title="Record constraint evidence snapshot"
+        style={{ display: "inline-flex", alignItems: "center", justifyContent: "center",
+          width: 32, height: 32, borderRadius: 6, border: "1px solid #374151",
+          background: "#1f2937", color: "#d1d5db", cursor: syncing ? "wait" : "pointer" }}>
+        <RefreshCw size={15} style={{ animation: syncing ? "spin 1s linear infinite" : "none" }} />
+      </button>}
+    </div>
   );
 }
 

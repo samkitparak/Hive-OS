@@ -26,7 +26,11 @@ def conn():
 
 def test_diagnostics_reports_services_and_machines(conn):
     result = diagnostics.build(conn, CFG, mqtt_connected=False, cv_watcher_running=False)
-    assert len(result["services"]) == 19
+    assert len(result["services"]) == 20
+    constraint_service = next(item for item in result["services"]
+                              if item["key"] == "constraint_intelligence")
+    assert constraint_service["status"] == "learning"
+    assert result["summary"]["constraint_runtime_status"] == "starting"
     readiness_service = next(item for item in result["services"]
                              if item["key"] == "factory_readiness")
     assert readiness_service["status"] == "needs_site_value"

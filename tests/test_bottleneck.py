@@ -196,6 +196,59 @@ def test_get_is_read_only_and_two_samples_open_episode(conn):
     assert conn.execute("SELECT COUNT(*) FROM constraint_snapshots").fetchone()[0] == 2
 
 
+def test_automatic_sampling_records_verified_overnight_shift_and_health(conn):
+    now = datetime(2026, 7, 14, 20, tzinfo=timezone.utc)
+    conn.execute(
+        """INSERT INTO work_calendar_windows
+           (resource_type,resource_key,weekday,start_time,end_time,capacity,
+            timezone,source,verified,active,updated_at)
+           VALUES ('factory','factory',1,'22:00','06:00',1,'Asia/Kolkata',
+                   'manual',1,1,?)""", (now.isoformat(),),
+    )
+    conn.commit()
+    result = bottleneck.automatic_sync(conn, now=now)
+    assert result["status"] == "sampled"
+    assert result["shift_context"]["active_shift"] is True
+    assert result["shift_context"]["calendar_verified"] is True
+    assert result["shift_context"]["local_date"] == "2026-07-14"
+    timeline = bottleneck.timeline(conn, now=now)
+    assert timeline["runtime"]["status"] == "healthy"
+    assert timeline["summary"]["snapshots"] == 1
+    assert timeline["shifts"][0]["sample_count"] == 1
+
+
+def test_constraint_runtime_settings_are_versioned_and_named(conn):
+    current = bottleneck.runtime_settings(conn)
+    updated = bottleneck.update_runtime_settings(conn, {
+        "auto_sync": False, "interval_seconds": 600, "window_hours": 12,
+        "retention_days": 120, "expected_version": current["version"],
+        "actor": "Factory Supervisor",
+    }, now=datetime(2026, 7, 14, 12, tzinfo=timezone.utc))
+    assert updated["auto_sync"] is False
+    assert updated["interval_seconds"] == 600
+    assert updated["version"] == current["version"] + 1
+    with pytest.raises(ValueError, match="changed"):
+        bottleneck.update_runtime_settings(conn, {
+            "auto_sync": True, "expected_version": current["version"],
+            "actor": "Factory Supervisor",
+        })
+    with pytest.raises(ValueError, match="named operator"):
+        bottleneck.update_runtime_settings(conn, {"auto_sync": True, "actor": "operator"})
+
+
+def test_runtime_failure_is_visible_and_success_recovers(conn):
+    now = datetime(2026, 7, 14, 12, tzinfo=timezone.utc)
+    failure = bottleneck.record_runtime_failure(conn, RuntimeError("disk unavailable"), now)
+    assert failure["consecutive_failures"] == 1
+    degraded = bottleneck.timeline(conn, now=now)
+    assert degraded["runtime"]["status"] == "degraded"
+    assert degraded["runtime_events"][0]["event_type"] == "automatic_sample_failed"
+    bottleneck.automatic_sync(conn, now=now + timedelta(minutes=5))
+    recovered = bottleneck.timeline(conn, now=now + timedelta(minutes=5))
+    assert recovered["runtime"]["status"] == "healthy"
+    assert recovered["runtime"]["consecutive_failures"] == 0
+
+
 def test_bottleneck_endpoint(conn):
     from fastapi.testclient import TestClient
     import main
@@ -213,3 +266,14 @@ def test_bottleneck_endpoint(conn):
         sync = client.post("/constraints/sync", json={"window_hours": 4, "actor": "test"})
         assert sync.status_code == 200
         assert sync.json()["snapshot_id"] > 0
+        timeline = client.get("/constraints/timeline?days=7")
+        assert timeline.status_code == 200
+        assert timeline.json()["runtime"]["auto_sync"] is True
+        runtime = timeline.json()["runtime"]
+        settings = client.put("/constraints/settings", json={
+            "auto_sync": False, "interval_seconds": 600, "window_hours": 4,
+            "retention_days": 90, "expected_version": runtime["version"],
+            "actor": "Test Supervisor",
+        })
+        assert settings.status_code == 200
+        assert settings.json()["auto_sync"] is False

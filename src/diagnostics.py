@@ -9,6 +9,7 @@ import yaml
 
 import inventory
 import improvement
+import bottleneck
 import procurement
 import root_cause
 import alerting
@@ -170,6 +171,9 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
     promoted_patterns = sum(
         1 for item in improvements["learned_patterns"] if item["promoted"]
     )
+    constraint_state = bottleneck.timeline(conn, days=7, limit=20)
+    constraint_summary = constraint_state["summary"]
+    constraint_runtime = constraint_state["runtime"]
     root_causes = root_cause.snapshot(conn)
     root_cause_summary = root_causes["summary"]
     learned_incident_types = sum(
@@ -236,6 +240,9 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "improvement_actions_evaluable": improvement_summary["evaluable"],
             "validated_improvements": improvement_summary["validated"],
             "promoted_improvement_patterns": promoted_patterns,
+            "constraint_snapshots": constraint_summary["snapshots"],
+            "open_constraint_episodes": constraint_summary["open"],
+            "constraint_runtime_status": constraint_runtime["status"],
             "open_diagnostic_cases": root_cause_summary["open"],
             "confirmed_root_causes": root_cause_summary["confirmed"],
             "diagnostic_models_learning": learned_incident_types,
@@ -374,6 +381,19 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
                  f"{improvement_summary['evaluable']} ready to evaluate; "
                  f"{improvement_summary['validated']} validated; "
                  f"{promoted_patterns} reusable patterns"
+             )},
+            {"key": "constraint_intelligence", "name": "Constraint intelligence automation",
+             "status": (
+                 "ready" if constraint_runtime["status"] == "healthy" else
+                 "learning" if constraint_runtime["status"] == "starting" else
+                 "offline" if constraint_runtime["status"] in ("disabled", "stale") else
+                 "attention"
+             ),
+             "detail": (
+                 f"{constraint_summary['snapshots']} snapshots; "
+                 f"{constraint_summary['open']} open episodes; "
+                 f"{constraint_summary['shifts_sampled']} shifts sampled; "
+                 f"worker {constraint_runtime['status']}"
              )},
             {"key": "root_cause_diagnostics", "name": "Root-cause diagnostics",
              "status": "ready" if root_cause_summary["confirmed"] else (

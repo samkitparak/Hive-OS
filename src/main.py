@@ -107,6 +107,7 @@ from api_models import (
     ImprovementAction,
     ImprovementSyncRequest,
     ConstraintSyncRequest,
+    ConstraintSettingsUpdate,
     RootCauseDecision,
     RootCauseSyncRequest,
     AlertAction,
@@ -190,7 +191,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.26.0"
+APP_VERSION = "0.27.0"
 
 
 class ApiPrefixMiddleware:
@@ -350,13 +351,14 @@ _event_watch_task = None
 _learning_watch_task = None
 _industrial_watch_task = None
 _alert_watch_task = None
+_constraint_watch_task = None
 _route_conn_override = None
 _route_connections = threading.local()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _mqtt_client, _conn, _cv_observer, _event_watch_task, _learning_watch_task, _industrial_watch_task, _alert_watch_task
+    global _mqtt_client, _conn, _cv_observer, _event_watch_task, _learning_watch_task, _industrial_watch_task, _alert_watch_task, _constraint_watch_task
     _conn = init_db(DB_PATH, check_same_thread=False)
     if access_control_module.auth_required():
         token_path = access_control_module.ensure_bootstrap_token(_conn)
@@ -381,7 +383,14 @@ async def lifespan(app: FastAPI):
     _learning_watch_task = asyncio.create_task(_watch_learning())
     _industrial_watch_task = asyncio.create_task(_watch_industrial_io())
     _alert_watch_task = asyncio.create_task(_watch_alerts())
+    _constraint_watch_task = asyncio.create_task(_watch_constraints())
     yield
+    if _constraint_watch_task:
+        _constraint_watch_task.cancel()
+        try:
+            await _constraint_watch_task
+        except asyncio.CancelledError:
+            pass
     if _alert_watch_task:
         _alert_watch_task.cancel()
         try:
@@ -528,6 +537,44 @@ async def _watch_alerts():
             raise
         except Exception:
             log.exception("alert automation failed")
+
+
+def _run_constraint_worker() -> dict:
+    owned = _route_conn_override is None
+    conn = (db_module.get_connection(DB_PATH, check_same_thread=False)
+            if owned else _route_conn_override)
+    try:
+        return bottleneck_module.automatic_sync(conn)
+    except Exception as error:
+        conn.rollback()
+        bottleneck_module.record_runtime_failure(conn, error)
+        raise
+    finally:
+        if owned:
+            conn.close()
+
+
+async def _watch_constraints():
+    """Continuously append due read-only constraint evidence snapshots."""
+    await asyncio.sleep(2)
+    while True:
+        try:
+            settings = bottleneck_module.runtime_settings(_get_conn())
+            if settings["auto_sync"]:
+                last_run = settings.get("last_run_at")
+                due = not last_run or (
+                    datetime.now(timezone.utc) - datetime.fromisoformat(
+                        last_run.replace("Z", "+00:00")
+                    )
+                ).total_seconds() >= int(settings["interval_seconds"])
+                if due:
+                    await asyncio.to_thread(_run_constraint_worker)
+            await asyncio.sleep(5 if settings["auto_sync"] else 15)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("constraint intelligence automation failed")
+            await asyncio.sleep(15)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -923,6 +970,25 @@ def post_constraint_sync(payload: ConstraintSyncRequest):
     return bottleneck_module.sync(
         _get_conn(), actor=payload.actor, window_hours=payload.window_hours
     )
+
+
+@app.get("/constraints/timeline")
+def get_constraint_timeline(days: int = Query(30, ge=1, le=3650),
+                            limit: int = Query(100, ge=1, le=500)):
+    return bottleneck_module.timeline(_get_conn(), days=days, limit=limit)
+
+
+@app.get("/constraints/runtime")
+def get_constraint_runtime():
+    return bottleneck_module.timeline(_get_conn(), days=7, limit=20)["runtime"]
+
+
+@app.put("/constraints/settings")
+def put_constraint_settings(payload: ConstraintSettingsUpdate):
+    try:
+        return bottleneck_module.update_runtime_settings(_get_conn(), payload.model_dump())
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
 
 
 @app.get("/data-quality")

@@ -79,10 +79,15 @@ causal model. Every component is persisted so factory evidence can replace it.
 
 ## Snapshots And Episodes
 
-`GET /bottlenecks` is read-only. `POST /constraints/sync` writes an immutable
-factory snapshot and one per-machine evidence record. A qualified machine first
-enters `observing`; a second qualified sample opens the episode. Repeated button
-presses with unchanged evidence inside five minutes do not advance it.
+`GET /bottlenecks` is read-only. `POST /constraints/sync` writes a manual
+immutable factory snapshot and one per-machine evidence record. The 0.27 runtime
+also appends a due snapshot automatically every five minutes by default. It uses
+a dedicated database connection and can be disabled or changed between five and
+sixty minutes through versioned supervisor settings.
+
+A qualified machine first enters `observing`; a second qualified sample opens
+the episode. No second sample inside five minutes advances an episode, even when
+new events arrive, so persistence in time remains mandatory.
 
 When a repeatedly observed constraint moves, the prior open episode closes with
 `constraint_migrated`. Two qualified misses close an open episode with
@@ -92,6 +97,20 @@ so one alarm or one noisy analysis window cannot change factory priorities.
 Each snapshot carries `constraint-intelligence-v2` and a SHA-256 fingerprint of
 the decision inputs. The stored report contains supporting and counter-evidence,
 the demand source, route confidence, and the applicable guardrail.
+
+Every new snapshot also records its factory shift from the active recurring work
+calendar, including timezone, local date, source, and verification state.
+Overnight windows retain the date on which the shift began. Samples outside a
+window are labeled off-shift; missing or assumed calendars stay visibly
+unverified. `GET /constraints/timeline` groups samples by this context and keeps
+episode migration and duration history.
+
+Runtime health, failures, settings changes, and retention are persisted. Three
+consecutive failures or a stale successful sample create a rationalized
+site-engineer alert. Snapshot detail defaults to 90-day retention, while episode
+summaries and their boundary evidence remain protected. Automatic sampling is
+analytical only: it cannot dispatch work, approve a schedule, acknowledge an
+alert, or write to a controller.
 
 ## Quantified Opportunity Gate
 
@@ -108,7 +127,7 @@ exposure bound, not promised additional output. No model means no unit estimate.
 3. Approve a schedule so execution jobs become the authoritative demand source.
 4. Verify WIP buffer capacities before HIVE can classify blocking.
 5. Record downtime and causes; train cycle models from linked complete cycles.
-6. Synchronize constraint snapshots at stable shift intervals and review episode movement.
+6. Verify the factory calendar, confirm automatic sampling health, and review episode movement by shift.
 7. Accept a constraint action into the improvement ledger and validate its measured effect.
 
 ## Telemetry Confidence Gate

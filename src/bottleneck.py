@@ -5,9 +5,11 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from statistics import median
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Optional
 
 import data_quality
@@ -17,6 +19,7 @@ import oee
 METHOD_VERSION = "constraint-intelligence-v2"
 MIN_EPISODE_SAMPLES = 2
 MIN_SAMPLE_GAP_S = 300
+DEFAULT_RUNTIME_INTERVAL_S = 300
 
 PRODUCTION_FLOW = [
     "gabbiani_pt80", "nova_si400", "morbidelli_cx100", "morbidelli_n100",
@@ -312,6 +315,79 @@ def _latest_episode(conn: sqlite3.Connection) -> Optional[dict]:
     return dict(row) if row else None
 
 
+def _shift_context(conn: sqlite3.Connection, now: datetime) -> dict:
+    rows = conn.execute(
+        """SELECT weekday,start_time,end_time,timezone,source,verified
+           FROM work_calendar_windows
+           WHERE resource_type='factory' AND resource_key='factory' AND active=1
+           ORDER BY verified DESC,start_time,end_time"""
+    ).fetchall()
+    for row in rows:
+        try:
+            local = now.astimezone(ZoneInfo(row["timezone"]))
+        except ZoneInfoNotFoundError:
+            continue
+        start_time = datetime.strptime(row["start_time"], "%H:%M").time()
+        end_time = datetime.strptime(row["end_time"], "%H:%M").time()
+        weekday = int(row["weekday"])
+        if start_time < end_time:
+            active = local.weekday() == weekday and start_time <= local.time() < end_time
+            anchor = local.date()
+        else:
+            starts_today = local.weekday() == weekday and local.time() >= start_time
+            ends_today = local.weekday() == (weekday + 1) % 7 and local.time() < end_time
+            active = starts_today or ends_today
+            anchor = local.date() if starts_today else local.date() - timedelta(days=1)
+        if not active:
+            continue
+        label = f"{row['start_time']}-{row['end_time']}"
+        verified = bool(row["verified"])
+        return {
+            "shift_key": f"{anchor.isoformat()}:{label}@{row['timezone']}",
+            "shift_label": label,
+            "shift_source": "verified_calendar" if verified else "calendar_assumption",
+            "timezone": row["timezone"], "local_date": anchor.isoformat(),
+            "active_shift": True, "calendar_verified": verified,
+        }
+    if rows:
+        row = rows[0]
+        try:
+            local = now.astimezone(ZoneInfo(row["timezone"]))
+            timezone_name = row["timezone"]
+        except ZoneInfoNotFoundError:
+            local, timezone_name = now.astimezone(timezone.utc), "UTC"
+        return {
+            "shift_key": f"{local.date().isoformat()}:off_shift@{timezone_name}",
+            "shift_label": "Off shift", "shift_source": "calendar",
+            "timezone": timezone_name, "local_date": local.date().isoformat(),
+            "active_shift": False,
+            "calendar_verified": any(bool(item["verified"]) for item in rows),
+        }
+    utc = now.astimezone(timezone.utc)
+    return {
+        "shift_key": f"{utc.date().isoformat()}:calendar_missing@UTC",
+        "shift_label": "Calendar missing", "shift_source": "calendar_missing",
+        "timezone": "UTC", "local_date": utc.date().isoformat(),
+        "active_shift": False, "calendar_verified": False,
+    }
+
+
+def _record_shift_context(conn: sqlite3.Connection, snapshot_id: int,
+                          now: datetime) -> dict:
+    context = _shift_context(conn, now)
+    conn.execute(
+        """INSERT INTO constraint_snapshot_contexts
+           (snapshot_id,shift_key,shift_label,shift_source,timezone,local_date,
+            active_shift,calendar_verified,created_at)
+           VALUES (?,?,?,?,?,?,?,?,?)""",
+        (snapshot_id, context["shift_key"], context["shift_label"],
+         context["shift_source"], context["timezone"], context["local_date"],
+         int(context["active_shift"]), int(context["calendar_verified"]),
+         now.isoformat()),
+    )
+    return context
+
+
 def detect(conn: sqlite3.Connection, window_hours: int = 8,
            now: Optional[datetime] = None) -> BottleneckReport:
     now = now or datetime.now(timezone.utc)
@@ -488,6 +564,7 @@ def sync(conn: sqlite3.Connection, actor: str = "operator", window_hours: int = 
          json.dumps(report_payload, sort_keys=True), actor, generated_at),
     )
     snapshot_id = cursor.lastrowid
+    shift_context = _record_shift_context(conn, snapshot_id, now)
     for item in report.machines:
         conn.execute(
             """INSERT INTO constraint_machine_snapshots
@@ -577,5 +654,242 @@ def sync(conn: sqlite3.Connection, actor: str = "operator", window_hours: int = 
     return {
         "snapshot_id": snapshot_id, "progressed": progressed,
         "report": asdict(detect(conn, window_hours, now)),
-        "episode": _latest_episode(conn),
+        "episode": _latest_episode(conn), "shift_context": shift_context,
+    }
+
+
+def _runtime_event(conn: sqlite3.Connection, event_type: str, actor: str,
+                   payload: dict, now: datetime) -> None:
+    conn.execute(
+        """INSERT INTO constraint_runtime_events
+           (event_type,actor,payload_json,ts) VALUES (?,?,?,?)""",
+        (event_type, actor, json.dumps(payload, sort_keys=True), now.isoformat()),
+    )
+
+
+def runtime_settings(conn: sqlite3.Connection) -> dict:
+    row = conn.execute("SELECT * FROM constraint_runtime_settings WHERE id=1").fetchone()
+    if not row:
+        raise RuntimeError("Constraint runtime settings are not initialized")
+    result = dict(row)
+    result["auto_sync"] = bool(result["auto_sync"])
+    return result
+
+
+def update_runtime_settings(conn: sqlite3.Connection, payload: dict,
+                            now: Optional[datetime] = None) -> dict:
+    now = now or datetime.now(timezone.utc)
+    actor = (payload.get("actor") or "").strip()
+    if not actor or actor.lower() in {"operator", "system"}:
+        raise ValueError("A named operator is required")
+    current = runtime_settings(conn)
+    if (payload.get("expected_version") is not None
+            and int(payload["expected_version"]) != int(current["version"])):
+        raise ValueError("Constraint settings changed; refresh before saving")
+    interval = int(payload.get("interval_seconds", current["interval_seconds"]))
+    window_hours = int(payload.get("window_hours", current["window_hours"]))
+    retention_days = int(payload.get("retention_days", current["retention_days"]))
+    if not 300 <= interval <= 3600:
+        raise ValueError("Constraint sampling interval must be between 300 and 3600 seconds")
+    if not 1 <= window_hours <= 24:
+        raise ValueError("Constraint analysis window must be between 1 and 24 hours")
+    if not 7 <= retention_days <= 3650:
+        raise ValueError("Constraint snapshot retention must be between 7 and 3650 days")
+    auto_sync = bool(payload.get("auto_sync", current["auto_sync"]))
+    conn.execute(
+        """UPDATE constraint_runtime_settings SET auto_sync=?,interval_seconds=?,
+             window_hours=?,retention_days=?,version=version+1,updated_by=?,updated_at=?
+           WHERE id=1""",
+        (int(auto_sync), interval, window_hours, retention_days, actor, now.isoformat()),
+    )
+    _runtime_event(conn, "settings_updated", actor, {
+        "auto_sync": auto_sync, "interval_seconds": interval,
+        "window_hours": window_hours, "retention_days": retention_days,
+    }, now)
+    conn.commit()
+    return runtime_settings(conn)
+
+
+def _prune_snapshots(conn: sqlite3.Connection, retention_days: int,
+                     now: datetime) -> int:
+    cutoff = (now - timedelta(days=retention_days)).isoformat()
+    protected = {
+        int(row["snapshot_id"])
+        for row in conn.execute(
+            """SELECT first_snapshot_id snapshot_id FROM constraint_episodes
+               UNION SELECT last_snapshot_id FROM constraint_episodes
+               UNION SELECT last_snapshot_id FROM constraint_runtime_settings
+                     WHERE last_snapshot_id IS NOT NULL"""
+        ).fetchall()
+    }
+    rows = conn.execute(
+        "SELECT id FROM constraint_snapshots WHERE created_at<? ORDER BY id", (cutoff,)
+    ).fetchall()
+    removable = [int(row["id"]) for row in rows if int(row["id"]) not in protected]
+    for offset in range(0, len(removable), 500):
+        batch = removable[offset:offset + 500]
+        marks = ",".join("?" for _ in batch)
+        conn.execute(f"DELETE FROM constraint_snapshot_contexts WHERE snapshot_id IN ({marks})", batch)
+        conn.execute(f"DELETE FROM constraint_machine_snapshots WHERE snapshot_id IN ({marks})", batch)
+        conn.execute(f"DELETE FROM constraint_snapshots WHERE id IN ({marks})", batch)
+    conn.execute("DELETE FROM constraint_runtime_events WHERE ts<?", (cutoff,))
+    return len(removable)
+
+
+def automatic_sync(conn: sqlite3.Connection,
+                   now: Optional[datetime] = None) -> dict:
+    now = now or datetime.now(timezone.utc)
+    settings = runtime_settings(conn)
+    if not settings["auto_sync"]:
+        return {"status": "disabled", "snapshot_id": None}
+    result = sync(
+        conn, actor="hive-constraint-worker",
+        window_hours=int(settings["window_hours"]), now=now,
+    )
+    pruned = _prune_snapshots(conn, int(settings["retention_days"]), now)
+    conn.execute(
+        """UPDATE constraint_runtime_settings SET last_run_at=?,last_success_at=?,
+             last_snapshot_id=?,consecutive_failures=0,last_error=NULL WHERE id=1""",
+        (now.isoformat(), now.isoformat(), result["snapshot_id"]),
+    )
+    _runtime_event(conn, "automatic_sample", "hive-constraint-worker", {
+        "snapshot_id": result["snapshot_id"], "progressed": result["progressed"],
+        "shift_key": result["shift_context"]["shift_key"], "pruned": pruned,
+    }, now)
+    conn.commit()
+    return {"status": "sampled", "pruned": pruned, **result}
+
+
+def record_runtime_failure(conn: sqlite3.Connection, error: Exception,
+                           now: Optional[datetime] = None) -> dict:
+    now = now or datetime.now(timezone.utc)
+    message = str(error)[:1000] or error.__class__.__name__
+    conn.execute(
+        """UPDATE constraint_runtime_settings SET last_run_at=?,
+             consecutive_failures=consecutive_failures+1,last_error=? WHERE id=1""",
+        (now.isoformat(), message),
+    )
+    _runtime_event(conn, "automatic_sample_failed", "hive-constraint-worker", {
+        "error": message,
+    }, now)
+    conn.commit()
+    return runtime_settings(conn)
+
+
+def _runtime_health(settings: dict, now: datetime) -> dict:
+    if not settings["auto_sync"]:
+        return {"status": "disabled", "age_seconds": None, "next_run_at": None}
+    last_success = settings.get("last_success_at")
+    age = max(0, int((now - _dt(last_success)).total_seconds())) if last_success else None
+    if int(settings["consecutive_failures"]):
+        status = "degraded"
+    elif age is None:
+        status = "starting"
+    elif age > max(900, int(settings["interval_seconds"]) * 3):
+        status = "stale"
+    else:
+        status = "healthy"
+    anchor = settings.get("last_run_at")
+    next_run = (
+        (_dt(anchor) + timedelta(seconds=int(settings["interval_seconds"]))).isoformat()
+        if anchor else now.isoformat()
+    )
+    return {"status": status, "age_seconds": age, "next_run_at": next_run}
+
+
+def timeline(conn: sqlite3.Connection, days: int = 30, limit: int = 100,
+             now: Optional[datetime] = None) -> dict:
+    now = now or datetime.now(timezone.utc)
+    start = (now - timedelta(days=days)).isoformat()
+    settings = runtime_settings(conn)
+    episodes = []
+    for row in conn.execute(
+        """SELECT ce.*,m.machine_key,m.name machine_name,
+                  first_ctx.shift_key first_shift_key,
+                  last_ctx.shift_key last_shift_key
+           FROM constraint_episodes ce JOIN machines m ON m.id=ce.machine_id
+           LEFT JOIN constraint_snapshot_contexts first_ctx
+             ON first_ctx.snapshot_id=ce.first_snapshot_id
+           LEFT JOIN constraint_snapshot_contexts last_ctx
+             ON last_ctx.snapshot_id=ce.last_snapshot_id
+           WHERE ce.last_seen_at>=? OR ce.status IN ('open','observing')
+           ORDER BY ce.last_seen_at DESC,ce.id DESC LIMIT ?""",
+        (start, limit),
+    ).fetchall():
+        item = dict(row)
+        end = item["ended_at"] or item["last_seen_at"]
+        item["duration_s"] = max(0, int((_dt(end) - _dt(item["started_at"])).total_seconds()))
+        episodes.append(item)
+
+    samples = [dict(row) for row in conn.execute(
+        """SELECT cs.id,cs.window_end,cs.current_state,cs.current_confidence,
+                  m.machine_key,m.name machine_name,ctx.shift_key,ctx.shift_label,
+                  ctx.shift_source,ctx.timezone,ctx.local_date,ctx.active_shift,
+                  ctx.calendar_verified
+           FROM constraint_snapshots cs
+           LEFT JOIN machines m ON m.id=cs.current_machine_id
+           LEFT JOIN constraint_snapshot_contexts ctx ON ctx.snapshot_id=cs.id
+           WHERE cs.created_at>=? ORDER BY cs.created_at DESC,cs.id DESC""",
+        (start,),
+    ).fetchall()]
+    grouped: dict[str, dict] = {}
+    for sample in samples:
+        key = sample["shift_key"] or "legacy:unclassified"
+        group = grouped.setdefault(key, {
+            "shift_key": key, "shift_label": sample["shift_label"] or "Legacy samples",
+            "timezone": sample["timezone"] or "UTC",
+            "local_date": sample["local_date"],
+            "calendar_verified": bool(sample["calendar_verified"]),
+            "sample_count": 0, "constraint_samples": 0, "candidates": Counter(),
+            "first_sample_at": sample["window_end"], "last_sample_at": sample["window_end"],
+        })
+        group["sample_count"] += 1
+        group["first_sample_at"] = min(group["first_sample_at"], sample["window_end"])
+        group["last_sample_at"] = max(group["last_sample_at"], sample["window_end"])
+        if sample["machine_key"]:
+            group["constraint_samples"] += 1
+            group["candidates"][(sample["machine_key"], sample["machine_name"],
+                                 sample["current_state"])] += 1
+    shifts = []
+    for group in grouped.values():
+        candidates = group.pop("candidates")
+        dominant = candidates.most_common(1)[0] if candidates else None
+        group["dominant"] = ({
+            "machine_key": dominant[0][0], "machine_name": dominant[0][1],
+            "state": dominant[0][2], "sample_count": dominant[1],
+            "share": round(dominant[1] / group["sample_count"], 4),
+        } if dominant else None)
+        shifts.append(group)
+    shifts.sort(key=lambda item: item["last_sample_at"], reverse=True)
+    recent_samples = samples[:50]
+    for item in recent_samples:
+        item["active_shift"] = bool(item["active_shift"])
+        item["calendar_verified"] = bool(item["calendar_verified"])
+    counts = conn.execute(
+        """SELECT COUNT(*) total,
+                  SUM(CASE WHEN status='open' THEN 1 ELSE 0 END) open,
+                  SUM(CASE WHEN status='observing' THEN 1 ELSE 0 END) observing,
+                  SUM(CASE WHEN status='closed' THEN 1 ELSE 0 END) closed
+           FROM constraint_episodes"""
+    ).fetchone()
+    snapshot_count = conn.execute("SELECT COUNT(*) FROM constraint_snapshots").fetchone()[0]
+    runtime_events = [dict(row) for row in conn.execute(
+        "SELECT * FROM constraint_runtime_events ORDER BY ts DESC,id DESC LIMIT 50"
+    ).fetchall()]
+    return {
+        "generated_at": now.isoformat(), "days": days,
+        "runtime": {**settings, **_runtime_health(settings, now)},
+        "summary": {
+            "snapshots": snapshot_count, "episodes": int(counts["total"] or 0),
+            "open": int(counts["open"] or 0),
+            "observing": int(counts["observing"] or 0),
+            "closed": int(counts["closed"] or 0),
+            "shifts_sampled": len(shifts),
+        },
+        "episodes": episodes, "shifts": shifts,
+        "recent_samples": recent_samples, "runtime_events": runtime_events,
+        "guardrail": (
+            "Automatic sampling appends analytical evidence only. It cannot dispatch work, "
+            "change schedules, acknowledge alerts, or write to machine controllers."
+        ),
     }

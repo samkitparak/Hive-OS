@@ -908,6 +908,15 @@ class ConstraintSyncRequest(RequestModel):
     actor: str = Field(default="operator", min_length=1, max_length=120)
 
 
+class ConstraintSettingsUpdate(RequestModel):
+    auto_sync: bool
+    interval_seconds: int = Field(default=300, ge=300, le=3600)
+    window_hours: int = Field(default=8, ge=1, le=24)
+    retention_days: int = Field(default=90, ge=7, le=3650)
+    expected_version: Optional[int] = Field(default=None, ge=1)
+    actor: str = Field(min_length=1, max_length=120)
+
+
 class ImprovementAction(RequestModel):
     action: Literal["accept", "reject", "implement", "evaluate", "complete", "cancel"]
     expected_version: Optional[int] = Field(default=None, ge=1)

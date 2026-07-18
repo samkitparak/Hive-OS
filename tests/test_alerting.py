@@ -201,6 +201,25 @@ def test_quality_and_integration_conditions_are_rationalized(conn):
     assert next(item for item in candidates if item["rule_key"] == "industrial_profile_failed")["severity"] == "critical"
 
 
+def test_constraint_worker_alert_requires_repeated_failures(conn):
+    conn.execute(
+        """UPDATE constraint_runtime_settings SET last_run_at=?,last_success_at=?,
+             consecutive_failures=2,last_error='database busy' WHERE id=1""",
+        (NOW.isoformat(), (NOW - timedelta(minutes=5)).isoformat()),
+    )
+    conn.commit()
+    assert not any(item["rule_key"] == "constraint_worker_failed"
+                   for item in alerting.collect_candidates(conn, NOW))
+    conn.execute(
+        "UPDATE constraint_runtime_settings SET consecutive_failures=3 WHERE id=1"
+    )
+    conn.commit()
+    candidate = next(item for item in alerting.collect_candidates(conn, NOW)
+                     if item["rule_key"] == "constraint_worker_failed")
+    assert candidate["severity"] == "critical"
+    assert candidate["owner_role"] == "site_engineer"
+
+
 def test_decision_ready_forecast_creates_delivery_risk_candidate(conn, monkeypatch):
     monkeypatch.setattr(alerting.forecasting, "snapshot", lambda _conn: {
         "decision_ready": True,
