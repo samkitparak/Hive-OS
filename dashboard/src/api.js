@@ -108,6 +108,7 @@ export const fetchJobParts = (jobName) =>
 export const fetchActiveJobs = () => request("/jobs/active");
 export const fetchSequence = () => request("/sequence");
 export const fetchBottlenecks = () => request("/bottlenecks");
+export const syncConstraints = (payload = {}) => postJson("/constraints/sync", payload);
 export const fetchDataQuality = () => request("/data-quality");
 export const fetchOptimization = () => request("/optimization");
 export const fetchImprovements = () => request("/improvements");

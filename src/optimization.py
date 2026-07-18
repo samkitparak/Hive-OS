@@ -162,14 +162,23 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
         })
 
     current = constraint.current
-    if current and current.confidence in ("medium", "high"):
+    episode = constraint.episode
+    episode_confirmed = bool(
+        current and episode and episode.get("status") == "open"
+        and episode.get("machine_key") == current.machine_key
+        and episode.get("constraint_state") == current.state
+    )
+    if current and current.confidence in ("medium", "high") and episode_confirmed:
         recommendations.append({
             "priority": len(recommendations) + 1,
             "category": "constraint",
             "title": f"Protect throughput at {current.machine_name}",
             "action": current.recommendation,
             "confidence": current.confidence,
-            "estimated_gain": None,
+            "estimated_gain": (
+                f"Up to {current.estimated_recoverable_units:g} units of measured downtime exposure"
+                if current.estimated_recoverable_units is not None else None
+            ),
             "evidence": current.evidence or [f"Constraint score {round(current.score * 100)}%"],
             "target_type": "machine", "target_key": current.machine_key,
             "cause_code": current.primary_cause,

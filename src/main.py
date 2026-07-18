@@ -106,6 +106,7 @@ from api_models import (
     IndustrialProfileUpdate,
     ImprovementAction,
     ImprovementSyncRequest,
+    ConstraintSyncRequest,
     RootCauseDecision,
     RootCauseSyncRequest,
     AlertAction,
@@ -189,7 +190,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.25.0"
+APP_VERSION = "0.26.0"
 
 
 class ApiPrefixMiddleware:
@@ -906,10 +907,22 @@ def get_bottlenecks(window_hours: int = Query(8, ge=1, le=24)):
     return {
         "generated_at": report.generated_at,
         "window_hours": report.window_hours,
+        "method_version": report.method_version,
+        "evidence_sha256": report.evidence_sha256,
+        "guardrail": report.guardrail,
+        "episode": report.episode,
         "current": vars(report.current) if report.current else None,
         "candidate": vars(report.candidate) if report.candidate else None,
+        "focus": vars(report.focus) if report.focus else None,
         "machines": [vars(machine) for machine in report.machines],
     }
+
+
+@app.post("/constraints/sync")
+def post_constraint_sync(payload: ConstraintSyncRequest):
+    return bottleneck_module.sync(
+        _get_conn(), actor=payload.actor, window_hours=payload.window_hours
+    )
 
 
 @app.get("/data-quality")

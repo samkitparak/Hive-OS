@@ -903,6 +903,11 @@ class ImprovementSyncRequest(RequestModel):
     actor: str = Field(default="operator", min_length=1)
 
 
+class ConstraintSyncRequest(RequestModel):
+    window_hours: int = Field(default=8, ge=1, le=24)
+    actor: str = Field(default="operator", min_length=1, max_length=120)
+
+
 class ImprovementAction(RequestModel):
     action: Literal["accept", "reject", "implement", "evaluate", "complete", "cancel"]
     expected_version: Optional[int] = Field(default=None, ge=1)

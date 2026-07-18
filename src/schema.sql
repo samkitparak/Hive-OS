@@ -1949,6 +1949,64 @@ CREATE TABLE IF NOT EXISTS commissioning_evidence_events (
     ts                  TEXT NOT NULL
 );
 
+-- Constraint intelligence is append-only at the sampling boundary. A GET may
+-- calculate the current view, but only an explicit sync records evidence or
+-- advances an episode. Episodes require repeated qualified samples so a single
+-- alarm, stale queue, or operator refresh cannot become factory truth.
+CREATE TABLE IF NOT EXISTS constraint_snapshots (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    method_version      TEXT NOT NULL,
+    window_start        TEXT NOT NULL,
+    window_end          TEXT NOT NULL,
+    evidence_sha256     TEXT NOT NULL,
+    current_machine_id  INTEGER REFERENCES machines(id),
+    current_state       TEXT,
+    current_confidence  TEXT,
+    report_json         TEXT NOT NULL,
+    actor               TEXT NOT NULL,
+    created_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS constraint_machine_snapshots (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id         INTEGER NOT NULL REFERENCES constraint_snapshots(id),
+    machine_id          INTEGER NOT NULL REFERENCES machines(id),
+    state               TEXT NOT NULL,
+    score               REAL NOT NULL,
+    demand_qty          INTEGER NOT NULL,
+    ready_qty           INTEGER NOT NULL,
+    starved_qty         INTEGER NOT NULL,
+    active_ratio        REAL NOT NULL,
+    alarm_count         INTEGER NOT NULL,
+    downtime_s          REAL NOT NULL,
+    evidence_json       TEXT NOT NULL,
+    counter_evidence_json TEXT NOT NULL,
+    UNIQUE(snapshot_id, machine_id)
+);
+
+CREATE TABLE IF NOT EXISTS constraint_episodes (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    machine_id          INTEGER NOT NULL REFERENCES machines(id),
+    constraint_state    TEXT NOT NULL,
+    status              TEXT NOT NULL CHECK(status IN ('observing','open','closed')),
+    started_at          TEXT NOT NULL,
+    confirmed_at        TEXT,
+    last_seen_at        TEXT NOT NULL,
+    last_evaluated_at   TEXT NOT NULL,
+    ended_at            TEXT,
+    consecutive_samples INTEGER NOT NULL DEFAULT 1,
+    snapshot_count      INTEGER NOT NULL DEFAULT 1,
+    miss_count          INTEGER NOT NULL DEFAULT 0,
+    confidence          TEXT NOT NULL,
+    peak_score          REAL NOT NULL,
+    first_snapshot_id   INTEGER NOT NULL REFERENCES constraint_snapshots(id),
+    last_snapshot_id    INTEGER NOT NULL REFERENCES constraint_snapshots(id),
+    last_evidence_sha256 TEXT NOT NULL,
+    close_reason        TEXT,
+    created_by          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
 -- Machine passports hold site-observed identity and connection facts. Research
 -- candidates remain in code and are never copied here as confirmed evidence.
 CREATE TABLE IF NOT EXISTS machine_passports (
@@ -2033,6 +2091,9 @@ CREATE INDEX IF NOT EXISTS idx_parts_cnc_front ON parts(cnc_file_front);
 CREATE INDEX IF NOT EXISTS idx_machine_events_machine_ts ON machine_events(machine_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_machine_events_part_ts ON machine_events(part_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_machine_events_type_ts ON machine_events(event_type, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_constraint_snapshots_created ON constraint_snapshots(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_constraint_machine_snapshots_machine ON constraint_machine_snapshots(machine_id, snapshot_id DESC);
+CREATE INDEX IF NOT EXISTS idx_constraint_episodes_status_machine ON constraint_episodes(status, machine_id, last_seen_at DESC);
 CREATE INDEX IF NOT EXISTS idx_event_ingestion_machine_received ON event_ingestion_log(machine_id, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_event_ingestion_status_received ON event_ingestion_log(status, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cycle_observations_machine_valid ON cycle_observations(machine_id, validity, ended_at DESC);

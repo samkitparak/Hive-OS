@@ -2,9 +2,10 @@
 
 ## Purpose
 
-HIVE does not treat a busy machine as a bottleneck by default. It first checks
-whether the telemetry is trustworthy, then combines production state, active
-periods, waiting work, downstream idle behavior, and failure evidence.
+HIVE does not treat a busy machine as a bottleneck by default. It first proves
+that released work is routed to that machine, separates ready demand from work
+waiting on a predecessor, checks machine-state quality, and records repeated
+evidence before optimization may act on the result.
 
 The model is deliberately explainable. Every recommendation carries its source
 evidence, while estimated gains remain hidden until real cycle times and stable
@@ -23,8 +24,13 @@ The active-period family of methods identifies a constraint from the duration a
 resource remains active, because the resource with long uninterrupted active
 periods is more likely to be making surrounding processes wait. It can operate
 from timestamped machine states without requiring a complete simulation model.
+Blocking/starvation methods add route and buffer evidence so an inactive machine
+is not confused with the process that is actually limiting system throughput.
 
 - [Real-Time Data-Driven Average Active Period Method](https://www.iieta.org/journals/ijdne/paper/10.2495/DNE-V11-N3-428-437)
+- [Original shifting bottleneck detection paper](https://informs-sim.org/wsc02papers/145.pdf)
+- [Data-driven shifting bottleneck algorithm](https://www.tandfonline.com/doi/full/10.1080/23311916.2016.1239516)
+- [Data-driven blockage and starvation method](https://www.tandfonline.com/doi/full/10.1080/00207540701881860)
 - [Throughput bottleneck detection systematic review](https://www.tandfonline.com/doi/full/10.1080/21693277.2023.2283031)
 - [Data-driven analysis of dynamic bottlenecks in order-based value streams](https://publica.fraunhofer.de/entities/publication/f0ac655c-7644-473f-810a-286a1f711425)
 - [Analysis and Visualization of Production Bottlenecks in Industrial IoT](https://www.mdpi.com/2076-3417/13/6/3525)
@@ -33,33 +39,77 @@ These sources also emphasize two constraints HIVE now enforces: preprocessing
 machine states is essential, and bottlenecks can shift over time. Therefore a
 single utilization number cannot justify a scheduling change.
 
-## Current Evidence Model
+## Constraint State Model
 
-For each machine and analysis window, HIVE calculates:
+Released `production_orders`, `part_route_steps`, and `execution_jobs` define
+demand. An observed part on an unrelated machine never creates queue demand.
+Execution state is authoritative when station jobs exist; otherwise HIVE uses
+the remaining quantities on the released planned route.
 
 | Signal | Meaning |
 |---|---|
-| Active share | Fraction of the window spent in cycle or failure-active states |
-| Average active period | Mean uninterrupted active duration |
-| Longest active period | Strong evidence of a momentary constraint |
-| Queue depth | Planned applicable parts minus linked completed parts |
-| Downstream inferred starvation | Idle share among configured downstream processes |
-| Alarm pressure | Relative alarm count in the window |
-| Throughput | Completed cycles per hour |
+| Routed demand | Required quantity minus confirmed/completed quantity for released work |
+| Ready demand | Work whose predecessor is complete and which can be dispatched or is running |
+| Starved demand | Work waiting on an incomplete predecessor |
+| Active periods | Bounded cycle-start/cycle-end running intervals; an alarm does not start a run |
+| Reliability loss | Alarm evidence plus overlapping classified downtime |
+| Blocking | Every observed successor input buffer is commissioned, verified, and full |
+| Throughput | Completed cycles per hour in the analysis window |
 
-The provisional constraint score is:
+Each machine receives one mutually exclusive operating state:
 
-```text
-0.25 active share
-+ 0.20 normalized average active period
-+ 0.30 normalized queue depth
-+ 0.15 downstream inferred starvation
-+ 0.10 normalized alarm pressure
-```
+| State | Decision meaning |
+|---|---|
+| `capacity_constraint` | Ready released demand exists and the machine has sustained high activity |
+| `reliability_constraint` | Released demand overlaps an alarm or recorded downtime |
+| `starved` | Demand exists but predecessors have not produced ready work |
+| `blocked` | Verified successor buffers are full |
+| `flow_or_staffing` | Ready demand exists but activity is too low for a capacity conclusion |
+| `demand_absent` | No released route demand exists, regardless of observed activity |
+| `insufficient_data` | Demand exists but machine-state evidence does not pass minimum coverage |
 
-This weighting is an initial engineering prior, not a learned truth. HIVE will
-retain the component metrics so factory observations can validate and refit the
-weights instead of hiding assumptions inside a black box.
+Only `capacity_constraint` and `reliability_constraint` are eligible to become
+the current factory constraint. Starvation and blocking are still actionable,
+but increasing the affected machine's capacity would address the wrong resource.
+
+The ranking score combines active share (30%), normalized average active period
+(20%), normalized ready demand (25%), normalized recorded downtime (15%), and a
+10% eligibility term. This is a transparent prioritization prior, not a learned
+causal model. Every component is persisted so factory evidence can replace it.
+
+## Snapshots And Episodes
+
+`GET /bottlenecks` is read-only. `POST /constraints/sync` writes an immutable
+factory snapshot and one per-machine evidence record. A qualified machine first
+enters `observing`; a second qualified sample opens the episode. Repeated button
+presses with unchanged evidence inside five minutes do not advance it.
+
+When a repeatedly observed constraint moves, the prior open episode closes with
+`constraint_migrated`. Two qualified misses close an open episode with
+`evidence_cleared`. Optimization recommendations require a matching open episode,
+so one alarm or one noisy analysis window cannot change factory priorities.
+
+Each snapshot carries `constraint-intelligence-v2` and a SHA-256 fingerprint of
+the decision inputs. The stored report contains supporting and counter-evidence,
+the demand source, route confidence, and the applicable guardrail.
+
+## Quantified Opportunity Gate
+
+HIVE exposes downtime minutes directly because they are measured records. It
+converts those minutes to exposed units only when the machine has an active
+medium/high-confidence cycle model and valid cycle observations. The estimate is
+`overlapping downtime seconds / median validated cycle seconds`; it is an upper
+exposure bound, not promised additional output. No model means no unit estimate.
+
+## Factory Commissioning
+
+1. Confirm machine passports and read-only telemetry timestamps.
+2. Import or approve part routes and release production orders.
+3. Approve a schedule so execution jobs become the authoritative demand source.
+4. Verify WIP buffer capacities before HIVE can classify blocking.
+5. Record downtime and causes; train cycle models from linked complete cycles.
+6. Synchronize constraint snapshots at stable shift intervals and review episode movement.
+7. Accept a constraint action into the improvement ledger and validate its measured effect.
 
 ## Telemetry Confidence Gate
 
