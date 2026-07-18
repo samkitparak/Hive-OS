@@ -80,21 +80,23 @@ and [manufacturing performance under uncertainty](https://www.nist.gov/publicati
 
 1. Open **Commission -> Virtual lab**, run the shipped priors, and retain its
    fingerprint as the offsite baseline.
-2. Follow the displayed measurement list in priority order. The exact signal
-   set for every machine is stored beside its prior in
-   `config/virtual_factory.yaml`.
+2. Open **Commission -> Field evidence** or download the evidence pack. Follow
+   the ranked machine protocols; each retains the matching prior fingerprint.
 3. Capture at least 20 representative observations per important
    product/program family. Separate queue, setup, load, operation, blocked,
    starved, unload, rework, and first-good-piece time.
 4. Confirm product mix, routes, repeat passes, parallel positions, staffing,
    buffers, planned breaks, and material release behavior.
-5. Narrow the prior file only from named evidence, retain `assumption_only`, and
-   rerun. The old result remains immutable and the changed fingerprint is clear.
+5. Submit a study only after every credibility gate passes. A named reviewer may
+   approve its proposal for manual prior-file review; approval never edits the file.
 6. Use screened interventions to choose controlled trials. Validate trial
    outcomes through HIVE's improvement-learning workflow.
 7. Commission production cycle models, observed routes, resources, forecasts,
    and schedules through their existing evidence gates. The lab never replaces
    those steps.
+
+See `COMMISSIONING_EVIDENCE.md` for the field pack, CSV schema, statistical
+checks, exclusion audit, and proposal lifecycle.
 
 ## API
 

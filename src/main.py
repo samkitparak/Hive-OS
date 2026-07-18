@@ -54,6 +54,7 @@ import learning as learning_module
 import routing as routing_module
 import commissioning as commissioning_module
 import commissioning_lab as commissioning_lab_module
+import commissioning_evidence as commissioning_evidence_module
 import event_pipeline
 import optimization as optimization_module
 import improvement as improvement_module
@@ -85,6 +86,11 @@ from api_models import (
     CloseRequest,
     CommissioningLogRequest,
     VirtualLabRunRequest,
+    CommissioningCsvImport,
+    CommissioningObservationCreate,
+    CommissioningObservationExclude,
+    CommissioningStudyAction,
+    CommissioningStudyCreate,
     ConnectorAnalyzeRequest,
     ConnectorApprovalRequest,
     ConnectorImportRequest,
@@ -179,7 +185,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.23.0"
+APP_VERSION = "0.24.0"
 
 
 class ApiPrefixMiddleware:
@@ -1762,6 +1768,109 @@ def post_commissioning_lab_run(payload: VirtualLabRunRequest):
         return commissioning_lab_module.run(
             _get_conn(), samples=payload.samples, seed=payload.seed, actor=payload.actor,
         )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/commissioning-evidence")
+def get_commissioning_evidence():
+    return commissioning_evidence_module.snapshot(_get_conn())
+
+
+@app.get("/commissioning-evidence/pack")
+def get_commissioning_evidence_pack():
+    bundle, manifest = commissioning_evidence_module.build_pack(_get_conn())
+    return Response(
+        content=bundle, media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{manifest["filename"]}"',
+            "Cache-Control": "no-store",
+            "X-HIVE-Pack-SHA256": manifest["bundle_sha256"],
+            "X-HIVE-Assumptions-SHA256": manifest["assumptions_sha256"],
+        },
+    )
+
+
+@app.post("/commissioning-evidence/studies")
+def post_commissioning_evidence_study(payload: CommissioningStudyCreate):
+    try:
+        return commissioning_evidence_module.create_study(
+            _get_conn(), payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/commissioning-evidence/studies/{study_id}")
+def get_commissioning_evidence_study(study_id: int):
+    try:
+        return commissioning_evidence_module.study_detail(_get_conn(), study_id)
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+
+
+@app.post("/commissioning-evidence/studies/{study_id}/observations")
+def post_commissioning_evidence_observation(
+    study_id: int, payload: CommissioningObservationCreate,
+):
+    try:
+        return commissioning_evidence_module.add_observation(
+            _get_conn(), study_id, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/commissioning-evidence/studies/{study_id}/import")
+def post_commissioning_evidence_import(study_id: int, payload: CommissioningCsvImport):
+    try:
+        return commissioning_evidence_module.import_csv(
+            _get_conn(), study_id, payload.csv_text, apply=payload.apply, actor=payload.actor,
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/commissioning-evidence/studies/{study_id}/analyze")
+def post_commissioning_evidence_analysis(study_id: int, request: Request):
+    try:
+        principal = getattr(request.state, "principal", None)
+        actor = principal["display_name"] if principal else "commissioning"
+        return commissioning_evidence_module.persist_analysis(_get_conn(), study_id, actor)
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/commissioning-evidence/studies/{study_id}/action")
+def post_commissioning_evidence_action(study_id: int, payload: CommissioningStudyAction):
+    try:
+        return commissioning_evidence_module.action(
+            _get_conn(), study_id, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/commissioning-evidence/studies/{study_id}/observations/{observation_id}/exclude")
+def post_commissioning_evidence_exclusion(
+    study_id: int, observation_id: int, payload: CommissioningObservationExclude,
+):
+    try:
+        return commissioning_evidence_module.exclude_observation(
+            _get_conn(), study_id, observation_id, payload.reason, payload.actor,
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
 

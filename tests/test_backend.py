@@ -64,7 +64,7 @@ def test_get_machines_returns_list(client):
 def test_api_prefix_routes_to_backend(client):
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "service": "hive-os", "version": "0.23.0"}
+    assert response.json() == {"status": "ok", "service": "hive-os", "version": "0.24.0"}
     assert client.get("/api/machines").status_code == 200
 
 
@@ -92,6 +92,44 @@ def test_assumption_only_commissioning_lab_endpoints(client, mem_conn):
     assert client.get("/api/commissioning-lab/history?limit=1").json()[0]["id"] == run.json()["run_id"]
     assert client.post("/api/commissioning-lab/run", json={"samples": 9}).status_code == 422
     assert mem_conn.execute("SELECT COUNT(*) FROM virtual_factory_runs").fetchone()[0] >= 1
+
+
+def test_guided_commissioning_evidence_endpoints_and_pack(client):
+    snapshot = client.get("/api/commissioning-evidence")
+    assert snapshot.status_code == 200
+    assert snapshot.json()["production_eligible"] is False
+    assert len(snapshot.json()["protocols"]) == 11
+    pack = client.get("/api/commissioning-evidence/pack")
+    assert pack.status_code == 200
+    assert pack.headers["content-type"] == "application/zip"
+    assert len(pack.headers["x-hive-pack-sha256"]) == 64
+    study = client.post("/api/commissioning-evidence/studies", json={
+        "machine_key": "superfici", "target_samples": 5,
+        "target_strata": 1, "actor": "api-test",
+    })
+    assert study.status_code == 200
+    study_id = study.json()["id"]
+    payload = {
+        "source_record_id": "api-001", "measured_at": "2026-08-03T10:00:00+05:30",
+        "measurement_method": "stopwatch", "observer": "API tester",
+        "product_family": "painted_panel", "process_s": 120, "load_s": 10,
+        "unload_s": 8, "actor": "api-test",
+    }
+    created = client.post(
+        f"/api/commissioning-evidence/studies/{study_id}/observations", json=payload,
+    )
+    assert created.status_code == 200 and created.json()["status"] == "accepted"
+    duplicate = client.post(
+        f"/api/commissioning-evidence/studies/{study_id}/observations", json=payload,
+    )
+    assert duplicate.status_code == 200 and duplicate.json()["status"] == "duplicate"
+    detail = client.get(f"/api/commissioning-evidence/studies/{study_id}")
+    assert detail.status_code == 200
+    assert detail.json()["analysis"]["sample_count"] == 1
+    analysis = client.post(f"/api/commissioning-evidence/studies/{study_id}/analyze")
+    assert analysis.status_code == 200
+    assert analysis.json()["production_eligible"] is False
+    assert client.get("/api/commissioning-evidence/studies/999999").status_code == 404
 
 
 def test_twin_rejects_unknown_policy(client):

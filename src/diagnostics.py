@@ -19,6 +19,7 @@ import recovery
 import tooling
 import remote_setup
 import commissioning_lab
+import commissioning_evidence
 
 PLACEHOLDER_HOSTS = {
     *(f"192.168.1.{number}" for number in range(51, 55)),
@@ -195,6 +196,8 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
     remote_summary = remote_state["summary"]
     lab_state = commissioning_lab.snapshot(conn)
     latest_lab = lab_state["latest"]
+    evidence_state = commissioning_evidence.snapshot(conn)
+    evidence_summary = evidence_state["summary"]
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -251,6 +254,9 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "recovery_action_required": recovery_state["action_required"],
             "virtual_lab_runs": len(lab_state["history"]),
             "virtual_lab_stale": lab_state["stale"],
+            "commissioning_studies": evidence_summary["studies"],
+            "commissioning_observations": evidence_summary["observations"],
+            "commissioning_proposals_approved": evidence_summary["approved_proposals"],
         },
         "services": [
             {"key": "database", "name": "Database", "status": "online",
@@ -261,6 +267,14 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
                  f"{len(lab_state['history'])} assumption-only runs; "
                  f"{'current' if latest_lab and not lab_state['stale'] else 'missing or stale'} prior fingerprint; "
                  "never eligible for production control"
+             )},
+            {"key": "commissioning_evidence", "name": "Commissioning evidence capture",
+             "status": "learning" if evidence_summary["observations"] else "needs_site_value",
+             "detail": (
+                 f"{evidence_summary['studies']} studies; "
+                 f"{evidence_summary['observations']} accepted observations; "
+                 f"{evidence_summary['review_ready']} awaiting review; "
+                 f"{evidence_summary['approved_proposals']} prior proposals approved"
              )},
             {"key": "mqtt", "name": "MQTT broker bridge",
              "status": "online" if mqtt_connected else "offline",

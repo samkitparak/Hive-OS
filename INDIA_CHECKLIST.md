@@ -48,17 +48,23 @@ See `ACCESS_CONTROL.md` for the complete role and transport contract.
 Dashboard -> **Commission** -> **Virtual lab**
 
 - [ ] Run and retain the shipped reference model before changing any assumptions
+- [ ] Open **Field evidence**, download the evidence pack, and verify its SHA-256 header is recorded in the commissioning log
+- [ ] Keep the pack on the approved offline commissioning laptop/USB as the blank fallback capture path
 - [ ] Work down **Measure first on site** in displayed priority order
-- [ ] Record at least 20 representative cycles for each high-priority machine, split by product/program family
+- [ ] Create one study per high-priority machine and record at least 20 cycles split across two product/program strata, two dates, and two observers unless capture is automated
 - [ ] Measure load, queue, operation, unload, setup/changeover, blocked, starved, and first-good-piece time separately
+- [ ] Use stable source IDs for CSV rows; preview before apply and replay once to confirm duplicate suppression
+- [ ] Review every flagged outlier; exclude only with a written reason and retain the raw observation
 - [ ] Confirm actual product-family shares and every route, including loops, rework, manual fallback, and outsourced steps
 - [ ] Confirm parallel capacity and staffing for the hot press and boxing cells
-- [ ] Update only `config/virtual_factory.yaml`, preserving `status: assumption_only`, then rerun and retain the new SHA-256 fingerprint
+- [ ] Submit review only after all six credibility gates pass; record named approval/rejection notes
+- [ ] If approved, manually update only `config/virtual_factory.yaml`, preserving `status: assumption_only`, then rerun and retain the new SHA-256 fingerprint
 - [ ] Treat intervention uplift as a trial-screening result; do not use it as a production forecast or schedule approval
 - [ ] Continue real cycle-model, route, resource, and forecast commissioning independently
 
 See `VIRTUAL_FACTORY_COMMISSIONING.md` for each prior, exact measurement, and
 the boundary between this lab and production truth.
+See `COMMISSIONING_EVIDENCE.md` for field definitions, CSV rules, and review gates.
 
 ---
 

@@ -282,6 +282,33 @@ export const analyzeCommissioningLog = (payload) =>
 
 export const fetchCommissioningLab = () => request("/commissioning-lab");
 export const runCommissioningLab = payload => postJson("/commissioning-lab/run", payload);
+export const fetchCommissioningEvidence = () => request("/commissioning-evidence");
+export const fetchCommissioningStudy = id => request(`/commissioning-evidence/studies/${id}`);
+export const createCommissioningStudy = payload => postJson("/commissioning-evidence/studies", payload);
+export const addCommissioningObservation = (id, payload) =>
+  postJson(`/commissioning-evidence/studies/${id}/observations`, payload);
+export const importCommissioningEvidence = (id, payload) =>
+  postJson(`/commissioning-evidence/studies/${id}/import`, payload);
+export const analyzeCommissioningStudy = id =>
+  postJson(`/commissioning-evidence/studies/${id}/analyze`, {});
+export const actOnCommissioningStudy = (id, payload) =>
+  postJson(`/commissioning-evidence/studies/${id}/action`, payload);
+export const excludeCommissioningObservation = (studyId, observationId, payload) =>
+  postJson(`/commissioning-evidence/studies/${studyId}/observations/${observationId}/exclude`, payload);
+export const downloadCommissioningEvidencePack = async () => {
+  const response = await fetch(`${BASE}/commissioning-evidence/pack`, {
+    credentials: "same-origin",
+  });
+  if (!response.ok) throw new Error(`Evidence pack download failed: ${response.status}`);
+  const disposition = response.headers.get("content-disposition") || "";
+  const filename = disposition.match(/filename="?([^";]+)"?/)?.[1] || "hive-commissioning-evidence.zip";
+  const url = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement("a");
+  anchor.href = url; anchor.download = filename;
+  document.body.appendChild(anchor); anchor.click(); anchor.remove();
+  URL.revokeObjectURL(url);
+  return { filename, sha256: response.headers.get("x-hive-pack-sha256") };
+};
 
 export const fetchConnectorSnapshot = () => request("/connectors/snapshot");
 export const analyzeConnector = (key, payload) =>

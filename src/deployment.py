@@ -28,7 +28,7 @@ INSTALL_ASSETS = [
         "label": "Verified offline release builder",
         "path": "deploy/windows/build-offline-bundle.ps1",
         "target": "Internet-connected Windows build PC before travel",
-        "command": ".\\deploy\\windows\\build-offline-bundle.ps1 -Version 0.23.0 <installer paths>",
+        "command": ".\\deploy\\windows\\build-offline-bundle.ps1 -Version 0.24.0 <installer paths>",
     },
     {
         "key": "offline_installer",

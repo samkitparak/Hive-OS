@@ -1868,6 +1868,87 @@ CREATE TABLE IF NOT EXISTS virtual_factory_runs (
     created_at          TEXT NOT NULL
 );
 
+-- Guided field studies are evidence for reviewing engineering priors only.
+-- They are deliberately separate from cycle_observations/cycle_models, which
+-- are derived from validated production events and own production readiness.
+CREATE TABLE IF NOT EXISTS commissioning_evidence_studies (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    study_key           TEXT NOT NULL UNIQUE,
+    machine_id          INTEGER NOT NULL REFERENCES machines(id),
+    title               TEXT NOT NULL,
+    goal                TEXT NOT NULL,
+    method_version      TEXT NOT NULL,
+    assumptions_sha256  TEXT NOT NULL,
+    status              TEXT NOT NULL,
+    target_samples      INTEGER NOT NULL,
+    target_strata       INTEGER NOT NULL,
+    version             INTEGER NOT NULL DEFAULT 1,
+    created_by          TEXT NOT NULL,
+    created_at          TEXT NOT NULL,
+    started_at          TEXT,
+    submitted_at        TEXT,
+    decided_by          TEXT,
+    decided_at          TEXT,
+    decision_notes      TEXT
+);
+
+CREATE TABLE IF NOT EXISTS commissioning_evidence_observations (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    study_id            INTEGER NOT NULL REFERENCES commissioning_evidence_studies(id),
+    source_record_id    TEXT NOT NULL,
+    source_sha256       TEXT NOT NULL,
+    measured_at         TEXT NOT NULL,
+    shift_key           TEXT,
+    measurement_method  TEXT NOT NULL,
+    observer            TEXT NOT NULL,
+    product_family      TEXT NOT NULL,
+    program_key         TEXT,
+    unit_count          INTEGER NOT NULL,
+    operator_count      INTEGER NOT NULL,
+    queue_s             REAL NOT NULL,
+    setup_s             REAL NOT NULL,
+    load_s              REAL NOT NULL,
+    process_s           REAL NOT NULL,
+    blocked_s           REAL NOT NULL,
+    starved_s           REAL NOT NULL,
+    unload_s            REAL NOT NULL,
+    quality_s           REAL NOT NULL,
+    rework_s            REAL NOT NULL,
+    total_s             REAL NOT NULL,
+    good_units          INTEGER,
+    reject_units        INTEGER NOT NULL,
+    notes               TEXT,
+    validity            TEXT NOT NULL DEFAULT 'accepted',
+    exclusion_reason    TEXT,
+    raw_payload_json    TEXT NOT NULL,
+    created_by          TEXT NOT NULL,
+    created_at          TEXT NOT NULL,
+    UNIQUE(study_id, source_record_id)
+);
+
+CREATE TABLE IF NOT EXISTS commissioning_evidence_analyses (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    study_id            INTEGER NOT NULL REFERENCES commissioning_evidence_studies(id),
+    input_signature     TEXT NOT NULL,
+    assumptions_sha256  TEXT NOT NULL,
+    sample_count        INTEGER NOT NULL,
+    result_json         TEXT NOT NULL,
+    created_by          TEXT NOT NULL,
+    created_at          TEXT NOT NULL,
+    UNIQUE(study_id, input_signature)
+);
+
+CREATE TABLE IF NOT EXISTS commissioning_evidence_events (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    study_id            INTEGER NOT NULL REFERENCES commissioning_evidence_studies(id),
+    event_type          TEXT NOT NULL,
+    actor               TEXT NOT NULL,
+    from_status         TEXT,
+    to_status           TEXT,
+    details_json        TEXT NOT NULL DEFAULT '{}',
+    ts                  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS auth_events (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     event_type          TEXT NOT NULL,
@@ -1984,6 +2065,10 @@ CREATE INDEX IF NOT EXISTS idx_production_forecasts_signature ON production_fore
 CREATE INDEX IF NOT EXISTS idx_schedule_recovery_created ON schedule_recovery_assessments(created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_schedule_recovery_trigger ON schedule_recovery_assessments(trigger_signature, input_signature);
 CREATE INDEX IF NOT EXISTS idx_virtual_factory_runs_created ON virtual_factory_runs(created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_commissioning_studies_machine_status ON commissioning_evidence_studies(machine_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_commissioning_observations_study_time ON commissioning_evidence_observations(study_id, measured_at, id);
+CREATE INDEX IF NOT EXISTS idx_commissioning_analyses_study_time ON commissioning_evidence_analyses(study_id, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_commissioning_events_study_time ON commissioning_evidence_events(study_id, ts, id);
 
 -- Seed the 14 in-scope HAEEV machines (aluminium pair excluded, compressors/dust collectors as utility)
 INSERT OR IGNORE INTO machines (name, machine_key, type, brand, model, has_maestro, has_opcua, active) VALUES

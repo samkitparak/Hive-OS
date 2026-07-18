@@ -384,6 +384,61 @@ class VirtualLabRunRequest(RequestModel):
     actor: str = Field(default="commissioning-lab", min_length=1, max_length=120)
 
 
+class CommissioningStudyCreate(RequestModel):
+    machine_key: str = Field(min_length=1, pattern=r"^[a-z0-9_]+$")
+    title: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    goal: Optional[str] = Field(default=None, min_length=1, max_length=2000)
+    target_samples: int = Field(default=20, ge=5, le=5000)
+    target_strata: int = Field(default=2, ge=1, le=50)
+    actor: str = Field(default="commissioning", min_length=1, max_length=120)
+
+
+class CommissioningObservationCreate(RequestModel):
+    source_record_id: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    measured_at: str = Field(min_length=1, max_length=64)
+    shift_key: Optional[str] = Field(default=None, max_length=120)
+    measurement_method: Literal[
+        "stopwatch", "video_review", "machine_log", "controller_counter", "operator_scan"
+    ]
+    observer: str = Field(min_length=1, max_length=120)
+    product_family: str = Field(min_length=1, max_length=120)
+    program_key: Optional[str] = Field(default=None, max_length=200)
+    unit_count: int = Field(default=1, ge=1, le=1000)
+    operator_count: int = Field(default=1, ge=1, le=100)
+    queue_s: float = Field(default=0, ge=0, le=604800)
+    setup_s: float = Field(default=0, ge=0, le=604800)
+    load_s: float = Field(default=0, ge=0, le=604800)
+    process_s: float = Field(gt=0, le=604800)
+    blocked_s: float = Field(default=0, ge=0, le=604800)
+    starved_s: float = Field(default=0, ge=0, le=604800)
+    unload_s: float = Field(default=0, ge=0, le=604800)
+    quality_s: float = Field(default=0, ge=0, le=604800)
+    rework_s: float = Field(default=0, ge=0, le=604800)
+    total_s: Optional[float] = Field(default=None, gt=0, le=604800)
+    good_units: Optional[int] = Field(default=None, ge=0, le=1000)
+    reject_units: int = Field(default=0, ge=0, le=1000)
+    notes: Optional[str] = Field(default=None, max_length=2000)
+    actor: str = Field(default="commissioning", min_length=1, max_length=120)
+
+
+class CommissioningCsvImport(RequestModel):
+    csv_text: str = Field(min_length=1, max_length=10_000_000)
+    apply: bool = False
+    actor: str = Field(default="commissioning", min_length=1, max_length=120)
+
+
+class CommissioningStudyAction(RequestModel):
+    action: Literal["start", "submit_review", "approve_proposal", "reject_proposal", "archive"]
+    expected_version: Optional[int] = Field(default=None, ge=1)
+    notes: Optional[str] = Field(default=None, max_length=2000)
+    actor: str = Field(default="commissioning", min_length=1, max_length=120)
+
+
+class CommissioningObservationExclude(RequestModel):
+    reason: str = Field(min_length=1, max_length=2000)
+    actor: str = Field(default="commissioning", min_length=1, max_length=120)
+
+
 class DigitalTwinRequest(RequestModel):
     job_names: Optional[list[str]] = None
     policies: Optional[list[str]] = None

@@ -849,6 +849,9 @@ export default function App({ auth }) {
           .forecast-grid { grid-template-columns: 1fr 1fr !important; }
           .commission-controls { grid-template-columns: 1fr !important; }
           .lab-metrics, .lab-interventions, .lab-columns { grid-template-columns: 1fr !important; }
+          .evidence-study-grid, .evidence-gates, .evidence-metrics, .evidence-form-primary, .evidence-form-secondary { grid-template-columns: 1fr !important; }
+          .evidence-protocol-row { grid-template-columns: 24px 1fr !important; }
+          .evidence-segments { grid-template-columns: repeat(3,1fr) !important; }
           .connector-layout { grid-template-columns: 1fr !important; }
           .connector-layout > div:first-child { border-right: 0 !important; border-bottom: 1px solid #1f2937; padding-right: 0 !important; padding-bottom: 10px; display: grid; grid-template-columns: 1fr 1fr; }
           .sql-config, .mapping-grid { grid-template-columns: 1fr !important; }

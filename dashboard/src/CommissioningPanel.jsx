@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
-import { Check, Cpu, Database, FileUp, FlaskConical, Play, RefreshCw, Search, X } from "lucide-react";
+import { Check, ClipboardCheck, Cpu, Database, FileUp, FlaskConical, Play, RefreshCw, Search, X } from "lucide-react";
 import { IndustrialIoPanel } from "./IndustrialIoPanel";
 import { VirtualLabPanel } from "./VirtualLabPanel";
+import { EvidenceCapturePanel } from "./EvidenceCapturePanel";
 
 const button = {
   border: "1px solid #374151", borderRadius: 6, padding: "8px 12px",
@@ -346,23 +347,29 @@ function DataConnectors({ profiles, onConnectorAction }) {
 
 export function CommissioningPanel({ machines, connectors, industrial, onAnalyze, onConnectorAction, onIndustrialAction, onClose }) {
   const [tab, setTab] = useState("lab");
+  const panelRef = useRef(null);
+  const selectTab = next => {
+    setTab(next);
+    panelRef.current?.scrollTo({ top: 0 });
+  };
   const profiles = connectors?.profiles ?? [];
   const maestroProfile = profiles.find(profile => profile.connector_key === "maestro_logs");
 
   return <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.72)", display: "grid", placeItems: "center", zIndex: 30, padding: 16 }}>
-    <div style={{ width: "min(980px, 100%)", maxHeight: "92vh", overflowY: "auto", background: "#111827", border: "1px solid #374151", borderRadius: 8, padding: 20 }}>
+    <div ref={panelRef} style={{ width: "min(980px, 100%)", maxHeight: "92vh", overflowY: "auto", background: "#111827", border: "1px solid #374151", borderRadius: 8, padding: 20 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "center", marginBottom: 15 }}>
         <div><div style={{ fontSize: 17, fontWeight: 800 }}>Factory commissioning</div>
           <div style={{ color: "#6b7280", fontSize: 10, marginTop: 3 }}>Screen assumptions, then replace them with approved factory evidence.</div></div>
         <button onClick={onClose} aria-label="Close" title="Close" style={{ ...button, width: 34, height: 34, padding: 0 }}><X size={16} /></button>
       </div>
-      <div style={{ display: "inline-flex", background: "#0d1117", border: "1px solid #374151", borderRadius: 6, padding: 2, marginBottom: 18 }}>
-        <button onClick={() => setTab("lab")} style={{ ...button, minHeight: 30, border: 0, background: tab === "lab" ? "#374151" : "transparent" }}><FlaskConical size={13} /> Virtual lab</button>
-        <button onClick={() => setTab("data")} style={{ ...button, minHeight: 30, border: 0, background: tab === "data" ? "#374151" : "transparent" }}><Database size={13} /> Data connectors</button>
-        <button onClick={() => setTab("industrial")} style={{ ...button, minHeight: 30, border: 0, background: tab === "industrial" ? "#374151" : "transparent" }}><Cpu size={13} /> Industrial I/O</button>
-        <button onClick={() => setTab("machines")} style={{ ...button, minHeight: 30, border: 0, background: tab === "machines" ? "#374151" : "transparent" }}><FileUp size={13} /> Machine logs</button>
+      <div style={{ display: "inline-flex", flexWrap: "wrap", background: "#0d1117", border: "1px solid #374151", borderRadius: 6, padding: 2, marginBottom: 18 }}>
+        <button onClick={() => selectTab("lab")} style={{ ...button, minHeight: 30, border: 0, background: tab === "lab" ? "#374151" : "transparent" }}><FlaskConical size={13} /> Virtual lab</button>
+        <button onClick={() => selectTab("evidence")} style={{ ...button, minHeight: 30, border: 0, background: tab === "evidence" ? "#374151" : "transparent" }}><ClipboardCheck size={13} /> Field evidence</button>
+        <button onClick={() => selectTab("data")} style={{ ...button, minHeight: 30, border: 0, background: tab === "data" ? "#374151" : "transparent" }}><Database size={13} /> Data connectors</button>
+        <button onClick={() => selectTab("industrial")} style={{ ...button, minHeight: 30, border: 0, background: tab === "industrial" ? "#374151" : "transparent" }}><Cpu size={13} /> Industrial I/O</button>
+        <button onClick={() => selectTab("machines")} style={{ ...button, minHeight: 30, border: 0, background: tab === "machines" ? "#374151" : "transparent" }}><FileUp size={13} /> Machine logs</button>
       </div>
-      {tab === "lab" ? <VirtualLabPanel /> : tab === "industrial" ? (industrial?.profiles?.length
+      {tab === "lab" ? <VirtualLabPanel /> : tab === "evidence" ? <EvidenceCapturePanel /> : tab === "industrial" ? (industrial?.profiles?.length
           ? <IndustrialIoPanel data={industrial} onAction={onIndustrialAction} />
           : <div style={{ color: "#6b7280", fontSize: 11 }}>Loading industrial registry…</div>)
         : !profiles.length ? <div style={{ color: "#6b7280", fontSize: 11 }}>Loading connector registry…</div>

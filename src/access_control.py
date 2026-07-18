@@ -338,6 +338,8 @@ def required_permissions(method: str, path: str) -> tuple[str, ...]:
         return ("commission", "integration")
     if path == "/commissioning-lab/run":
         return ("commission", "optimize")
+    if path.startswith("/commissioning-evidence"):
+        return ("commission", "optimize")
     if re.fullmatch(r"/connectors/[^/]+/import", path):
         return ("commission", "integration")
     if path.startswith("/connectors"):

@@ -126,6 +126,19 @@ def assumptions(path: Path | None = None) -> dict:
     }
 
 
+def catalog(path: Path | None = None) -> dict:
+    """Expose the versioned prior catalog without making it production truth."""
+    cfg, digest, config_path = _load(path)
+    return {
+        "status": "assumption_only", "production_eligible": False,
+        "version": str(cfg.get("version")), "sha256": digest,
+        "path": str(config_path), "shift_hours": float(cfg["shift_hours"]),
+        "reference_units_per_shift": int(cfg["reference_units_per_shift"]),
+        "machines": cfg["machines"], "families": cfg["families"],
+        "sources": cfg.get("sources", []),
+    }
+
+
 def _family_counts(cfg: dict) -> dict[str, int]:
     total = int(cfg["reference_units_per_shift"])
     raw = {key: total * float(item["share"]) for key, item in cfg["families"].items()}
