@@ -28,6 +28,7 @@ operations are limited to the HIVE database and site configuration.
 - **Data trust layer** — normalizes India-local timestamps, suppresses duplicate MQTT delivery, isolates heartbeats, audits rejected events, and scores each machine's evidence quality.
 - **Automatic cycle learning** — pairs validated part cycles, robustly fits versioned nonnegative models, and protects active models from weak candidates.
 - **Production digital twin** — compares dispatch policies with finite machine, labor, tooling, calendar, maintenance, material, and WIP capacity.
+- **Sequence-dependent setup intelligence** — derives explainable machine families, learns directional P90 transitions from repeated evidence, and gates planning on learned models or verified fallbacks.
 - **Predictive production control** — runs repeatable stochastic ensembles for future constraint probability, P50/P80 completion, late-order risk, stale-input detection, and forecast-versus-actual calibration.
 - **Stability-aware schedule recovery** — detects floor deviations, resimulates only unfinished work, freezes dispatched and near-horizon jobs in place, and drafts thresholded recovery sequences for named planner approval.
 - **Production control** — explicit work releases, contractual due times, quantity-aware routes, exception reconciliation, and audited human schedule approval.
@@ -118,6 +119,7 @@ hive-os/
 │   ├── learning.py           # automatic cycle observations + model validation
 │   ├── routing.py            # observed same-part process transitions
 │   ├── digital_twin.py       # SimPy schedule-policy comparison
+│   ├── changeovers.py        # directional setup standards, evidence, and models
 │   ├── forecasting.py        # probabilistic constraint/delivery forecast + calibration
 │   ├── recovery.py           # event-driven residual simulation + schedule recovery
 │   ├── production_control.py  # order lifecycle + planned/observed route control
@@ -153,6 +155,7 @@ hive-os/
 ├── ALARM_MANAGEMENT.md        # alert rules, lifecycle, escalation, and webhook contract
 ├── PREDICTIVE_CONTROL.md      # ensemble forecast, credibility, and calibration contract
 ├── SCHEDULE_RECOVERY.md       # trigger, freeze-horizon, stability, and approval contract
+├── CHANGEOVER_INTELLIGENCE.md # setup families, evidence gates, and site workflow
 ├── REMOTE_COMMISSIONING.md    # Windows SSH trust, bootstrap, install, and recovery
 ├── RESILIENCE.md              # offline install, backup, restore, upgrade, and rollback
 ├── VIRTUAL_FACTORY_COMMISSIONING.md # offsite model, limits, and measurement workflow
@@ -304,6 +307,11 @@ unprefixed routes remain available for compatibility and local tooling.
 | GET | `/routing/graph` | Observed part-flow edges with support and confidence |
 | GET | `/digital-twin/readiness` | Cycle-model and observed-route coverage gate |
 | POST | `/digital-twin/compare` | Compare deterministic or seeded schedule scenarios |
+| GET | `/changeovers` | Directional setup standards, families, models, evidence, and readiness |
+| PUT | `/changeovers/machines/{key}/standard` | Version and verify a conservative machine fallback |
+| POST | `/changeovers/observations` | Record a repeat-safe directional setup observation |
+| POST | `/changeovers/observations/{id}/exclude` | Exclude invalid evidence and retrain the transition |
+| POST | `/changeovers/sync` | Import explicit setup downtime and refresh models |
 | GET | `/forecast` | Latest probabilistic constraint/delivery forecast and calibration |
 | GET | `/forecast/history` | Immutable recent forecast snapshots |
 | POST | `/forecast/refresh` | Run or reuse a seeded 20–200 sample forecast ensemble |

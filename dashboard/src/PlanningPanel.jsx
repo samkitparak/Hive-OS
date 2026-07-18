@@ -132,11 +132,11 @@ function ScenarioView({ scenario, actor, onDecision }) {
       <div style={{ color: ready ? "#22c55e" : "#f59e0b", fontSize: 10, fontWeight: 800, textTransform: "uppercase" }}>{ready ? "Production ready" : "Commissioning only"}</div>
     </div>
     <div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}><thead><tr style={{ color: "#6b7280", textAlign: "left" }}>
-      <th style={{ padding: 6 }}>Policy</th><th>Feasible</th><th>Late jobs</th><th>Tardiness</th><th>Makespan</th><th>Wait</th><th>Setups</th></tr></thead><tbody>
+      <th style={{ padding: 6 }}>Policy</th><th>Feasible</th><th>Late jobs</th><th>Tardiness</th><th>Makespan</th><th>Wait</th><th>Setups</th><th>Setup time</th></tr></thead><tbody>
       {(scenario.result.scenarios ?? []).map(item => <tr key={item.policy} style={{ borderTop: "1px solid #1f2937" }}>
         <td style={{ padding: 6, color: "#e5e7eb", fontWeight: 700 }}>{item.policy}</td><td style={{ color: item.feasible ? "#22c55e" : "#f87171" }}>{item.feasible ? "yes" : "no"}</td><td>{item.late_jobs}</td>
         <td>{Math.round(item.total_tardiness_s / 60)}m</td><td>{Math.round(item.makespan_s / 60)}m</td>
-        <td>{Math.round(((item.capacity_wait_s ?? 0) + (item.calendar_wait_s ?? 0)) / 60)}m</td><td>{item.setup_count}</td></tr>)}</tbody></table></div>
+        <td>{Math.round(((item.capacity_wait_s ?? 0) + (item.calendar_wait_s ?? 0)) / 60)}m</td><td>{item.setup_count}</td><td>{Math.round((item.setup_time_s ?? 0) / 60)}m</td></tr>)}</tbody></table></div>
     <div style={{ color: "#9ca3af", fontSize: 10, marginTop: 10 }}>{scenario.readiness.guardrail}</div>
     {scenario.status === "draft" && <div style={{ display: "flex", gap: 7, justifyContent: "flex-end", marginTop: 12, flexWrap: "wrap" }}>
       <select value={policy} onChange={event => setPolicy(event.target.value)} style={input}>{(scenario.result.scenarios ?? []).map(item => <option key={item.policy}>{item.policy}</option>)}</select>
@@ -238,7 +238,7 @@ export function PlanningPanel({ data, machines, onClose, onAction }) {
   const [error, setError] = useState("");
   const loadRoute = async order => { setError(""); try { setRouteData(await onAction("routes", { job_name: order.job_name })); } catch (err) { setError(err.message); } };
   const run = async () => { setBusy(true); setError(""); try { setLatestScenario(await onAction("scenario", { created_by: actor, job_names: selectedJobs.length ? selectedJobs : undefined,
-      policies: ["current", "fifo", "edd", "spt", "material_batch"], seed: 1 })); } catch (err) { setError(err.message); } finally { setBusy(false); } };
+      policies: ["current", "fifo", "edd", "spt", "material_batch", "setup_aware"], seed: 1 })); } catch (err) { setError(err.message); } finally { setBusy(false); } };
   const eligible = orders.filter(order => !["completed", "cancelled"].includes(order.status));
   return <div style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,.72)", display: "flex", justifyContent: "center", alignItems: "flex-start", padding: 18, overflowY: "auto" }}>
     <div style={{ width: "min(1180px, 100%)", background: "#0d1117", border: "1px solid #374151", borderRadius: 8, padding: 18, color: "#f9fafb" }}>

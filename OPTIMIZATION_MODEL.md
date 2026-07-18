@@ -284,11 +284,15 @@ They describe observed transitions, not automatically inferred complete routes.
 
 The production twin uses SimPy discrete-event resources to reproduce finite
 machine, shared labor, shared tooling, recurring shifts, planned maintenance,
-finite input buffers, part flow, transfers, and beam-saw material changeovers. It can compare
-the current sequencer with FIFO, earliest-date, shortest-processing-time, and
-material-batching policies. Results remain commissioning what-if scenarios
-until every simulated operation has a cycle model and at least 80% of selected
-part routes have direct historical evidence.
+finite input buffers, part flow, transfers, and sequence-dependent setup state on
+each setup-capable machine. Setup duration comes from a learned directional P90,
+a verified machine fallback, or a visibly production-ineligible commissioning
+assumption. It can compare the current sequencer with FIFO, earliest-date,
+shortest-processing-time, material-batching, and setup-aware policies. Results
+remain commissioning what-if scenarios until every simulated operation has a
+cycle model and at least 80% of selected part routes have direct historical
+evidence. A multi-family planning scope also requires a verified fallback or
+learned coverage for every required directional transition before approval.
 
 Verified rectangular remnants are allocated before new sheets using a
 largest-part/smallest-fitting-remnant heuristic. One remnant credits one physical
@@ -312,6 +316,7 @@ scheduling decisions:
 - [NIST data-driven dispatching-rule identification](https://tsapps.nist.gov/publication/get_pdf.cfm?pub_id=927446)
 - [NIST simulation-integrated production planning framework](https://tsapps.nist.gov/publication/get_pdf.cfm?pub_id=921140)
 - [Open discrete-event simulator for dynamic flexible job shops](https://www.sciencedirect.com/science/article/pii/S1569190X24000625)
+- [Flexible job shop scheduling with sequence-dependent setup time](https://www.tandfonline.com/doi/abs/10.1080/00207543.2012.746480)
 
 ## Factory Assumptions To Verify
 

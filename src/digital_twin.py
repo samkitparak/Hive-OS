@@ -11,13 +11,14 @@ from pathlib import Path
 import simpy
 import yaml
 
+import changeovers
 import cycle_time
 import resources as factory_resources
 import routing
 import sequencer
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "simulation.yaml"
-POLICIES = ("current", "fifo", "edd", "spt", "material_batch")
+POLICIES = ("current", "fifo", "edd", "spt", "material_batch", "setup_aware")
 
 
 def _config(path: Path = CONFIG_PATH) -> dict:
@@ -85,8 +86,13 @@ def _operation_plan(conn: sqlite3.Connection, jobs: list[dict],
                     conn, part, machine_key, learned_models=learned_models,
                     config=cycle_config,
                 )
+                setup = changeovers.setup_family(machine_key, part)
                 operation_templates.append({
-                    "machine_key": machine_key, "step_index": step_index, **prediction,
+                    "machine_key": machine_key, "step_index": step_index,
+                    "setup_key": setup["key"] if setup else None,
+                    "setup_label": setup["label"] if setup else None,
+                    "setup_basis": setup["basis"] if setup else None,
+                    **prediction,
                 })
             for unit in range(quantity):
                 operations = []
@@ -135,8 +141,9 @@ def _operation_plan(conn: sqlite3.Connection, jobs: list[dict],
         for job in jobs
     )))
     resources_ready = not controlled or bool(resource_status and resource_status["resource_ready"])
+    changeover_readiness = changeovers.readiness_for_parts(conn, parts)
     ready = (bool(parts) and model_coverage == 1 and route_coverage >= 0.8 and
-             control_ready and resources_ready)
+             control_ready and resources_ready and changeover_readiness["ready"])
     blockers = []
     if controlled and not control_ready:
         blockers.append("all selected orders must be ready or released with due times")
@@ -146,6 +153,8 @@ def _operation_plan(conn: sqlite3.Connection, jobs: list[dict],
         blockers.append("every operation needs an active cycle model")
     if route_coverage < 0.8:
         blockers.append("at least 80% of routes need observed or operator-confirmed evidence")
+    if not changeover_readiness["ready"]:
+        blockers.append("setup-sensitive machines need verified fallback times or learned transition coverage")
     readiness = {
         "status": "ready" if ready else "learning",
         "job_count": len(jobs), "part_count": part_count,
@@ -157,6 +166,8 @@ def _operation_plan(conn: sqlite3.Connection, jobs: list[dict],
         "control_ready": control_ready,
         "resource_ready": resources_ready,
         "resource_checks": resource_status["checks"] if resource_status else [],
+        "changeover_ready": changeover_readiness["ready"],
+        "changeovers": changeover_readiness,
         "operational_recommendation": ready,
         "guardrail": ("Schedule recommendations are enabled."
                       if ready else
@@ -179,6 +190,58 @@ def _job_processing_time(parts: list[dict], job_name: str) -> float:
                for operation in part["operations"])
 
 
+def _job_setup_profile(parts: list[dict], job_name: str) -> dict[str, dict]:
+    profile: dict[str, dict] = {}
+    for part in parts:
+        if part["job_name"] != job_name:
+            continue
+        for operation in part["operations"]:
+            setup_key = operation.get("setup_key")
+            if not setup_key:
+                continue
+            item = profile.setdefault(operation["machine_key"], {
+                "first": setup_key, "last": setup_key,
+            })
+            item["last"] = setup_key
+    return profile
+
+
+def _setup_transition_cost(conn: sqlite3.Connection, source: dict[str, dict],
+                           target: dict[str, dict]) -> float:
+    total = 0.0
+    for machine_key in source.keys() & target.keys():
+        total += float(changeovers.estimate(
+            conn, machine_key, source[machine_key]["last"], target[machine_key]["first"],
+        )["seconds"])
+    return total
+
+
+def setup_aware_order(conn: sqlite3.Connection, jobs: list[dict],
+                      parts: list[dict]) -> list[dict]:
+    """Greedy family batching inside due-date groups using modeled setup cost."""
+    if not jobs:
+        return []
+    profiles = {job["job_name"]: _job_setup_profile(parts, job["job_name"]) for job in jobs}
+    remaining = list(jobs)
+    first = min(remaining, key=lambda job: (
+        (job.get("due_at") or "9999-12-31")[:10], -int(job.get("priority") or 0), job["id"],
+    ))
+    ordered = [first]
+    remaining.remove(first)
+    while remaining:
+        prior = ordered[-1]
+        candidate = min(remaining, key=lambda job: (
+            (job.get("due_at") or "9999-12-31")[:10],
+            _setup_transition_cost(
+                conn, profiles.get(prior["job_name"], {}), profiles.get(job["job_name"], {}),
+            ),
+            -int(job.get("priority") or 0), job["id"],
+        ))
+        ordered.append(candidate)
+        remaining.remove(candidate)
+    return ordered
+
+
 def _order_jobs(conn: sqlite3.Connection, jobs: list[dict], parts: list[dict], policy: str) -> list[dict]:
     if policy == "current":
         names = [job["job_name"] for job in jobs]
@@ -193,6 +256,8 @@ def _order_jobs(conn: sqlite3.Connection, jobs: list[dict], parts: list[dict], p
         return sorted(jobs, key=lambda job: (_job_processing_time(parts, job["job_name"]), job["id"]))
     if policy == "material_batch":
         return sorted(jobs, key=lambda job: (job["primary_material"], job["due_at"] or "", job["id"]))
+    if policy == "setup_aware":
+        return setup_aware_order(conn, jobs, parts)
     raise ValueError(f"unknown simulation policy: {policy}")
 
 
@@ -232,9 +297,11 @@ def _single_run(conn: sqlite3.Connection, jobs: list[dict], parts: list[dict],
     labor_busy = defaultdict(float)
     tooling_busy = defaultdict(float)
     blocked_units: list[str] = []
-    saw_material = {"gabbiani_pt80": None}
+    machine_setup: dict[str, str | None] = {key: None for key in machine_keys}
+    setup_by_machine = defaultdict(lambda: {"count": 0, "seconds": 0.0})
+    setup_sources = defaultdict(int)
+    transition_cache: dict[tuple[str, str, str], dict] = {}
     transfer_s = float(cfg.get("transfer_time_s", 30))
-    changeover_s = float(cfg.get("material_changeover_s", 600))
 
     if ordered_job_names is None:
         ordered_jobs = _order_jobs(conn, jobs, parts, policy)
@@ -287,9 +354,20 @@ def _single_run(conn: sqlite3.Connection, jobs: list[dict], parts: list[dict],
                 waited = env.now - wait_started
                 capacity_wait += waited
                 machine_wait[machine_key] += waited
-                needs_setup = (machine_key == "gabbiani_pt80" and
-                               saw_material[machine_key] not in (None, part["material"]))
-                total_duration = duration + (changeover_s if needs_setup else 0)
+                target_setup = operation.get("setup_key")
+                prior_setup = machine_setup.get(machine_key)
+                transition = None
+                if prior_setup and target_setup and prior_setup != target_setup:
+                    cache_key = (machine_key, prior_setup, target_setup)
+                    transition = transition_cache.get(cache_key)
+                    if transition is None:
+                        transition = changeovers.estimate(
+                            conn, machine_key, prior_setup, target_setup,
+                        )
+                        transition_cache[cache_key] = transition
+                changeover_s = float(transition["seconds"]) if transition else 0.0
+                needs_setup = changeover_s > 0
+                total_duration = duration + changeover_s
                 delay = factory_resources.next_available_delay(
                     resource_context, machine_key, role_key, pool_key, env.now, total_duration
                 )
@@ -313,8 +391,11 @@ def _single_run(conn: sqlite3.Connection, jobs: list[dict], parts: list[dict],
                         busy[machine_key] += changeover_s
                         setup_count += 1
                         setup_time += changeover_s
-                    if machine_key == "gabbiani_pt80":
-                        saw_material[machine_key] = part["material"]
+                        setup_by_machine[machine_key]["count"] += 1
+                        setup_by_machine[machine_key]["seconds"] += changeover_s
+                        setup_sources[transition["source"]] += 1
+                    if target_setup:
+                        machine_setup[machine_key] = target_setup
                     yield env.timeout(duration)
                     busy[machine_key] += duration
                     if role_key:
@@ -373,6 +454,11 @@ def _single_run(conn: sqlite3.Connection, jobs: list[dict], parts: list[dict],
         "average_flow_time_s": round(sum(flow_times) / len(flow_times), 1) if flow_times else None,
         "setup_count": setup_count,
         "setup_time_s": round(setup_time, 1),
+        "setup_by_machine": {
+            key: {"count": value["count"], "seconds": round(value["seconds"], 1)}
+            for key, value in setup_by_machine.items()
+        },
+        "setup_sources": dict(sorted(setup_sources.items())),
         "jobs_with_due_dates": len(due_offsets),
         "late_jobs": sum(value > 0 for value in tardiness.values()),
         "total_tardiness_s": round(sum(tardiness.values()), 1),
@@ -436,7 +522,7 @@ def compare(conn: sqlite3.Connection, job_names: list[str] | None = None,
         "seed": seed,
         "assumptions": {
             "transfer_time_s": cfg.get("transfer_time_s", 30),
-            "material_changeover_s": cfg.get("material_changeover_s", 600),
+            "changeovers": readiness_result["changeovers"],
             "due_dates": "Only production_order.due_at is treated as contractual",
             "resources": resource_status["assumptions"],
         },
@@ -506,7 +592,7 @@ def compare_orders(conn: sqlite3.Connection, orders: dict[str, list[str]], *,
                 "in-process quantity and subtracted from modeled duration."
             ),
             "transfer_time_s": cfg.get("transfer_time_s", 30),
-            "material_changeover_s": cfg.get("material_changeover_s", 600),
+            "changeovers": readiness_result["changeovers"],
             "resources": resource_status["assumptions"],
         },
         "scenarios": scenarios, "recommendation": None,

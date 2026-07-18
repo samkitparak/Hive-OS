@@ -171,6 +171,14 @@ export const markLabelJobPrinted = (id, payload) => postJson(`/labels/jobs/${id}
 export const labelPrintUrl = id => `${BASE}/labels/jobs/${id}/print`;
 export const labelZplUrl = id => `${BASE}/labels/jobs/${id}/zpl`;
 export const fetchResourceSnapshot = () => request("/resources/snapshot");
+export const updateChangeoverStandard = (machineKey, payload) => request(
+  `/changeovers/machines/${encodeURIComponent(machineKey)}/standard`,
+  { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+);
+export const recordChangeoverObservation = payload => postJson("/changeovers/observations", payload);
+export const excludeChangeoverObservation = (id, payload) =>
+  postJson(`/changeovers/observations/${id}/exclude`, payload);
+export const syncChangeovers = payload => postJson("/changeovers/sync", payload);
 export const fetchProcurementSnapshot = () => request("/procurement/snapshot");
 export const updateProcurementSupplier = (supplierKey, payload) => request(
   `/procurement/suppliers/${encodeURIComponent(supplierKey)}`,

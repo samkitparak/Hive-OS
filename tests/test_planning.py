@@ -7,6 +7,7 @@ from db import init_db
 import planning
 import production_control
 import resources
+import changeovers
 
 
 def _active_saw_model(conn):
@@ -60,6 +61,14 @@ def _ready_factory():
     resources.update_factory_calendar(conn, {
         "weekdays": list(range(7)), "start_time": "00:00", "end_time": "23:59",
         "timezone": "UTC", "verified": True, "actor": "test",
+    })
+    saw_standard = next(
+        item for item in changeovers.snapshot(conn)["machines"]
+        if item["machine_key"] == "gabbiani_pt80"
+    )
+    changeovers.update_standard(conn, "gabbiani_pt80", {
+        "default_setup_s": 600, "verified": True,
+        "expected_version": saw_standard["version"], "actor": "test",
     })
     due = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
     for order in production_control.list_orders(conn):

@@ -64,7 +64,7 @@ def test_get_machines_returns_list(client):
 def test_api_prefix_routes_to_backend(client):
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "service": "hive-os", "version": "0.28.0"}
+    assert response.json() == {"status": "ok", "service": "hive-os", "version": "0.29.0"}
     assert client.get("/api/machines").status_code == 200
 
 
@@ -78,6 +78,54 @@ def test_learning_and_twin_endpoints(client):
     assert "active_models" in learning.json()
     assert "edges" in routes.json()
     assert "model_coverage" in readiness.json()
+
+
+def test_changeover_standard_and_evidence_endpoints(client):
+    snapshot = client.get("/api/changeovers")
+    assert snapshot.status_code == 200
+    state = snapshot.json()
+    saw = next(
+        item for item in state["machines"] if item["machine_key"] == "gabbiani_pt80"
+    )
+    updated = client.put("/api/changeovers/machines/gabbiani_pt80/standard", json={
+        "default_setup_s": 480,
+        "verified": True,
+        "expected_version": saw["version"],
+        "actor": "api-test",
+        "notes": "Conservative API test standard",
+    })
+    assert updated.status_code == 200
+    assert updated.json()["verified"] is True
+    stale = client.put("/api/changeovers/machines/gabbiani_pt80/standard", json={
+        "default_setup_s": 500,
+        "verified": True,
+        "expected_version": saw["version"],
+        "actor": "api-test",
+    })
+    assert stale.status_code == 400
+
+    observed = client.post("/api/changeovers/observations", json={
+        "machine_key": "gabbiani_pt80",
+        "from_setup_key": "MATERIAL|API-A",
+        "to_setup_key": "MATERIAL|API-B",
+        "duration_s": 321,
+        "observed_at": "2026-07-18T10:30:00+05:30",
+        "source": "manual_time_study",
+        "quality_confirmed": True,
+        "actor": "api-test",
+    })
+    assert observed.status_code == 200
+    assert observed.json()["status"] == "accepted"
+    observation_id = observed.json()["observation_id"]
+    excluded = client.post(
+        f"/api/changeovers/observations/{observation_id}/exclude",
+        json={"reason": "API test cleanup", "actor": "api-test"},
+    )
+    assert excluded.status_code == 200
+    assert excluded.json()["status"] == "excluded"
+    assert client.post("/api/changeovers/sync", json={
+        "include_downtime": False, "actor": "api-test",
+    }).status_code == 200
 
 
 def test_assumption_only_commissioning_lab_endpoints(client, mem_conn):

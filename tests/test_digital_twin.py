@@ -51,6 +51,16 @@ def test_digital_twin_is_deterministic_and_gates_recommendation_on_routes():
     assert batching["makespan_s"] < fifo["makespan_s"]
 
 
+def test_setup_aware_policy_uses_directional_machine_families():
+    conn = _factory()
+    result = digital_twin.compare(conn, policies=["fifo", "setup_aware"], seed=11)
+    fifo, setup_aware = result["scenarios"]
+    assert setup_aware["policy"] == "setup_aware"
+    assert setup_aware["setup_count"] < fifo["setup_count"]
+    assert setup_aware["setup_time_s"] < fifo["setup_time_s"]
+    assert setup_aware["setup_by_machine"]["gabbiani_pt80"]["count"] == 1
+
+
 def test_digital_twin_blocks_scenarios_when_cycle_models_are_missing():
     conn = init_db(":memory:")
     conn.execute("INSERT INTO jobs (job_name, total_parts) VALUES ('J1', 1)")

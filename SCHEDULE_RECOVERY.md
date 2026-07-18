@@ -36,7 +36,8 @@ complete.
 
 The current active order is the baseline. Newly ready unscheduled orders are
 appended before candidate policies are generated. HIVE evaluates current, FIFO,
-earliest due date (EDD), shortest processing time (SPT), and material batch.
+earliest due date (EDD), shortest processing time (SPT), material batch, and a
+setup-aware policy driven by directional machine-family estimates.
 
 ## Freeze Horizon And Stability
 

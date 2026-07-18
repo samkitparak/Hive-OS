@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Archive, PackagePlus, Plus, Ruler, Save, ShoppingCart, Wrench } from "lucide-react";
+import { Archive, PackagePlus, Plus, RefreshCw, Ruler, Save, ShoppingCart, Timer, Wrench } from "lucide-react";
 import { ProcurementPanel } from "./ProcurementPanel";
 import { ToolingPanel } from "./ToolingPanel";
 
@@ -216,6 +216,101 @@ function BufferRow({ item, actor, onSave }) {
   </div>;
 }
 
+function ChangeoverStandardRow({ item, actor, onSave }) {
+  const [seconds, setSeconds] = useState(item.default_setup_s);
+  const [verified, setVerified] = useState(Boolean(item.verified));
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    try {
+      await onSave(item.machine_key, {
+        default_setup_s: Number(seconds), verified, expected_version: item.version,
+        source: verified ? "site_standard" : item.source, actor,
+      });
+    } finally { setBusy(false); }
+  };
+  return <div className="changeover-standard-row" style={{ ...line, display: "grid", gridTemplateColumns: "minmax(200px,1.4fr) 110px 110px 110px auto", gap: 8, alignItems: "center" }}>
+    <div style={{ minWidth: 0 }}><div style={{ fontSize: 11, fontWeight: 800 }}>{item.machine_name}</div>
+      <div style={{ color: "#6b7280", fontSize: 9, marginTop: 3 }}>{item.basis} · {item.family_count} families · {item.active_model_count} learned transitions</div></div>
+    <div><div style={label}>Fallback sec</div><input type="number" min="0" max="14400" step="1" value={seconds} onChange={event => setSeconds(event.target.value)} style={input} /></div>
+    <div><div style={label}>Scope</div><div style={{ color: item.setup_sensitive ? "#fbbf24" : "#6b7280", fontSize: 10, paddingTop: 7 }}>{item.setup_sensitive ? "sequence sensitive" : item.family_count === 1 ? "one family" : "no active scope"}</div></div>
+    <Verification checked={verified} onChange={setVerified} />
+    <button disabled={busy} onClick={save} title="Save machine setup fallback" style={{ ...primary, display: "inline-flex", gap: 6, alignItems: "center" }}><Save size={13} /> Save</button>
+  </div>;
+}
+
+function localTimestamp() {
+  const date = new Date();
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function ChangeoverControl({ data, actor, onAction }) {
+  const initialMachine = data.machines.find(item => item.family_count > 1) ?? data.machines[0];
+  const [machineKey, setMachineKey] = useState(initialMachine?.machine_key ?? "");
+  const machine = data.machines.find(item => item.machine_key === machineKey) ?? initialMachine;
+  const [fromKey, setFromKey] = useState(machine?.families[0]?.key ?? "");
+  const [toKey, setToKey] = useState(machine?.families[1]?.key ?? "");
+  const [duration, setDuration] = useState(300);
+  const [observedAt, setObservedAt] = useState(localTimestamp());
+  const [source, setSource] = useState("manual_time_study");
+  const [quality, setQuality] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const familyOptions = machine?.families ?? [];
+  const chooseMachine = key => {
+    setMachineKey(key);
+    const selected = data.machines.find(item => item.machine_key === key);
+    setFromKey(selected?.families[0]?.key ?? "");
+    setToKey(selected?.families[1]?.key ?? "");
+  };
+  const run = async operation => {
+    setBusy(true); setMessage("");
+    try { await operation(); setMessage("Changeover evidence updated"); }
+    catch (error) { setMessage(error.message); }
+    finally { setBusy(false); }
+  };
+  const record = () => run(() => onAction("changeoverObservation", {
+    machine_key: machineKey, from_setup_key: fromKey, to_setup_key: toKey,
+    duration_s: Number(duration), observed_at: new Date(observedAt).toISOString(),
+    source, quality_confirmed: quality, actor,
+  }));
+  const exclude = item => {
+    const reason = window.prompt("Reason for excluding this setup observation");
+    if (reason) run(() => onAction("changeoverExclude", { id: item.id, payload: { reason, actor } }));
+  };
+  const readinessLabel = !data.readiness.applicable
+    ? "No multi-family scope"
+    : data.readiness.ready ? "Scope ready" : "Verification required";
+  const readinessColor = data.readiness.applicable && data.readiness.ready ? "#22c55e" : "#f59e0b";
+  return <div>
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+      <div><div style={label}>Sequence-dependent setup</div><div style={{ color: readinessColor, fontSize: 12, fontWeight: 800, marginTop: 4 }}>{readinessLabel}</div></div>
+      <button disabled={busy} onClick={() => run(() => onAction("changeoverSync", { include_downtime: true, actor }))} title="Import classified setup downtime and retrain" style={{ ...button, display: "inline-flex", gap: 6, alignItems: "center" }}><RefreshCw size={13} /> Sync evidence</button>
+    </div>
+    <div style={{ color: "#6b7280", fontSize: 9, margin: "7px 0 10px" }}>{data.guardrail}</div>
+    {data.machines.map(item => <ChangeoverStandardRow key={`${item.machine_key}-${item.version}`} item={item} actor={actor}
+      onSave={(key, payload) => onAction("changeoverStandard", { key, payload })} />)}
+
+    <div style={{ ...label, marginTop: 18 }}>Timed transition</div>
+    <div className="changeover-observation-grid" style={{ display: "grid", gridTemplateColumns: "minmax(150px,1fr) minmax(170px,1.2fr) minmax(170px,1.2fr) 90px 170px 130px 110px auto", gap: 7, alignItems: "end", marginTop: 8 }}>
+      <div><div style={label}>Machine</div><select value={machineKey} onChange={event => chooseMachine(event.target.value)} style={input}>{data.machines.map(item => <option key={item.machine_key} value={item.machine_key}>{item.machine_name}</option>)}</select></div>
+      <div><div style={label}>From family</div><input list={`from-${machineKey}`} value={fromKey} onChange={event => setFromKey(event.target.value)} style={input} /><datalist id={`from-${machineKey}`}>{familyOptions.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}</datalist></div>
+      <div><div style={label}>To family</div><input list={`to-${machineKey}`} value={toKey} onChange={event => setToKey(event.target.value)} style={input} /><datalist id={`to-${machineKey}`}>{familyOptions.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}</datalist></div>
+      <div><div style={label}>Seconds</div><input type="number" min="0.1" max="14400" step="0.1" value={duration} onChange={event => setDuration(event.target.value)} style={input} /></div>
+      <div><div style={label}>Observed</div><input type="datetime-local" value={observedAt} onChange={event => setObservedAt(event.target.value)} style={input} /></div>
+      <div><div style={label}>Source</div><select value={source} onChange={event => setSource(event.target.value)} style={input}><option value="manual_time_study">Time study</option><option value="machine_log">Machine log</option><option value="controller_event">Controller</option></select></div>
+      <label style={{ display: "flex", alignItems: "center", gap: 6, color: quality ? "#86efac" : "#9ca3af", fontSize: 9, minHeight: 34 }}><input type="checkbox" checked={quality} onChange={event => setQuality(event.target.checked)} /> First good piece</label>
+      <button disabled={busy || !machineKey || !fromKey || !toKey || fromKey === toKey || !duration} onClick={record} title="Record setup transition" style={{ ...primary, display: "inline-flex", gap: 6, alignItems: "center" }}><Timer size={13} /> Record</button>
+    </div>
+    {message && <div style={{ color: message === "Changeover evidence updated" ? "#22c55e" : "#f87171", fontSize: 9, marginTop: 8 }}>{message}</div>}
+    {data.observations.slice(0, 30).map(item => <div key={item.id} className="changeover-observation-row" style={{ ...line, display: "grid", gridTemplateColumns: "150px minmax(220px,1fr) 90px 110px 90px auto", gap: 8, alignItems: "center", fontSize: 9, color: item.validity === "accepted" ? "#d1d5db" : "#6b7280" }}>
+      <span>{item.machine_name}</span><span style={{ overflowWrap: "anywhere" }}>{item.from_setup_key} to {item.to_setup_key}</span><strong>{item.duration_s}s</strong><span>{item.source.replaceAll("_", " ")}</span><span>{item.quality_confirmed ? "first-good" : "unconfirmed"}</span>
+      {item.validity === "accepted" ? <button onClick={() => exclude(item)} style={button}>Exclude</button> : <span>excluded</span>}
+    </div>)}
+  </div>;
+}
+
 function CalendarEditor({ rows, machines, unavailability, actor, onAction }) {
   const factoryRows = rows.filter(row => row.resource_type === "factory" && row.resource_key === "factory");
   const first = factoryRows[0] ?? { start_time: "09:00", end_time: "18:00", timezone: "Asia/Kolkata", verified: 0 };
@@ -272,7 +367,8 @@ export function ResourcePanel({ data, actor, onAction }) {
   const machineNames = useMemo(() => data.machine_profiles.map(item => ({ machine_key: item.machine_key, machine_name: item.machine_name })), [data.machine_profiles]);
   const tabs = [["materials", "Sheets", Archive], ["components", "Components", PackagePlus],
     ["remnants", "Remnants", Ruler], ["procurement", "Procurement", ShoppingCart],
-    ["capacity", "Capacity", null], ["tooling", "Tooling", Wrench], ["calendar", "Calendar", null]];
+    ["capacity", "Capacity", null], ["changeovers", "Setups", Timer],
+    ["tooling", "Tooling", Wrench], ["calendar", "Calendar", null]];
   return <div style={{ borderTop: "1px solid #374151", marginTop: 12, paddingTop: 12 }}>
     <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
       <div><div style={label}>Factory resources</div><div style={{ color: data.resource_ready ? "#22c55e" : "#f59e0b", fontSize: 13, fontWeight: 800, marginTop: 3 }}>{data.status}</div></div>
@@ -310,10 +406,11 @@ export function ResourcePanel({ data, actor, onAction }) {
       <div><div style={label}>Machine requirements</div>{data.machine_profiles.map(item => <ProfileRow key={`${item.machine_key}-${item.updated_at}`} item={item} roles={data.labor_roles} pools={data.tool_pools} actor={actor} onSave={(key, payload) => run("machineResource", { key, payload })} />)}
         <div style={{ ...label, marginTop: 14 }}>Input WIP buffers</div>{data.wip_buffers.map(item => <BufferRow key={`${item.machine_key}-${item.updated_at}`} item={item} actor={actor} onSave={(key, payload) => run("wip", { key, payload })} />)}</div>
     </div>}
+    {tab === "changeovers" && <ChangeoverControl data={data.changeovers} actor={actor} onAction={run} />}
     {tab === "tooling" && <ToolingPanel data={data.tooling} pools={data.tool_pools}
       machines={machineNames} actor={actor} onAction={run} />}
     {tab === "calendar" && <CalendarEditor key={data.calendar.map(row => row.updated_at).join("-")} rows={data.calendar} machines={machineNames}
       unavailability={data.unavailability} actor={actor} onAction={run} />}
-    <style>{`@media (max-width: 760px) { .resource-capacity-grid, .warehouse-setup { grid-template-columns: 1fr !important; } .resource-material-row, .resource-tool-row, .resource-compact-row, .remnant-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important; } .resource-material-row > div:first-child, .resource-tool-row > div:first-child, .resource-compact-row > div:first-child, .remnant-row > div:first-child { grid-column: 1 / -1; } .resource-profile-grid, .resource-calendar-grid, .warehouse-add-grid, .inventory-component-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important; } .resource-unavailable-grid, .remnant-entry-grid { grid-template-columns: minmax(0, 1fr) !important; } }`}</style>
+    <style>{`@media (max-width: 760px) { .resource-capacity-grid, .warehouse-setup { grid-template-columns: 1fr !important; } .resource-material-row, .resource-tool-row, .resource-compact-row, .remnant-row, .changeover-standard-row, .changeover-observation-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important; } .resource-material-row > div:first-child, .resource-tool-row > div:first-child, .resource-compact-row > div:first-child, .remnant-row > div:first-child, .changeover-standard-row > div:first-child, .changeover-observation-row > span:nth-child(2) { grid-column: 1 / -1; } .resource-profile-grid, .resource-calendar-grid, .warehouse-add-grid, .inventory-component-grid, .changeover-observation-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important; } .resource-unavailable-grid, .remnant-entry-grid { grid-template-columns: minmax(0, 1fr) !important; } }`}</style>
   </div>;
 }

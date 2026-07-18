@@ -62,6 +62,10 @@ Dashboard -> **Commission** -> **Virtual lab**
 - [ ] Work down **Measure first on site** in displayed priority order
 - [ ] Create one study per high-priority machine and record at least 20 cycles split across two product/program strata, two dates, and two observers unless capture is automated
 - [ ] Measure load, queue, operation, unload, setup/changeover, blocked, starved, and first-good-piece time separately
+- [ ] Review setup-family definitions under **Planning > Resources > Setups** with each machine lead
+- [ ] Verify a conservative fallback for every setup-sensitive machine before approving multi-family schedules
+- [ ] Capture both A-to-B and B-to-A changes; do not assume directional setup times are symmetric
+- [ ] Confirm automatic setup evidence comes only from explicitly classified closed setup downtime
 - [ ] Use stable source IDs for CSV rows; preview before apply and replay once to confirm duplicate suppression
 - [ ] Review every flagged outlier; exclude only with a written reason and retain the raw observation
 - [ ] Confirm actual product-family shares and every route, including loops, rework, manual fallback, and outsourced steps

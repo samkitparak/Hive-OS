@@ -67,6 +67,9 @@ def factory_signature(conn: sqlite3.Connection, job_names: list[str] | None = No
         ("execution_jobs", "updated_at"),
         ("execution_job_events", "ts"),
         ("execution_exceptions", "occurred_at"),
+        ("changeover_machine_standards", "updated_at"),
+        ("changeover_observations", "created_at"),
+        ("changeover_models", "trained_at"),
     ):
         resource_tables[table] = dict(conn.execute(
             f"SELECT COUNT(*) count, COALESCE(MAX({timestamp}), '') updated FROM {table}"

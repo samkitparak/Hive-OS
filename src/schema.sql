@@ -1938,6 +1938,72 @@ CREATE TABLE IF NOT EXISTS commissioning_evidence_analyses (
     UNIQUE(study_id, input_signature)
 );
 
+-- Sequence-dependent setup evidence is intentionally separate from productive
+-- cycle observations. A verified machine fallback makes unseen transitions
+-- schedulable; repeated directional observations can supersede that fallback.
+CREATE TABLE IF NOT EXISTS changeover_machine_standards (
+    machine_id          INTEGER PRIMARY KEY REFERENCES machines(id),
+    default_setup_s     REAL NOT NULL CHECK(default_setup_s >= 0 AND default_setup_s <= 14400),
+    source              TEXT NOT NULL,
+    verified            INTEGER NOT NULL DEFAULT 0,
+    version             INTEGER NOT NULL DEFAULT 1,
+    notes               TEXT,
+    updated_by          TEXT NOT NULL,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS changeover_observations (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    machine_id          INTEGER NOT NULL REFERENCES machines(id),
+    from_setup_key      TEXT NOT NULL,
+    to_setup_key        TEXT NOT NULL,
+    duration_s          REAL NOT NULL CHECK(duration_s > 0 AND duration_s <= 14400),
+    observed_at         TEXT NOT NULL,
+    source              TEXT NOT NULL,
+    evidence_type       TEXT,
+    evidence_id         INTEGER,
+    quality_confirmed   INTEGER NOT NULL DEFAULT 0,
+    validity            TEXT NOT NULL DEFAULT 'accepted',
+    exclusion_reason    TEXT,
+    actor               TEXT NOT NULL,
+    notes               TEXT,
+    fingerprint         TEXT NOT NULL UNIQUE,
+    created_at          TEXT NOT NULL,
+    UNIQUE(evidence_type, evidence_id)
+);
+
+CREATE TABLE IF NOT EXISTS changeover_models (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    machine_id              INTEGER NOT NULL REFERENCES machines(id),
+    from_setup_key          TEXT NOT NULL,
+    to_setup_key            TEXT NOT NULL,
+    version                 INTEGER NOT NULL,
+    training_signature      TEXT NOT NULL UNIQUE,
+    sample_count            INTEGER NOT NULL,
+    date_count              INTEGER NOT NULL,
+    quality_confirmed_count INTEGER NOT NULL,
+    median_s                REAL NOT NULL,
+    p90_s                   REAL NOT NULL,
+    mad_s                   REAL NOT NULL,
+    confidence              TEXT NOT NULL,
+    status                  TEXT NOT NULL,
+    reason                  TEXT NOT NULL,
+    trained_at              TEXT NOT NULL,
+    UNIQUE(machine_id, from_setup_key, to_setup_key, version)
+);
+
+CREATE TABLE IF NOT EXISTS changeover_events (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    machine_id          INTEGER NOT NULL REFERENCES machines(id),
+    event_type          TEXT NOT NULL,
+    actor               TEXT NOT NULL,
+    object_type         TEXT NOT NULL,
+    object_id           INTEGER,
+    details_json        TEXT NOT NULL,
+    ts                  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS commissioning_evidence_events (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     study_id            INTEGER NOT NULL REFERENCES commissioning_evidence_studies(id),
@@ -2266,6 +2332,17 @@ CREATE INDEX IF NOT EXISTS idx_commissioning_studies_machine_status ON commissio
 CREATE INDEX IF NOT EXISTS idx_commissioning_observations_study_time ON commissioning_evidence_observations(study_id, measured_at, id);
 CREATE INDEX IF NOT EXISTS idx_commissioning_analyses_study_time ON commissioning_evidence_analyses(study_id, created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_commissioning_events_study_time ON commissioning_evidence_events(study_id, ts, id);
+CREATE INDEX IF NOT EXISTS idx_changeover_observations_transition_time
+    ON changeover_observations(machine_id, from_setup_key, to_setup_key, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_changeover_observations_validity
+    ON changeover_observations(validity, machine_id, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_changeover_models_transition_status
+    ON changeover_models(machine_id, from_setup_key, to_setup_key, status, trained_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_changeover_models_one_active
+    ON changeover_models(machine_id, from_setup_key, to_setup_key)
+    WHERE status='active';
+CREATE INDEX IF NOT EXISTS idx_changeover_events_machine_time
+    ON changeover_events(machine_id, ts DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_machine_passport_events_machine_time ON machine_passport_events(machine_id, ts DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_factory_missions_machine_time ON factory_commissioning_missions(machine_id, id DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_missions_one_active

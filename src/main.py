@@ -80,6 +80,7 @@ import tooling as tooling_module
 import connectors as connectors_module
 import industrial_gateway as industrial_gateway_module
 import energy_intelligence as energy_intelligence_module
+import changeovers as changeovers_module
 import ottimo_connector
 import cv_sql_connector
 from api_models import (
@@ -97,6 +98,10 @@ from api_models import (
     FactoryMissionAction,
     FactoryMissionStart,
     MachinePassportUpdate,
+    ChangeoverObservationCreate,
+    ChangeoverObservationExclude,
+    ChangeoverStandardUpdate,
+    ChangeoverSyncRequest,
     ConnectorAnalyzeRequest,
     ConnectorApprovalRequest,
     ConnectorImportRequest,
@@ -193,7 +198,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.28.0"
+APP_VERSION = "0.29.0"
 
 
 class ApiPrefixMiddleware:
@@ -1532,6 +1537,58 @@ def post_label_job_printed(print_job_id: int, payload: LabelPrintConfirmation):
 @app.get("/resources/snapshot")
 def get_resource_snapshot(job_name: Optional[list[str]] = Query(default=None)):
     return resources_module.snapshot(_get_conn(), job_name)
+
+
+@app.get("/changeovers")
+def get_changeovers(job_name: Optional[list[str]] = Query(default=None)):
+    return changeovers_module.snapshot(_get_conn(), job_name)
+
+
+@app.put("/changeovers/machines/{machine_key}/standard")
+def put_changeover_standard(machine_key: str, payload: ChangeoverStandardUpdate):
+    try:
+        return changeovers_module.update_standard(
+            _get_conn(), machine_key, payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/changeovers/observations")
+def post_changeover_observation(payload: ChangeoverObservationCreate):
+    try:
+        return changeovers_module.record_observation(
+            _get_conn(), payload.model_dump(exclude_none=True)
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/changeovers/observations/{observation_id}/exclude")
+def post_changeover_observation_exclusion(
+    observation_id: int, payload: ChangeoverObservationExclude,
+):
+    try:
+        return changeovers_module.exclude_observation(
+            _get_conn(), observation_id, payload.reason, payload.actor,
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/changeovers/sync")
+def post_changeover_sync(payload: ChangeoverSyncRequest):
+    if payload.include_downtime:
+        return changeovers_module.sync_downtime_observations(
+            _get_conn(), actor=payload.actor,
+        )
+    return changeovers_module.sync_models(_get_conn(), actor=payload.actor)
 
 
 @app.put("/resources/materials/{material_key}")

@@ -248,6 +248,15 @@ def _candidate_orders(conn: sqlite3.Connection, active: dict,
         reordered = iter(sorted(movable, key=key))
         return [name if name in frozen_set else next(reordered) for name in baseline]
 
+    def placed(sequence: list[str]) -> list[str]:
+        reordered = iter(sequence)
+        return [name if name in frozen_set else next(reordered) for name in baseline]
+
+    movable_jobs = [job for job in jobs if job["job_name"] in set(movable)]
+    setup_order = [job["job_name"] for job in digital_twin.setup_aware_order(
+        conn, movable_jobs, [part for part in parts if part["job_name"] in set(movable)],
+    )]
+
     candidates = {
         "current": baseline,
         "fifo": ordered(lambda name: (records[name]["imported_at"] or "", name)),
@@ -258,6 +267,7 @@ def _candidate_orders(conn: sqlite3.Connection, active: dict,
         "material_batch": ordered(lambda name: (
             primary_material.get(name, "unknown"), records[name]["due_at"] or "", name
         )),
+        "setup_aware": placed(setup_order),
     }
     return candidates, baseline, frozen
 

@@ -1,7 +1,6 @@
 # Digital-twin planning assumptions. These are intentionally conservative and
 # are always reported as assumptions until replaced by observed factory data.
 transfer_time_s: 30
-material_changeover_s: 600
 max_transfer_time_s: 14400
 stochastic_trials: 20
 minimum_route_edge_support: 3

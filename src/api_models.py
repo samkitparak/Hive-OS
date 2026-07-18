@@ -490,6 +490,41 @@ class FactoryMissionAction(RequestModel):
     notes: Optional[str] = Field(default=None, max_length=2000)
 
 
+class ChangeoverStandardUpdate(RequestModel):
+    default_setup_s: float = Field(ge=0, le=14400)
+    verified: bool = False
+    expected_version: Optional[int] = Field(default=None, ge=1)
+    source: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    notes: Optional[str] = Field(default=None, max_length=2000)
+    actor: str = Field(default="planner", min_length=1, max_length=120)
+
+
+class ChangeoverObservationCreate(RequestModel):
+    machine_key: str = Field(min_length=1, max_length=120)
+    from_setup_key: str = Field(min_length=1, max_length=240)
+    to_setup_key: str = Field(min_length=1, max_length=240)
+    duration_s: float = Field(gt=0, le=14400)
+    observed_at: str = Field(min_length=1, max_length=80)
+    source: Literal[
+        "manual_time_study", "machine_log", "controller_event", "downtime_event"
+    ] = "manual_time_study"
+    evidence_type: Optional[str] = Field(default=None, max_length=80)
+    evidence_id: Optional[int] = Field(default=None, ge=1)
+    quality_confirmed: bool = False
+    notes: Optional[str] = Field(default=None, max_length=2000)
+    actor: str = Field(default="operator", min_length=1, max_length=120)
+
+
+class ChangeoverObservationExclude(RequestModel):
+    reason: str = Field(min_length=1, max_length=2000)
+    actor: str = Field(default="planner", min_length=1, max_length=120)
+
+
+class ChangeoverSyncRequest(RequestModel):
+    include_downtime: bool = True
+    actor: str = Field(default="hive-learning", min_length=1, max_length=120)
+
+
 class DigitalTwinRequest(RequestModel):
     job_names: Optional[list[str]] = None
     policies: Optional[list[str]] = None
@@ -499,7 +534,7 @@ class DigitalTwinRequest(RequestModel):
 
 class ForecastRefreshRequest(RequestModel):
     job_names: Optional[list[str]] = None
-    policy: Literal["current", "fifo", "edd", "spt", "material_batch"] = "current"
+    policy: Literal["current", "fifo", "edd", "spt", "material_batch", "setup_aware"] = "current"
     samples: int = Field(default=50, ge=20, le=200)
     seed: int = Field(default=1, ge=0, le=2_147_483_447)
     force: bool = False
@@ -534,7 +569,9 @@ class PlanningScenarioCreate(RequestModel):
     name: Optional[str] = None
     created_by: str = Field(default="operator", min_length=1)
     job_names: Optional[list[str]] = None
-    policies: Optional[list[Literal["current", "fifo", "edd", "spt", "material_batch"]]] = None
+    policies: Optional[list[Literal[
+        "current", "fifo", "edd", "spt", "material_batch", "setup_aware"
+    ]]] = None
     stochastic: bool = False
     seed: int = Field(default=1, ge=0, le=2_147_483_647)
 
@@ -542,7 +579,9 @@ class PlanningScenarioCreate(RequestModel):
 class PlanningDecision(RequestModel):
     decision: Literal["approve", "reject"]
     actor: str = Field(min_length=1)
-    selected_policy: Optional[Literal["current", "fifo", "edd", "spt", "material_batch"]] = None
+    selected_policy: Optional[Literal[
+        "current", "fifo", "edd", "spt", "material_batch", "setup_aware"
+    ]] = None
     notes: Optional[str] = None
 
 
@@ -555,7 +594,7 @@ class RecoveryDecision(RequestModel):
     decision: Literal["approve", "reject"]
     actor: str = Field(min_length=1)
     selected_policy: Optional[Literal[
-        "current", "fifo", "edd", "spt", "material_batch"
+        "current", "fifo", "edd", "spt", "material_batch", "setup_aware"
     ]] = None
     notes: Optional[str] = None
 

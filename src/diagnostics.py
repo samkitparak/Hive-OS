@@ -22,6 +22,7 @@ import remote_setup
 import commissioning_lab
 import commissioning_evidence
 import factory_readiness
+import changeovers
 
 PLACEHOLDER_HOSTS = {
     *(f"192.168.1.{number}" for number in range(51, 55)),
@@ -205,6 +206,8 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
     evidence_summary = evidence_state["summary"]
     factory_state = factory_readiness.snapshot(conn, cfg_path)
     factory_summary = factory_state["summary"]
+    changeover_state = changeovers.snapshot(conn)
+    changeover_summary = changeover_state["summary"]
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -274,6 +277,9 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "commissioning_missions_active": factory_summary["missions_active"],
             "commissioning_missions_completed": factory_summary["missions_completed"],
             "machines_offsite_ready": factory_summary["offsite_ready"],
+            "verified_changeover_standards": changeover_summary["verified_standards"],
+            "learned_changeover_models": changeover_summary["active_models"],
+            "changeover_observations": changeover_summary["accepted_observations"],
         },
         "services": [
             {"key": "database", "name": "Database", "status": "online",
@@ -302,6 +308,18 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
                  f"{factory_summary['missions_active']} active missions; "
                  f"{factory_summary['offsite_ready']}/{factory_summary['machines']} offsite-ready; "
                  f"{factory_summary['plug_and_play_ready']} fully ready"
+            )},
+            {"key": "changeover_intelligence", "name": "Sequence-dependent setup intelligence",
+             "status": "ready" if (
+                 changeover_state["readiness"]["applicable"]
+                 and changeover_state["readiness"]["ready"]
+             ) else (
+                 "learning" if changeover_summary["accepted_observations"] else "needs_site_value"
+             ),
+             "detail": (
+                 f"{changeover_summary['verified_standards']}/{changeover_summary['machines']} machine fallbacks verified; "
+                 f"{changeover_summary['active_models']} learned directional transitions; "
+                 f"{changeover_summary['accepted_observations']} accepted observations"
              )},
             {"key": "mqtt", "name": "MQTT broker bridge",
              "status": "online" if mqtt_connected else "offline",

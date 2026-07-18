@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 import inventory
 import tooling
+import changeovers
 
 
 DEFAULT_SHEET_LENGTH_MM = 2440.0
@@ -130,6 +131,7 @@ def sync_defaults(conn: sqlite3.Connection, commit: bool = True) -> dict:
             )
     material_count = sync_material_requirements(conn, commit=False)
     inventory_status = inventory.sync_requirements(conn, commit=False)
+    changeover_defaults = changeovers.sync_defaults(conn, commit=False)
     if commit:
         conn.commit()
     return {
@@ -138,6 +140,7 @@ def sync_defaults(conn: sqlite3.Connection, commit: bool = True) -> dict:
         "machine_profiles": len(MACHINE_DEFAULTS),
         "material_requirements": material_count,
         "component_requirements": inventory_status["requirements"],
+        "changeover_defaults": changeover_defaults,
     }
 
 
@@ -346,6 +349,7 @@ def snapshot(conn: sqlite3.Connection, job_names: list[str] | None = None,
     display_ids = [order["id"] for order in display_orders]
     materials = _material_rows(conn, display_ids, scope_ids)
     warehouse = inventory.snapshot(conn, job_names, sync=False)
+    changeover_status = changeovers.snapshot(conn, job_names)
 
     labor_roles = [dict(row) for row in conn.execute(
         "SELECT role_key, name, headcount, source, verified, updated_at FROM labor_roles ORDER BY name"
@@ -440,6 +444,7 @@ def snapshot(conn: sqlite3.Connection, job_names: list[str] | None = None,
                 WHERE de.status='open' AND m.machine_key IN ({marks})""", tuple(used_machine_keys)
         ).fetchone()["count"]
     availability_ok = bool(used_machine_keys) and open_downtime == 0
+    changeover_ready = changeover_status["readiness"]["ready"]
     applicable = bool(scope_ids)
     checks = [
         {"key": "materials", "label": "Material stock", "passed": materials_ok,
@@ -459,6 +464,11 @@ def snapshot(conn: sqlite3.Connection, job_names: list[str] | None = None,
          "detail": f"{sum(bool(buffer_by_machine.get(key, {}).get('verified')) for key in downstream_keys)} of {len(downstream_keys)} downstream buffers verified"},
         {"key": "availability", "label": "Machine availability", "passed": availability_ok,
          "detail": f"{open_downtime} route machines currently down"},
+        {"key": "changeovers", "label": "Setup standards", "passed": changeover_ready,
+         "detail": (
+             f"{sum(item['verified'] for item in changeover_status['machines'])} verified fallbacks; "
+             f"{changeover_status['summary']['active_models']} learned transitions"
+         )},
     ]
     resource_ready = applicable and all(check["passed"] for check in checks)
     return {
@@ -476,11 +486,13 @@ def snapshot(conn: sqlite3.Connection, job_names: list[str] | None = None,
         "wip_buffers": buffers,
         "unavailability": unavailability,
         "warehouse": warehouse,
+        "changeovers": changeover_status,
         "assumptions": {
             "default_sheet_mm": [DEFAULT_SHEET_LENGTH_MM, DEFAULT_SHEET_WIDTH_MM],
             "default_nesting_yield": DEFAULT_YIELD_FACTOR,
             "default_factory_calendar": "Monday-Saturday 09:00-18:00 Asia/Kolkata",
             "default_wip_capacity": 50,
+            "changeover_defaults": "Unverified machine-specific engineering priors",
         },
     }
 

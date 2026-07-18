@@ -120,6 +120,13 @@ def test_virtual_lab_requires_commission_or_optimize_permission():
     assert access_control.required_permissions("PUT", "/constraints/settings") == (
         "optimize", "supervise",
     )
+    assert access_control.required_permissions("GET", "/changeovers") == ("view",)
+    assert access_control.required_permissions(
+        "PUT", "/changeovers/machines/gabbiani_pt80/standard"
+    ) == ("plan", "optimize", "commission")
+    assert access_control.required_permissions(
+        "POST", "/changeovers/observations"
+    ) == ("plan", "optimize", "commission")
 
 
 def test_http_setup_session_csrf_roles_actor_binding_and_service_scope(conn, monkeypatch):

@@ -26,7 +26,12 @@ def conn():
 
 def test_diagnostics_reports_services_and_machines(conn):
     result = diagnostics.build(conn, CFG, mqtt_connected=False, cv_watcher_running=False)
-    assert len(result["services"]) == 20
+    assert len(result["services"]) == 21
+    changeover_service = next(item for item in result["services"]
+                              if item["key"] == "changeover_intelligence")
+    assert changeover_service["status"] == "needs_site_value"
+    assert result["summary"]["verified_changeover_standards"] == 0
+    assert result["summary"]["learned_changeover_models"] == 0
     constraint_service = next(item for item in result["services"]
                               if item["key"] == "constraint_intelligence")
     assert constraint_service["status"] == "learning"
