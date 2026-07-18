@@ -1949,6 +1949,64 @@ CREATE TABLE IF NOT EXISTS commissioning_evidence_events (
     ts                  TEXT NOT NULL
 );
 
+-- Machine passports hold site-observed identity and connection facts. Research
+-- candidates remain in code and are never copied here as confirmed evidence.
+CREATE TABLE IF NOT EXISTS machine_passports (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    machine_id          INTEGER NOT NULL UNIQUE REFERENCES machines(id),
+    status              TEXT NOT NULL DEFAULT 'assumption'
+                        CHECK(status IN ('assumption','inventory','confirmed')),
+    asset_tag           TEXT,
+    serial_number       TEXT,
+    manufacture_year    INTEGER CHECK(manufacture_year IS NULL OR manufacture_year BETWEEN 1900 AND 2200),
+    physical_location   TEXT,
+    controller_vendor   TEXT,
+    controller_model    TEXT,
+    controller_software TEXT,
+    controller_host     TEXT,
+    mac_address         TEXT,
+    network_zone        TEXT,
+    ssh_port            INTEGER CHECK(ssh_port IS NULL OR ssh_port BETWEEN 1 AND 65535),
+    log_folder          TEXT,
+    cnc_folder          TEXT,
+    telemetry_strategy  TEXT CHECK(telemetry_strategy IS NULL OR telemetry_strategy IN
+                        ('maestro_agent','modbus_tcp','opcua','mqtt_json','energy_meter','operator_evidence')),
+    notes               TEXT,
+    version             INTEGER NOT NULL DEFAULT 1,
+    confirmed_by        TEXT,
+    confirmed_at        TEXT,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS machine_passport_events (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    machine_id          INTEGER NOT NULL REFERENCES machines(id),
+    passport_version    INTEGER NOT NULL,
+    event_type          TEXT NOT NULL,
+    actor               TEXT NOT NULL,
+    change_sha256       TEXT NOT NULL,
+    details_json        TEXT NOT NULL,
+    ts                  TEXT NOT NULL
+);
+
+-- These checks prove only transport reachability. They do not approve an
+-- industrial contract, install an agent, or make a machine production-ready.
+CREATE TABLE IF NOT EXISTS factory_connection_probes (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    machine_id          INTEGER NOT NULL REFERENCES machines(id),
+    probe_type          TEXT NOT NULL CHECK(probe_type IN ('tcp','ssh','modbus_tcp','opcua')),
+    endpoint_host       TEXT NOT NULL,
+    endpoint_port       INTEGER NOT NULL CHECK(endpoint_port BETWEEN 1 AND 65535),
+    status              TEXT NOT NULL CHECK(status IN ('reachable','unreachable','protocol_mismatch')),
+    latency_ms          REAL,
+    protocol_evidence   TEXT,
+    detail              TEXT NOT NULL,
+    evidence_sha256     TEXT NOT NULL,
+    actor               TEXT NOT NULL,
+    created_at          TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS auth_events (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     event_type          TEXT NOT NULL,
@@ -2069,24 +2127,41 @@ CREATE INDEX IF NOT EXISTS idx_commissioning_studies_machine_status ON commissio
 CREATE INDEX IF NOT EXISTS idx_commissioning_observations_study_time ON commissioning_evidence_observations(study_id, measured_at, id);
 CREATE INDEX IF NOT EXISTS idx_commissioning_analyses_study_time ON commissioning_evidence_analyses(study_id, created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_commissioning_events_study_time ON commissioning_evidence_events(study_id, ts, id);
+CREATE INDEX IF NOT EXISTS idx_machine_passport_events_machine_time ON machine_passport_events(machine_id, ts DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_factory_connection_probes_machine_time ON factory_connection_probes(machine_id, created_at DESC, id DESC);
 
--- Seed the 14 in-scope HAEEV machines (aluminium pair excluded, compressors/dust collectors as utility)
+-- Seed the 15 in-scope HAEEV machines (aluminium pair excluded, compressors/dust collectors as utility).
+-- Interface flags are researched candidates only; passports replace them with site evidence.
 INSERT OR IGNORE INTO machines (name, machine_key, type, brand, model, has_maestro, has_opcua, active) VALUES
     ('Stefani KD',      'stefani_kd',       'Edge Bander Thrufeed',  'SCM', 'Stefani KD',    1, 0, 1),
-    ('Action E',        'action_e',         'Boxing',                'SCM', 'Action E',      1, 0, 1),
+    ('Action E',        'action_e',         'Boxing',                'SCM', 'Action E',      0, 0, 1),
     ('Gabbiani PT 80',  'gabbiani_pt80',    'Beam Saw',              'SCM', 'Gabbiani PT 80',1, 0, 1),
     ('Morbidelli CX100','morbidelli_cx100', 'CNC Driller',           'SCM', 'Morbidelli CX100',1,0,1),
     ('Morbidelli N100', 'morbidelli_n100',  'Flat Bed Router',       'SCM', 'Morbidelli N100',1,0,1),
-    ('Nova SI 400',     'nova_si400',       'Panel Saw',             'SCM', 'Nova SI 400',   1, 0, 1),
-    ('Sergiani GS 120', 'sergiani_gs120',   'Hot Press',             'Sergiani','GS 120',    0, 1, 1),
+    ('Nova SI 400',     'nova_si400',       'Panel Saw',             'SCM', 'Nova SI 400',   0, 0, 1),
+    ('Sergiani GS 120', 'sergiani_gs120',   'Hot Press',             'Sergiani','GS 120',    0, 0, 1),
     ('DMC60 RCS 135',   'dmc60_rcs135',     'Calibration Sander',   'SCM', 'DMC60 RCS 135', 1, 0, 1),
     ('DMC90 XRT 135',   'dmc90_xrt135',     'Finishing Sander',     'SCM', 'DMC90 XRT 135', 1, 0, 1),
     ('Superfici',       'superfici',        'Paint Line',            'Superfici',NULL,        1, 0, 1),
-    ('Varie Osama',     'varie_osama',      'Glueing Line',          'Osama',NULL,            1, 0, 1),
+    ('Varie Osama',     'varie_osama',      'Glueing Line',          'Osama',NULL,            0, 0, 1),
     ('Elgi 1',          'elgi_1',           'Compressor',            'Elgi', NULL,            0, 0, 1),
     ('Elgi 2',          'elgi_2',           'Compressor',            'Elgi', NULL,            0, 0, 1),
     ('Aarco 1',         'aarco_1',          'Dust Collector',        'Aarco',NULL,            0, 0, 1),
     ('Aarco 2',         'aarco_2',          'Dust Collector',        'Aarco',NULL,            0, 0, 1);
+
+-- Correct legacy assumption-only rows without overriding an on-site passport decision.
+UPDATE machines SET has_maestro=0
+WHERE machine_key IN ('action_e','nova_si400','varie_osama')
+  AND NOT EXISTS (
+      SELECT 1 FROM machine_passports mp
+      WHERE mp.machine_id=machines.id AND mp.status IN ('inventory','confirmed')
+  );
+UPDATE machines SET has_opcua=0
+WHERE machine_key='sergiani_gs120'
+  AND NOT EXISTS (
+      SELECT 1 FROM machine_passports mp
+      WHERE mp.machine_id=machines.id AND mp.status IN ('inventory','confirmed')
+  );
 
 INSERT OR IGNORE INTO downtime_reasons (code, label, category) VALUES
     ('setup',            'Setup / changeover',       'planned'),

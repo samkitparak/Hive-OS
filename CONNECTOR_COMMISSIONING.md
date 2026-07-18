@@ -72,6 +72,9 @@ width_mm, thickness_mm, qty, cnc_file_back, cnc_file_front, has_cnc
 
 ## SCM Maestro
 
+Only machines whose passports confirm `maestro_agent` appear in this workflow.
+Research candidates do not constitute log access. See `FACTORY_READINESS.md`.
+
 1. Capture a log while powering on, running at least five cycles, stopping, and
    producing an alarm where safe.
 2. Open **Commission > Machine logs**, choose the machine and captured file, and

@@ -109,7 +109,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\install-machine-agent.ps1
 ```
 
-An enrollment issued by an installed 0.24 offline release contains the machine
+An enrollment issued by an installed 0.25 offline release contains the machine
 identity, central broker address, trusted CA, agent code, installer, Python
 runtime, dependency wheels, and a hash manifest. The installer verifies every
 runtime file before changing `C:\HIVE-Agent`, auto-detects the Maestro log folder,
@@ -168,6 +168,11 @@ Open the dashboard and click **Setup** first to fill in site-specific values:
 - Maestro machine PC IPs
 - Maestro log folders and CNC folders
 - Energy meter Modbus IPs and thresholds
+
+Then open **Commission > Machine links**, download the readiness pack, and
+replace every researched candidate with a physical machine passport. Remote SSH
+setup is offered only after a Windows machine PC and readable data path are
+confirmed. See `FACTORY_READINESS.md`.
 
 Every save writes a timestamped backup under `config/backups/` and replaces the
 active YAML atomically.

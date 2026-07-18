@@ -99,6 +99,14 @@ def test_virtual_lab_requires_commission_or_optimize_permission():
     assert access_control.required_permissions("POST", "/commissioning-evidence/studies") == (
         "commission", "optimize",
     )
+    assert access_control.required_permissions("GET", "/factory-readiness") == ("view",)
+    assert access_control.required_permissions("GET", "/factory-readiness/pack") == ("view",)
+    assert access_control.required_permissions(
+        "PUT", "/factory-readiness/machines/action_e"
+    ) == ("commission",)
+    assert access_control.required_permissions(
+        "POST", "/factory-readiness/machines/action_e/probe"
+    ) == ("commission",)
 
 
 def test_http_setup_session_csrf_roles_actor_binding_and_service_scope(conn, monkeypatch):

@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.24.0",
+    [string]$Version = "0.25.0",
     [Parameter(Mandatory=$true)][string]$PythonInstaller,
     [Parameter(Mandatory=$true)][string]$MosquittoInstaller,
     [Parameter(Mandatory=$true)][string]$OdbcInstaller,

@@ -105,6 +105,8 @@ def test_ottimo_mapping_normalizes_values_without_retaining_raw_sample(conn):
 
 
 def test_maestro_evidence_requires_explicit_approval(conn):
+    with pytest.raises(KeyError, match="Unknown Maestro machine"):
+        connectors.analyze_maestro(conn, "action_e", "MACHINE_ON\n", actor="test")
     log_text = "".join(_simulated_log_lines("morbidelli_cx100", cycles=5))
     analysis = connectors.analyze_maestro(
         conn, "morbidelli_cx100", log_text, file_name="machine.log", actor="test"
@@ -118,7 +120,7 @@ def test_maestro_evidence_requires_explicit_approval(conn):
     assert approved["verified"] is False
     assert approved["enabled"] is False
     assert approved["approved_scopes"] == ["morbidelli_cx100"]
-    assert len(approved["required_scopes"]) == 10
+    assert len(approved["required_scopes"]) == 7
     stored = conn.execute(
         "SELECT summary_json FROM connector_commissioning_runs WHERE id=?",
         (analysis["run_id"],),

@@ -439,6 +439,45 @@ class CommissioningObservationExclude(RequestModel):
     actor: str = Field(default="commissioning", min_length=1, max_length=120)
 
 
+class MachinePassportUpdate(RequestModel):
+    expected_version: int = Field(ge=1)
+    status: Optional[Literal["assumption", "inventory", "confirmed"]] = None
+    asset_tag: Optional[str] = Field(default=None, max_length=200)
+    serial_number: Optional[str] = Field(default=None, max_length=200)
+    manufacture_year: Optional[int] = Field(default=None, ge=1900, le=2200)
+    physical_location: Optional[str] = Field(default=None, max_length=200)
+    controller_vendor: Optional[str] = Field(default=None, max_length=200)
+    controller_model: Optional[str] = Field(default=None, max_length=200)
+    controller_software: Optional[str] = Field(default=None, max_length=200)
+    controller_host: Optional[str] = Field(default=None, max_length=253)
+    mac_address: Optional[str] = Field(default=None, max_length=32)
+    network_zone: Optional[str] = Field(default=None, max_length=200)
+    ssh_port: Optional[int] = Field(default=None, ge=1, le=65535)
+    log_folder: Optional[str] = Field(default=None, max_length=500)
+    cnc_folder: Optional[str] = Field(default=None, max_length=500)
+    telemetry_strategy: Optional[Literal[
+        "maestro_agent", "modbus_tcp", "opcua", "mqtt_json", "energy_meter",
+        "operator_evidence",
+    ]] = None
+    notes: Optional[str] = Field(default=None, max_length=2000)
+    actor: str = Field(default="commissioning", min_length=1, max_length=120)
+
+
+class FactoryInventoryImport(RequestModel):
+    csv_text: str = Field(min_length=1, max_length=10_000_000)
+    apply: bool = False
+    actor: str = Field(default="commissioning", min_length=1, max_length=120)
+
+
+class FactoryConnectionProbe(RequestModel):
+    probe_type: Literal["tcp", "ssh", "modbus_tcp", "opcua"]
+    host: Optional[str] = Field(default=None, max_length=253)
+    port: Optional[int] = Field(default=None, ge=1, le=65535)
+    execute: bool = False
+    timeout_s: float = Field(default=2, ge=0.25, le=10)
+    actor: str = Field(default="commissioning", min_length=1, max_length=120)
+
+
 class DigitalTwinRequest(RequestModel):
     job_names: Optional[list[str]] = None
     policies: Optional[list[str]] = None

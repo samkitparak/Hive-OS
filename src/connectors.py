@@ -78,6 +78,12 @@ ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]{2,127}$")
 SQL_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_$ .-]{0,127}$")
 
 
+def _maestro_scope_keys(conn: sqlite3.Connection) -> list[str]:
+    return [row["machine_key"] for row in conn.execute(
+        "SELECT machine_key FROM machines WHERE active=1 AND has_maestro=1 ORDER BY id"
+    )]
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -131,9 +137,7 @@ def _profile_dict(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
             mapping["source_columns"] = _loads(mapping.pop("source_columns_json"), [])
     result["active_mapping"] = mapping
     if result["connector_key"] == "maestro_logs":
-        required = [item["machine_key"] for item in conn.execute(
-            "SELECT machine_key FROM machines WHERE active=1 AND has_maestro=1 ORDER BY id"
-        )]
+        required = _maestro_scope_keys(conn)
         approved = []
         for mapping_row in conn.execute(
             """SELECT mapping_json FROM connector_mapping_versions
@@ -412,10 +416,7 @@ def analyze_records(conn: sqlite3.Connection, connector_key: str, records: list[
 def analyze_maestro(conn: sqlite3.Connection, machine_key: str, log_text: str,
                     *, file_name: str | None = None, actor: str = "operator") -> dict:
     sync_defaults(conn)
-    machine = conn.execute(
-        "SELECT id FROM machines WHERE machine_key=? AND has_maestro=1", (machine_key,)
-    ).fetchone()
-    if not machine:
+    if machine_key not in _maestro_scope_keys(conn):
         raise KeyError(f"Unknown Maestro machine '{machine_key}'")
     result = commissioning.analyze_log(machine_key, log_text)
     source_sha = _hash(log_text)
@@ -480,9 +481,7 @@ def approve_run(conn: sqlite3.Connection, connector_key: str, run_id: int, *,
     status = "ready"
     requested_enable = enable
     if connector_key == "maestro_logs":
-        required_scopes = conn.execute(
-            "SELECT COUNT(*) FROM machines WHERE active=1 AND has_maestro=1"
-        ).fetchone()[0]
+        required_scopes = len(_maestro_scope_keys(conn))
         approved_scopes = set()
         for item in conn.execute(
             """SELECT mapping_json FROM connector_mapping_versions

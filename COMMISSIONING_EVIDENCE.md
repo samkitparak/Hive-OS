@@ -2,7 +2,7 @@
 
 ## Purpose
 
-HIVE OS 0.24 turns the virtual factory's measurement priorities into a guided,
+HIVE OS 0.25 turns the virtual factory's measurement priorities into a guided,
 offline-capable process-characterization program. It supports stopwatch, video,
 machine-log, controller-counter, and operator-scan evidence while keeping that
 evidence outside production learning.

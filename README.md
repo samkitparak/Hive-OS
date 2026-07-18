@@ -24,6 +24,7 @@ operations are limited to the HIVE database and site configuration.
 - **Connector commissioning** — browse for real Cabinet Vision, Ottimo, or Maestro evidence; map and validate it; explicitly approve a version; then enable repeat-safe imports.
 - **Virtual factory commissioning** — runs assumption-isolated Monte Carlo flow models, ranks uncertain constraints and on-site measurements, and screens improvements without creating production truth.
 - **Guided factory evidence capture** — exports an offline machine-by-machine field pack, records repeat-safe timed studies, quantifies measurement credibility, and drafts non-production prior updates for named review.
+- **Factory machine readiness** — versioned machine passports, official-source assumptions, atomic inventory import, safe transport previews/probes, and six-stage plug-and-play commissioning status.
 - **Data trust layer** — normalizes India-local timestamps, suppresses duplicate MQTT delivery, isolates heartbeats, audits rejected events, and scores each machine's evidence quality.
 - **Automatic cycle learning** — pairs validated part cycles, robustly fits versioned nonnegative models, and protects active models from weak candidates.
 - **Production digital twin** — compares dispatch policies with finite machine, labor, tooling, calendar, maintenance, material, and WIP capacity.
@@ -52,8 +53,9 @@ Cabinet Vision (office PC)
   └── exports CSV cut lists → src/ingest.py → SQLite DB
 
 Machine floor
-  ├── Maestro log files → src/maestro_agent.py → MQTT
-  └── Meters / PLCs / sensors → src/industrial_gateway.py → normalized telemetry
+  ├── Confirmed Maestro log files → src/maestro_agent.py → MQTT
+  ├── Meters / PLCs / sensors → src/industrial_gateway.py → normalized telemetry
+  └── Manual machines → operator scans + field studies
 
 MQTT broker
   └── src/mqtt_bridge.py → SQLite DB + per-client event broadcast
@@ -106,6 +108,8 @@ hive-os/
 │   ├── commissioning.py      # offline Maestro evidence analysis + replay
 │   ├── commissioning_lab.py  # assumption-only flow, sensitivity, and intervention lab
 │   ├── commissioning_evidence.py # guided field studies and prior-review proposals
+│   ├── factory_readiness.py # machine passports, field pack, readiness, safe probes
+│   ├── offline_release.py   # independent offline release integrity rehearsal
 │   ├── optimization.py       # explainable, confidence-gated priorities
 │   ├── improvement.py        # recommendation lifecycle, experiments, outcome learning
 │   ├── root_cause.py         # incident evidence, hypotheses, confirmation learning
@@ -153,6 +157,7 @@ hive-os/
 ├── RESILIENCE.md              # offline install, backup, restore, upgrade, and rollback
 ├── VIRTUAL_FACTORY_COMMISSIONING.md # offsite model, limits, and measurement workflow
 ├── COMMISSIONING_EVIDENCE.md   # field pack, sampling, analysis, and review contract
+├── FACTORY_READINESS.md      # machine passports, connection gates, and release rehearsal
 ├── ACCESS_CONTROL.md          # local identity, role, session, and transport security
 └── INDIA_CHECKLIST.md        # on-site configuration checklist
 ```
@@ -207,7 +212,7 @@ All TODOs are in two files:
 **`config/machines.yaml`**
 - MQTT broker address (the Windows installer provisions mutual TLS on `8883`)
 - Modbus IPs for energy meters (Elgi compressors, Aarco dust collectors)
-- Maestro log file paths per machine
+- Confirmed Maestro-PC hosts and log paths only
 - Cabinet Vision watch folder path
 
 **`config/cycle_times.yaml`**
@@ -238,7 +243,7 @@ PYTHONPATH=src uvicorn src.main:app --port 8000
 The legacy `energy_agent.py` remains available for compatibility. New meter
 installations use versioned gateway profiles and do not assume a register map.
 
-**Maestro agent** (all SCM machines):
+**Maestro agent** (only machine PCs confirmed in Machine Links):
 ```bash
 # Simulate
 python src/maestro_agent.py --machine morbidelli_cx100 --simulate
@@ -358,6 +363,11 @@ unprefixed routes remain available for compatibility and local tooling.
 | POST | `/commissioning-evidence/studies/{id}/import` | Preview or atomically apply a CSV evidence batch |
 | POST | `/commissioning-evidence/studies/{id}/analyze` | Persist an immutable analysis snapshot |
 | POST | `/commissioning-evidence/studies/{id}/action` | Start, submit, approve/reject a prior proposal, or archive |
+| GET | `/factory-readiness` | Machine passports, research candidates, evidence, and six-stage readiness |
+| GET | `/factory-readiness/pack` | Download the hashed factory inventory and machine checklist ZIP |
+| PUT | `/factory-readiness/machines/{key}` | Version and confirm one installed-machine passport |
+| POST | `/factory-readiness/import` | Preview or atomically apply the strict passport inventory CSV |
+| POST | `/factory-readiness/machines/{key}/probe` | Preview or run a private-LAN read-only TCP transport check |
 | GET | `/connectors/snapshot` | Connector profiles, mappings, evidence, and status |
 | PUT | `/connectors/{key}` | Configure or enable a connector without storing secrets |
 | POST | `/connectors/{key}/analyze` | Analyze a sample and suggest/validate its mapping |

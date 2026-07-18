@@ -310,6 +310,30 @@ export const downloadCommissioningEvidencePack = async () => {
   return { filename, sha256: response.headers.get("x-hive-pack-sha256") };
 };
 
+export const fetchFactoryReadiness = () => request("/factory-readiness");
+export const updateMachinePassport = (machineKey, payload) => request(
+  `/factory-readiness/machines/${encodeURIComponent(machineKey)}`,
+  { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+);
+export const importFactoryInventory = payload => postJson("/factory-readiness/import", payload);
+export const probeFactoryConnection = (machineKey, payload) =>
+  postJson(`/factory-readiness/machines/${encodeURIComponent(machineKey)}/probe`, payload);
+export const downloadFactoryReadinessPack = async () => {
+  const response = await fetch(`${BASE}/factory-readiness/pack`, { credentials: "same-origin" });
+  if (!response.ok) {
+    if (response.status === 401) window.dispatchEvent(new CustomEvent("hive-auth-expired"));
+    throw new Error(`Factory readiness pack download failed: ${response.status}`);
+  }
+  const disposition = response.headers.get("content-disposition") || "";
+  const filename = disposition.match(/filename="?([^";]+)"?/)?.[1] || "hive-factory-readiness.zip";
+  const url = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement("a");
+  anchor.href = url; anchor.download = filename;
+  document.body.appendChild(anchor); anchor.click(); anchor.remove();
+  URL.revokeObjectURL(url);
+  return { filename, sha256: response.headers.get("x-hive-pack-sha256") };
+};
+
 export const fetchConnectorSnapshot = () => request("/connectors/snapshot");
 export const analyzeConnector = (key, payload) =>
   postJson(`/connectors/${encodeURIComponent(key)}/analyze`, payload);

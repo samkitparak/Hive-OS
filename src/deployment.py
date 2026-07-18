@@ -28,7 +28,7 @@ INSTALL_ASSETS = [
         "label": "Verified offline release builder",
         "path": "deploy/windows/build-offline-bundle.ps1",
         "target": "Internet-connected Windows build PC before travel",
-        "command": ".\\deploy\\windows\\build-offline-bundle.ps1 -Version 0.24.0 <installer paths>",
+        "command": ".\\deploy\\windows\\build-offline-bundle.ps1 -Version 0.25.0 <installer paths>",
     },
     {
         "key": "offline_installer",
@@ -36,6 +36,13 @@ INSTALL_ASSETS = [
         "path": "deploy/windows/install-central-offline.ps1",
         "target": "CV or central HIVE PC",
         "command": ".\\Install-HIVE-OS.cmd",
+    },
+    {
+        "key": "offline_verifier",
+        "label": "Cross-platform offline release verifier",
+        "path": "src/offline_release.py",
+        "target": "Build PC or travel laptop before copying the release to USB",
+        "command": "PYTHONPATH=src python src/offline_release.py <release.zip> --version 0.25.0",
     },
     {
         "key": "backup",
@@ -149,7 +156,7 @@ def build(cfg_path: Path) -> dict:
         for asset in assets
         if asset["key"] in {
             "central_installer", "offline_builder", "offline_installer", "backup",
-            "restore", "upgrade", "mqtt_restart", "install_tester", "uninstaller",
+            "offline_verifier", "restore", "upgrade", "mqtt_restart", "install_tester", "uninstaller",
         }
     )
     agent_ready = all(
@@ -173,9 +180,9 @@ def build(cfg_path: Path) -> dict:
             "label": "Offline recovery package present",
             "status": "ready" if all(
                 asset["exists"] for asset in assets
-                if asset["key"] in {"offline_builder", "offline_installer", "backup", "restore", "upgrade"}
+                if asset["key"] in {"offline_builder", "offline_installer", "offline_verifier", "backup", "restore", "upgrade"}
             ) else "missing",
-            "detail": "Verified offline install, backup, restore, upgrade, and rollback scripts exist",
+            "detail": "Offline build, static verification, install, backup, restore, upgrade, and rollback scripts exist",
         },
         {
             "key": "agent_package",

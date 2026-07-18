@@ -55,6 +55,7 @@ import routing as routing_module
 import commissioning as commissioning_module
 import commissioning_lab as commissioning_lab_module
 import commissioning_evidence as commissioning_evidence_module
+import factory_readiness as factory_readiness_module
 import event_pipeline
 import optimization as optimization_module
 import improvement as improvement_module
@@ -91,6 +92,9 @@ from api_models import (
     CommissioningObservationExclude,
     CommissioningStudyAction,
     CommissioningStudyCreate,
+    FactoryConnectionProbe,
+    FactoryInventoryImport,
+    MachinePassportUpdate,
     ConnectorAnalyzeRequest,
     ConnectorApprovalRequest,
     ConnectorImportRequest,
@@ -185,7 +189,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.24.0"
+APP_VERSION = "0.25.0"
 
 
 class ApiPrefixMiddleware:
@@ -1868,6 +1872,64 @@ def post_commissioning_evidence_exclusion(
     try:
         return commissioning_evidence_module.exclude_observation(
             _get_conn(), study_id, observation_id, payload.reason, payload.actor,
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/factory-readiness")
+def get_factory_readiness():
+    return factory_readiness_module.snapshot(_get_conn(), CONFIG_PATH)
+
+
+@app.get("/factory-readiness/pack")
+def get_factory_readiness_pack():
+    bundle, metadata = factory_readiness_module.field_pack(_get_conn(), CONFIG_PATH)
+    return Response(
+        content=bundle, media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{metadata["filename"]}"',
+            "Cache-Control": "no-store",
+            "X-HIVE-Pack-SHA256": metadata["sha256"],
+        },
+    )
+
+
+@app.put("/factory-readiness/machines/{machine_key}")
+def put_machine_passport(machine_key: str, payload: MachinePassportUpdate):
+    values = payload.model_dump(exclude_unset=True)
+    actor = values.pop("actor", payload.actor)
+    expected_version = values.pop("expected_version")
+    try:
+        return factory_readiness_module.update_passport(
+            _get_conn(), machine_key, values, actor=actor,
+            expected_version=expected_version,
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/factory-readiness/import")
+def post_factory_inventory_import(payload: FactoryInventoryImport):
+    try:
+        return factory_readiness_module.import_inventory(
+            _get_conn(), payload.csv_text, apply=payload.apply, actor=payload.actor,
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/factory-readiness/machines/{machine_key}/probe")
+def post_factory_connection_probe(machine_key: str, payload: FactoryConnectionProbe):
+    try:
+        return factory_readiness_module.connection_probe(
+            _get_conn(), CONFIG_PATH, machine_key,
+            probe_type=payload.probe_type, host=payload.host, port=payload.port,
+            execute=payload.execute, timeout_s=payload.timeout_s, actor=payload.actor,
         )
     except KeyError as error:
         raise HTTPException(404, str(error)) from error

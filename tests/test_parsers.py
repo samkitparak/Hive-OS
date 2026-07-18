@@ -150,4 +150,9 @@ def test_machines_seeded(mem_db):
     sergiani = mem_db.execute(
         "SELECT * FROM machines WHERE machine_key='sergiani_gs120'"
     ).fetchone()
-    assert sergiani["has_opcua"] == 1
+    assert beam_saw["has_maestro"] == 1
+    assert sergiani["has_opcua"] == 0
+    unproven_maestro = mem_db.execute(
+        "SELECT machine_key,has_maestro FROM machines WHERE machine_key IN ('action_e','nova_si400','varie_osama')"
+    ).fetchall()
+    assert all(row["has_maestro"] == 0 for row in unproven_maestro)

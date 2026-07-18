@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, UserRound } from "lucide-react";
-import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchForecast, refreshForecast, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchRecovery, analyzeRecovery, decideRecovery, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, fetchProcurementSnapshot, updateProcurementSupplier, updateProcurementMapping, createPurchaseOrder, draftProcurementRecommendations, actOnPurchaseOrder, createGoodsReceipt, importProcurementCsv, updateMaterialStock, updateInventoryItem, updateInventoryLot, updateInventoryRequirement, createInventoryRemnant, updateInventoryRemnant, updateLaborRole, updateToolPool, createToolAsset, updateToolAsset, recordToolUsage, recordToolAction, recordToolService, updateToolProgramMapping, syncTooling, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchResilience, createSystemBackup, verifySystemBackup, fetchConfig, saveConfig, fetchRemoteSetupPlan, forgetRemoteHost, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, fetchConnectorSnapshot, analyzeConnector, approveConnector, importConnectorRecords, updateConnectorProfile, discoverCabinetVisionSql, syncCabinetVisionSql, fetchIndustrialSnapshot, updateIndustrialProfile, simulateIndustrialProfile, probeIndustrialProfile, probeIndustrialMqtt, approveIndustrialProfile, pollIndustrialProfile, browseIndustrialOpcua, fetchImprovements, syncImprovements, actOnImprovement, fetchRootCauses, syncRootCauses, decideRootCause, fetchAlerts, syncAlerts, actOnAlert, updateAlertDestination, testAlertDestination, dispatchAlerts, updateAlertSettings, postJson, simulateEvent } from "./api";
+import { fetchMachines, fetchOee, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, fetchDataQuality, fetchOptimization, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchForecast, refreshForecast, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchRecovery, analyzeRecovery, decideRecovery, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, fetchProcurementSnapshot, updateProcurementSupplier, updateProcurementMapping, createPurchaseOrder, draftProcurementRecommendations, actOnPurchaseOrder, createGoodsReceipt, importProcurementCsv, updateMaterialStock, updateInventoryItem, updateInventoryLot, updateInventoryRequirement, createInventoryRemnant, updateInventoryRemnant, updateLaborRole, updateToolPool, createToolAsset, updateToolAsset, recordToolUsage, recordToolAction, recordToolService, updateToolProgramMapping, syncTooling, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchResilience, createSystemBackup, verifySystemBackup, fetchConfig, saveConfig, fetchRemoteSetupPlan, forgetRemoteHost, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, fetchConnectorSnapshot, analyzeConnector, approveConnector, importConnectorRecords, updateConnectorProfile, discoverCabinetVisionSql, syncCabinetVisionSql, fetchIndustrialSnapshot, updateIndustrialProfile, simulateIndustrialProfile, probeIndustrialProfile, probeIndustrialMqtt, approveIndustrialProfile, pollIndustrialProfile, browseIndustrialOpcua, fetchFactoryReadiness, updateMachinePassport, importFactoryInventory, probeFactoryConnection, downloadFactoryReadinessPack, fetchImprovements, syncImprovements, actOnImprovement, fetchRootCauses, syncRootCauses, decideRootCause, fetchAlerts, syncAlerts, actOnAlert, updateAlertDestination, testAlertDestination, dispatchAlerts, updateAlertSettings, postJson, simulateEvent } from "./api";
 import { MachineCard } from "./MachineCard";
 import { MachineDetail } from "./MachineDetail";
 import { JobProgress } from "./JobProgress";
@@ -173,6 +173,9 @@ export default function App({ auth }) {
   });
   const { data: industrialSnapshot = null } = useQuery({
     queryKey: ["industrialSnapshot"], queryFn: fetchIndustrialSnapshot, refetchInterval: 10000,
+  });
+  const { data: factoryReadiness = null } = useQuery({
+    queryKey: ["factoryReadiness"], queryFn: fetchFactoryReadiness, refetchInterval: 30000,
   });
 
   const onEvent = useCallback((ev) => {
@@ -421,6 +424,19 @@ export default function App({ auth }) {
     qc.invalidateQueries({ queryKey: ["industrialSnapshot"] });
     if (["poll", "approve"].includes(kind)) {
       qc.invalidateQueries({ queryKey: ["machines"] });
+      qc.invalidateQueries({ queryKey: ["diagnostics"] });
+    }
+    return result;
+  };
+
+  const runFactoryAction = async (kind, machineKey, payload = {}) => {
+    let result;
+    if (kind === "passport") result = await updateMachinePassport(machineKey, payload);
+    else if (kind === "inventory") result = await importFactoryInventory(payload);
+    else if (kind === "probe") result = await probeFactoryConnection(machineKey, payload);
+    else if (kind === "pack") return downloadFactoryReadinessPack();
+    await qc.invalidateQueries({ queryKey: ["factoryReadiness"] });
+    if (["passport", "inventory", "probe"].includes(kind)) {
       qc.invalidateQueries({ queryKey: ["diagnostics"] });
     }
     return result;
@@ -792,9 +808,11 @@ export default function App({ auth }) {
       {showCommissioning && (
         <CommissioningPanel machines={enriched} connectors={connectorSnapshot}
                             industrial={industrialSnapshot}
+                            factoryReadiness={factoryReadiness}
                             onAnalyze={runCommissioningAnalysis}
                             onConnectorAction={runConnectorAction}
                             onIndustrialAction={runIndustrialAction}
+                            onFactoryAction={runFactoryAction}
                             onClose={() => setShowCommissioning(false)} />
       )}
       {showPlanning && (

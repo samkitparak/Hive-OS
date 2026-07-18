@@ -20,6 +20,7 @@ import tooling
 import remote_setup
 import commissioning_lab
 import commissioning_evidence
+import factory_readiness
 
 PLACEHOLDER_HOSTS = {
     *(f"192.168.1.{number}" for number in range(51, 55)),
@@ -198,6 +199,8 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
     latest_lab = lab_state["latest"]
     evidence_state = commissioning_evidence.snapshot(conn)
     evidence_summary = evidence_state["summary"]
+    factory_state = factory_readiness.snapshot(conn, cfg_path)
+    factory_summary = factory_state["summary"]
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -257,6 +260,10 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "commissioning_studies": evidence_summary["studies"],
             "commissioning_observations": evidence_summary["observations"],
             "commissioning_proposals_approved": evidence_summary["approved_proposals"],
+            "machine_passports_confirmed": factory_summary["passports_confirmed"],
+            "machine_transports_ready": factory_summary["transports_ready"],
+            "machine_contracts_ready": factory_summary["contracts_ready"],
+            "machines_plug_and_play_ready": factory_summary["plug_and_play_ready"],
         },
         "services": [
             {"key": "database", "name": "Database", "status": "online",
@@ -275,6 +282,14 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
                  f"{evidence_summary['observations']} accepted observations; "
                  f"{evidence_summary['review_ready']} awaiting review; "
                  f"{evidence_summary['approved_proposals']} prior proposals approved"
+             )},
+            {"key": "factory_readiness", "name": "Factory connection readiness",
+             "status": "ready" if factory_summary["plug_and_play_ready"] == factory_summary["machines"] else "needs_site_value",
+             "detail": (
+                 f"{factory_summary['passports_confirmed']}/{factory_summary['machines']} passports confirmed; "
+                 f"{factory_summary['transports_ready']} transport paths; "
+                 f"{factory_summary['contracts_ready']} data contracts; "
+                 f"{factory_summary['plug_and_play_ready']} fully ready"
              )},
             {"key": "mqtt", "name": "MQTT broker bridge",
              "status": "online" if mqtt_connected else "offline",

@@ -1,8 +1,10 @@
 # Remote Machine Commissioning
 
-HIVE can commission Maestro machine agents centrally over Windows OpenSSH after
-one local bootstrap on each machine PC. The bootstrap is the only unavoidable
-per-machine step when no remote-management channel already exists.
+HIVE can commission a Maestro machine agent centrally over Windows OpenSSH after
+one local bootstrap on a passport-confirmed Windows machine PC. Do not bootstrap
+SSH from a model-name assumption. Action E, Nova SI400, Varie Osama, utilities,
+and Sergiani default to non-SSH evidence until their installed controllers prove
+otherwise. Start in **Commission > Machine links** and confirm the passport first.
 
 ## Security boundary
 

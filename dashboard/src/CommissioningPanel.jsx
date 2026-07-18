@@ -1,9 +1,10 @@
 import { useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
-import { Check, ClipboardCheck, Cpu, Database, FileUp, FlaskConical, Play, RefreshCw, Search, X } from "lucide-react";
+import { Check, ClipboardCheck, Cpu, Database, FileUp, FlaskConical, Network, Play, RefreshCw, Search, X } from "lucide-react";
 import { IndustrialIoPanel } from "./IndustrialIoPanel";
 import { VirtualLabPanel } from "./VirtualLabPanel";
 import { EvidenceCapturePanel } from "./EvidenceCapturePanel";
+import { MachineLinksPanel } from "./MachineLinksPanel";
 
 const button = {
   border: "1px solid #374151", borderRadius: 6, padding: "8px 12px",
@@ -345,8 +346,8 @@ function DataConnectors({ profiles, onConnectorAction }) {
   </div>;
 }
 
-export function CommissioningPanel({ machines, connectors, industrial, onAnalyze, onConnectorAction, onIndustrialAction, onClose }) {
-  const [tab, setTab] = useState("lab");
+export function CommissioningPanel({ machines, connectors, industrial, factoryReadiness, onAnalyze, onConnectorAction, onIndustrialAction, onFactoryAction, onClose }) {
+  const [tab, setTab] = useState("links");
   const panelRef = useRef(null);
   const selectTab = next => {
     setTab(next);
@@ -354,6 +355,10 @@ export function CommissioningPanel({ machines, connectors, industrial, onAnalyze
   };
   const profiles = connectors?.profiles ?? [];
   const maestroProfile = profiles.find(profile => profile.connector_key === "maestro_logs");
+  const maestroKeys = new Set((factoryReadiness?.machines ?? [])
+    .filter(machine => machine.effective_strategy === "maestro_agent")
+    .map(machine => machine.machine_key));
+  const maestroMachines = machines.filter(machine => maestroKeys.has(machine.machine_key));
 
   return <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.72)", display: "grid", placeItems: "center", zIndex: 30, padding: 16 }}>
     <div ref={panelRef} style={{ width: "min(980px, 100%)", maxHeight: "92vh", overflowY: "auto", background: "#111827", border: "1px solid #374151", borderRadius: 8, padding: 20 }}>
@@ -363,19 +368,20 @@ export function CommissioningPanel({ machines, connectors, industrial, onAnalyze
         <button onClick={onClose} aria-label="Close" title="Close" style={{ ...button, width: 34, height: 34, padding: 0 }}><X size={16} /></button>
       </div>
       <div style={{ display: "inline-flex", flexWrap: "wrap", background: "#0d1117", border: "1px solid #374151", borderRadius: 6, padding: 2, marginBottom: 18 }}>
+        <button onClick={() => selectTab("links")} style={{ ...button, minHeight: 30, border: 0, background: tab === "links" ? "#374151" : "transparent" }}><Network size={13} /> Machine links</button>
         <button onClick={() => selectTab("lab")} style={{ ...button, minHeight: 30, border: 0, background: tab === "lab" ? "#374151" : "transparent" }}><FlaskConical size={13} /> Virtual lab</button>
         <button onClick={() => selectTab("evidence")} style={{ ...button, minHeight: 30, border: 0, background: tab === "evidence" ? "#374151" : "transparent" }}><ClipboardCheck size={13} /> Field evidence</button>
         <button onClick={() => selectTab("data")} style={{ ...button, minHeight: 30, border: 0, background: tab === "data" ? "#374151" : "transparent" }}><Database size={13} /> Data connectors</button>
         <button onClick={() => selectTab("industrial")} style={{ ...button, minHeight: 30, border: 0, background: tab === "industrial" ? "#374151" : "transparent" }}><Cpu size={13} /> Industrial I/O</button>
         <button onClick={() => selectTab("machines")} style={{ ...button, minHeight: 30, border: 0, background: tab === "machines" ? "#374151" : "transparent" }}><FileUp size={13} /> Machine logs</button>
       </div>
-      {tab === "lab" ? <VirtualLabPanel /> : tab === "evidence" ? <EvidenceCapturePanel /> : tab === "industrial" ? (industrial?.profiles?.length
+      {tab === "links" ? <MachineLinksPanel data={factoryReadiness} onAction={onFactoryAction} /> : tab === "lab" ? <VirtualLabPanel /> : tab === "evidence" ? <EvidenceCapturePanel /> : tab === "industrial" ? (industrial?.profiles?.length
           ? <IndustrialIoPanel data={industrial} onAction={onIndustrialAction} />
           : <div style={{ color: "#6b7280", fontSize: 11 }}>Loading industrial registry…</div>)
         : !profiles.length ? <div style={{ color: "#6b7280", fontSize: 11 }}>Loading connector registry…</div>
         : tab === "data"
           ? <DataConnectors profiles={profiles} onConnectorAction={onConnectorAction} />
-          : <MachineLogs machines={machines} profile={maestroProfile} onAnalyze={onAnalyze} onConnectorAction={onConnectorAction} />}
+          : <MachineLogs machines={maestroMachines} profile={maestroProfile} onAnalyze={onAnalyze} onConnectorAction={onConnectorAction} />}
     </div>
   </div>;
 }

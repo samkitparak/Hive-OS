@@ -64,7 +64,7 @@ def test_get_machines_returns_list(client):
 def test_api_prefix_routes_to_backend(client):
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "service": "hive-os", "version": "0.24.0"}
+    assert response.json() == {"status": "ok", "service": "hive-os", "version": "0.25.0"}
     assert client.get("/api/machines").status_code == 200
 
 
@@ -130,6 +130,53 @@ def test_guided_commissioning_evidence_endpoints_and_pack(client):
     assert analysis.status_code == 200
     assert analysis.json()["production_eligible"] is False
     assert client.get("/api/commissioning-evidence/studies/999999").status_code == 404
+
+
+def test_factory_readiness_endpoints_pack_passport_import_and_probe_preview(client):
+    snapshot = client.get("/api/factory-readiness")
+    assert snapshot.status_code == 200
+    state = snapshot.json()
+    assert state["summary"]["machines"] == 15
+    action = next(item for item in state["machines"] if item["machine_key"] == "action_e")
+    assert action["research"]["preferred_strategy"] == "operator_evidence"
+    assert action["research"]["assumption_only"] is True
+
+    pack = client.get("/api/factory-readiness/pack")
+    assert pack.status_code == 200
+    assert pack.headers["content-type"] == "application/zip"
+    assert len(pack.headers["x-hive-pack-sha256"]) == 64
+
+    updated = client.put("/api/factory-readiness/machines/action_e", json={
+        "expected_version": action["passport"]["version"],
+        "status": "inventory", "asset_tag": "API-ACTION-E",
+        "physical_location": "Assembly bay", "telemetry_strategy": "operator_evidence",
+        "actor": "api-test",
+    })
+    assert updated.status_code == 200
+    assert updated.json()["version"] == action["passport"]["version"] + 1
+    stale = client.put("/api/factory-readiness/machines/action_e", json={
+        "expected_version": action["passport"]["version"], "notes": "stale",
+    })
+    assert stale.status_code == 400
+
+    inventory = client.post("/api/factory-readiness/import", json={
+        "csv_text": (
+            "machine_key,expected_version,status,notes\n"
+            f"action_e,{updated.json()['version']},inventory,CSV preview only\n"
+        ),
+        "apply": False, "actor": "api-test",
+    })
+    assert inventory.status_code == 200
+    assert inventory.json()["valid"] is True
+    assert inventory.json()["rows_changed"] == 1
+
+    probe = client.post("/api/factory-readiness/machines/action_e/probe", json={
+        "probe_type": "tcp", "host": "127.0.0.1", "port": 22,
+        "execute": False, "actor": "api-test",
+    })
+    assert probe.status_code == 200
+    assert probe.json()["status"] == "preview_ready"
+    assert probe.json()["will_write_device"] is False
 
 
 def test_twin_rejects_unknown_policy(client):

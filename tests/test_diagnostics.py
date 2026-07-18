@@ -26,7 +26,12 @@ def conn():
 
 def test_diagnostics_reports_services_and_machines(conn):
     result = diagnostics.build(conn, CFG, mqtt_connected=False, cv_watcher_running=False)
-    assert len(result["services"]) == 18
+    assert len(result["services"]) == 19
+    readiness_service = next(item for item in result["services"]
+                             if item["key"] == "factory_readiness")
+    assert readiness_service["status"] == "needs_site_value"
+    assert result["summary"]["machine_passports_confirmed"] == 0
+    assert result["summary"]["machines_plug_and_play_ready"] == 0
     lab_service = next(item for item in result["services"]
                        if item["key"] == "virtual_factory_lab")
     assert lab_service["status"] == "needs_site_value"
@@ -135,6 +140,7 @@ def test_deployment_readiness_lists_windows_assets():
     assert "ssh_bootstrap" in keys
     assert "install_tester" in keys
     assert "industrial_preflight" in keys
+    assert "offline_verifier" in keys
 
     bootstrap = (CFG.parent.parent / "deploy/windows/enable-hive-ssh.ps1").read_text()
     assert "OpenSSH.Server" in bootstrap

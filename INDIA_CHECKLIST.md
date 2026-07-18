@@ -5,19 +5,28 @@ Each item has the file to edit and exactly what to do.
 
 ---
 
-## Network Setup (Day 1 — before anything runs)
+## Machine Passports and Network Setup (Day 1 — before anything runs)
 
-- [ ] Assign static IPs to all machine PCs on factory LAN
+Dashboard -> **Commission** -> **Machine links**
+
+- [ ] Download the factory readiness pack and record its SHA-256 in the commissioning log
+- [ ] Match each checklist to the physical nameplate before recording any controller or endpoint
+- [ ] Fill asset tag, serial, year, location, controller/HMI model, software, and chosen telemetry strategy
+- [ ] Import `machine-inventory.csv` in preview mode; resolve every row before atomic apply
+- [ ] Assign static IPs only to confirmed machine PCs, controllers, meters, and the central PC
 - [ ] Note down the central broker PC IP (this is what everything talks to)
 - [ ] Update `config/machines.yaml` → `mqtt.broker_host` with real broker IP
 - [ ] Confirm factory LAN allows Modbus TCP (port 502) and mutual-TLS MQTT (port 8883)
+- [ ] Preview then run HIVE's read-only transport check for each network strategy
+- [ ] Confirm each passport while physically at the matching asset
+- [ ] Do not treat a successful port check as an approved data contract
 
 ## Remote Machine Bootstrap (Day 1)
 
 Dashboard -> **Setup** -> **Remote Agent Setup**
 
 - [ ] Copy the installer-created `HIVE Machine Bootstrap` folder to an approved USB
-- [ ] On each Maestro PC, run `enable-hive-ssh.ps1` once as Administrator
+- [ ] On each passport-confirmed Maestro PC, run `enable-hive-ssh.ps1` once as Administrator
 - [ ] Confirm the OpenSSH firewall rule is limited to `LocalSubnet`
 - [ ] Enter the static IP and existing local Administrator username in HIVE
 - [ ] Scan the host key and compare its SHA-256 fingerprint with the machine screen
@@ -136,17 +145,16 @@ Primary workflow: dashboard → **Commission**
 - [ ] Import validated history only after all required checks pass
 - [ ] **Ottimo barcode scan:** scan one finished part at packing while the log file is open — note the exact log line that appears (likely `PART_COMPLETE`, `SCAN_OUT`, `QC_OK` or similar). Add that event to `MAESTRO_EVENTS` as `part_complete` — this is what powers the finished goods count in the shift report.
 - [ ] For each machine PC, note the actual log folder path and CNC program folder path
-- [ ] Update `config/machines.yaml` → `maestro_agents` section with real paths and IPs for:
+- [ ] Update `config/machines.yaml` → `maestro_agents` only for machines whose passports prove a PC and logs:
   - [ ] Stefani KD (Edge Bander)
-  - [ ] Action E (Boxing)
   - [ ] Gabbiani PT 80 (Beam Saw)
   - [ ] Morbidelli CX100 (CNC Driller) ← priority, has .xcs file access
   - [ ] Morbidelli N100 (Flat Bed Router) ← priority
-  - [ ] Nova SI 400 (Panel Saw)
   - [ ] DMC60 RCS 135 (Calibration Sander)
   - [ ] DMC90 XRT 135 (Finishing Sander)
   - [ ] Superfici (Paint Line)
-  - [ ] Varie Osama (Glueing Line)
+
+- [ ] For Action E, Nova SI400, and Varie Osama, begin with operator evidence; add a PC agent only if the installed machine proves one exists
 
 ---
 
