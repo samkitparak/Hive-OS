@@ -120,6 +120,10 @@ def test_virtual_lab_requires_commission_or_optimize_permission():
     assert access_control.required_permissions("PUT", "/constraints/settings") == (
         "optimize", "supervise",
     )
+    assert access_control.required_permissions("GET", "/flow-intelligence") == ("view",)
+    assert access_control.required_permissions("POST", "/flow-intelligence/sync") == (
+        "optimize", "supervise",
+    )
     assert access_control.required_permissions("GET", "/changeovers") == ("view",)
     assert access_control.required_permissions(
         "PUT", "/changeovers/machines/gabbiani_pt80/standard"

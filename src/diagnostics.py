@@ -24,6 +24,7 @@ import commissioning_evidence
 import factory_readiness
 import changeovers
 import production_loss
+import flow_intelligence
 
 PLACEHOLDER_HOSTS = {
     *(f"192.168.1.{number}" for number in range(51, 55)),
@@ -211,6 +212,10 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
     changeover_summary = changeover_state["summary"]
     loss_state = production_loss.build(conn)
     loss_summary = loss_state["summary"]
+    flow_state = flow_intelligence.build(conn, days=30)
+    flow_summary = flow_state["current"]["summary"]
+    flow_history = flow_state["history"]
+    flow_sampling = flow_state["sampling"]
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -249,6 +254,13 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "constraint_snapshots": constraint_summary["snapshots"],
             "open_constraint_episodes": constraint_summary["open"],
             "constraint_runtime_status": constraint_runtime["status"],
+            "flow_sampling_status": flow_sampling["status"],
+            "flow_archived_shifts": flow_history["archived_shifts"],
+            "flow_decision_ready_shifts": flow_history["decision_ready_shifts"],
+            "flow_active_wip_qty": (
+                flow_summary["ready_wip_qty"] + flow_summary["in_process_qty"]
+                + flow_summary["held_wip_qty"]
+            ),
             "open_diagnostic_cases": root_cause_summary["open"],
             "confirmed_root_causes": root_cause_summary["confirmed"],
             "diagnostic_models_learning": learned_incident_types,
@@ -439,6 +451,20 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
                  f"{loss_summary['reporting_machines']}/{loss_summary['production_machines']} reporting; "
                  f"{loss_summary['decision_ready_machines']} OEE-ready; "
                  f"{round(loss_summary['classified_coverage'] * 100)}% scheduled machine time classified"
+             )},
+            {"key": "flow_intelligence", "name": "WIP and flow intelligence",
+             "status": "ready" if (
+                 flow_sampling["status"] == "healthy" and flow_summary["decision_ready"]
+                 and flow_history["decision_ready_shifts"] >= 3
+             ) else (
+                 "learning" if flow_sampling["status"] == "healthy" else
+                 "needs_site_value" if flow_sampling["status"] == "starting" else "offline"
+             ),
+             "detail": (
+                 f"sampler {flow_sampling['status']}; "
+                 f"{flow_history['archived_shifts']} shifts archived; "
+                 f"{flow_history['decision_ready_shifts']} decision-ready; "
+                 f"{flow_summary['physically_observed_qty']} physically observed WIP units"
              )},
             {"key": "root_cause_diagnostics", "name": "Root-cause diagnostics",
              "status": "ready" if root_cause_summary["confirmed"] else (

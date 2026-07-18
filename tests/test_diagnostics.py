@@ -26,7 +26,10 @@ def conn():
 
 def test_diagnostics_reports_services_and_machines(conn):
     result = diagnostics.build(conn, CFG, mqtt_connected=False, cv_watcher_running=False)
-    assert len(result["services"]) == 22
+    assert len(result["services"]) == 23
+    assert result["summary"]["flow_sampling_status"] == "starting"
+    flow = next(item for item in result["services"] if item["key"] == "flow_intelligence")
+    assert flow["status"] == "needs_site_value"
     changeover_service = next(item for item in result["services"]
                               if item["key"] == "changeover_intelligence")
     assert changeover_service["status"] == "needs_site_value"

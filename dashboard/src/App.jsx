@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, UserRound } from "lucide-react";
+import { fetchFlowIntelligence, syncFlowIntelligence } from "./api";
 import { fetchMachines, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, syncConstraints, fetchConstraintTimeline, updateConstraintSettings, fetchDataQuality, fetchOptimization, fetchProductionLosses, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchForecast, refreshForecast, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchRecovery, analyzeRecovery, decideRecovery, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, updateChangeoverStandard, recordChangeoverObservation, excludeChangeoverObservation, syncChangeovers, fetchProcurementSnapshot, updateProcurementSupplier, updateProcurementMapping, createPurchaseOrder, draftProcurementRecommendations, actOnPurchaseOrder, createGoodsReceipt, importProcurementCsv, updateMaterialStock, updateInventoryItem, updateInventoryLot, updateInventoryRequirement, createInventoryRemnant, updateInventoryRemnant, updateLaborRole, updateToolPool, createToolAsset, updateToolAsset, recordToolUsage, recordToolAction, recordToolService, updateToolProgramMapping, syncTooling, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchResilience, createSystemBackup, verifySystemBackup, fetchConfig, saveConfig, fetchRemoteSetupPlan, forgetRemoteHost, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, fetchConnectorSnapshot, analyzeConnector, approveConnector, importConnectorRecords, updateConnectorProfile, discoverCabinetVisionSql, syncCabinetVisionSql, fetchIndustrialSnapshot, updateIndustrialProfile, simulateIndustrialProfile, probeIndustrialProfile, probeIndustrialMqtt, approveIndustrialProfile, pollIndustrialProfile, browseIndustrialOpcua, fetchFactoryReadiness, updateMachinePassport, importFactoryInventory, probeFactoryConnection, startFactoryMission, actOnFactoryMission, downloadFactoryReadinessPack, fetchImprovements, syncImprovements, actOnImprovement, fetchRootCauses, syncRootCauses, decideRootCause, fetchAlerts, syncAlerts, actOnAlert, updateAlertDestination, testAlertDestination, dispatchAlerts, updateAlertSettings, postJson, simulateEvent } from "./api";
 import { MachineCard } from "./MachineCard";
 import { MachineDetail } from "./MachineDetail";
@@ -13,6 +14,7 @@ import { OperationsPanel } from "./OperationsPanel";
 import { SetupPanel } from "./SetupPanel";
 import { IntelligencePanel } from "./IntelligencePanel";
 import { ProductionLossPanel } from "./ProductionLossPanel";
+import { FlowIntelligencePanel } from "./FlowIntelligencePanel";
 import { ImprovementPanel } from "./ImprovementPanel";
 import { RootCausePanel } from "./RootCausePanel";
 import { AlertCenter } from "./AlertCenter";
@@ -65,6 +67,7 @@ export default function App({ auth }) {
   const [showAccess, setShowAccess] = useState(false);
   const [showConstraintHistory, setShowConstraintHistory] = useState(false);
   const [constraintSyncing, setConstraintSyncing] = useState(false);
+  const [flowSyncing, setFlowSyncing] = useState(false);
   const demoRef = useRef(null);
 
   const { data: machines = [] } = useQuery({
@@ -96,6 +99,9 @@ export default function App({ auth }) {
   });
   const { data: productionLosses = null } = useQuery({
     queryKey: ["productionLosses"], queryFn: fetchProductionLosses, refetchInterval: 30000,
+  });
+  const { data: flowIntelligence = null } = useQuery({
+    queryKey: ["flowIntelligence"], queryFn: fetchFlowIntelligence, refetchInterval: 30000,
   });
   const { data: improvements = null } = useQuery({
     queryKey: ["improvements"], queryFn: fetchImprovements, refetchInterval: 30000,
@@ -202,6 +208,7 @@ export default function App({ auth }) {
       qc.invalidateQueries({ queryKey: ["dataQuality"] });
       qc.invalidateQueries({ queryKey: ["optimization"] });
       qc.invalidateQueries({ queryKey: ["productionLosses"] });
+      qc.invalidateQueries({ queryKey: ["flowIntelligence"] });
       qc.invalidateQueries({ queryKey: ["learning"] });
       qc.invalidateQueries({ queryKey: ["routing"] });
       qc.invalidateQueries({ queryKey: ["twin"] });
@@ -277,7 +284,7 @@ export default function App({ auth }) {
   };
 
   const refreshOperations = () => {
-    ["operationsSummary", "downtime", "workOrders", "maintenance", "rework", "barcodeEvents", "executionSnapshot", "identitySnapshot", "productionOrders", "resourceSnapshot", "jobs", "productionLosses", "dailyScore", "optimization", "diagnostics"].forEach(key => {
+    ["operationsSummary", "downtime", "workOrders", "maintenance", "rework", "barcodeEvents", "executionSnapshot", "identitySnapshot", "productionOrders", "resourceSnapshot", "jobs", "productionLosses", "flowIntelligence", "dailyScore", "optimization", "diagnostics"].forEach(key => {
       qc.invalidateQueries({ queryKey: [key] });
     });
   };
@@ -434,7 +441,7 @@ export default function App({ auth }) {
   const runCommissioningAnalysis = async payload => {
     const result = await analyzeCommissioningLog(payload);
     if (payload.persist) {
-      ["machines", "productionLosses", "bottlenecks", "dataQuality", "optimization", "diagnostics"].forEach(key => {
+      ["machines", "productionLosses", "flowIntelligence", "bottlenecks", "dataQuality", "optimization", "diagnostics"].forEach(key => {
         qc.invalidateQueries({ queryKey: [key] });
       });
     }
@@ -461,6 +468,20 @@ export default function App({ auth }) {
       qc.invalidateQueries({ queryKey: [key] });
     });
     return result;
+  };
+
+  const runFlowSync = async () => {
+    setFlowSyncing(true);
+    try {
+      await syncFlowIntelligence({ actor: auth.user.username || "operator" });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["flowIntelligence"] }),
+        qc.invalidateQueries({ queryKey: ["optimization"] }),
+        qc.invalidateQueries({ queryKey: ["diagnostics"] }),
+      ]);
+    } finally {
+      setFlowSyncing(false);
+    }
   };
 
   const runConnectorAction = async (kind, connectorKey, payload = {}) => {
@@ -738,6 +759,10 @@ export default function App({ auth }) {
       </div>
 
       <ProductionLossPanel data={productionLosses} />
+
+      <FlowIntelligencePanel data={flowIntelligence}
+        onSync={can("optimize", "supervise") ? runFlowSync : null}
+        syncing={flowSyncing} />
 
       <Suspense fallback={<section style={{ borderTop: "1px solid #1f2937", borderBottom: "1px solid #1f2937",
         padding: "14px 0", marginBottom: 20, color: "#6b7280", fontSize: 11 }}>Loading production forecast…</section>}>

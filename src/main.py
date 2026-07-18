@@ -59,6 +59,7 @@ import factory_readiness as factory_readiness_module
 import event_pipeline
 import optimization as optimization_module
 import production_loss as production_loss_module
+import flow_intelligence as flow_intelligence_module
 import improvement as improvement_module
 import root_cause as root_cause_module
 import alerting as alerting_module
@@ -114,6 +115,7 @@ from api_models import (
     IndustrialProfileUpdate,
     ImprovementAction,
     ImprovementSyncRequest,
+    FlowSyncRequest,
     ConstraintSyncRequest,
     ConstraintSettingsUpdate,
     RootCauseDecision,
@@ -200,7 +202,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.31.0"
+APP_VERSION = "0.32.0"
 
 
 class ApiPrefixMiddleware:
@@ -361,13 +363,14 @@ _learning_watch_task = None
 _industrial_watch_task = None
 _alert_watch_task = None
 _constraint_watch_task = None
+_flow_watch_task = None
 _route_conn_override = None
 _route_connections = threading.local()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _mqtt_client, _conn, _cv_observer, _event_watch_task, _learning_watch_task, _industrial_watch_task, _alert_watch_task, _constraint_watch_task
+    global _mqtt_client, _conn, _cv_observer, _event_watch_task, _learning_watch_task, _industrial_watch_task, _alert_watch_task, _constraint_watch_task, _flow_watch_task
     _conn = init_db(DB_PATH, check_same_thread=False)
     if access_control_module.auth_required():
         token_path = access_control_module.ensure_bootstrap_token(_conn)
@@ -393,7 +396,14 @@ async def lifespan(app: FastAPI):
     _industrial_watch_task = asyncio.create_task(_watch_industrial_io())
     _alert_watch_task = asyncio.create_task(_watch_alerts())
     _constraint_watch_task = asyncio.create_task(_watch_constraints())
+    _flow_watch_task = asyncio.create_task(_watch_flow())
     yield
+    if _flow_watch_task:
+        _flow_watch_task.cancel()
+        try:
+            await _flow_watch_task
+        except asyncio.CancelledError:
+            pass
     if _constraint_watch_task:
         _constraint_watch_task.cancel()
         try:
@@ -584,6 +594,34 @@ async def _watch_constraints():
         except Exception:
             log.exception("constraint intelligence automation failed")
             await asyncio.sleep(15)
+
+
+def _run_flow_worker() -> dict:
+    owned = _route_conn_override is None
+    conn = (db_module.get_connection(DB_PATH, check_same_thread=False)
+            if owned else _route_conn_override)
+    try:
+        return flow_intelligence_module.automatic_refresh(conn)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        if owned:
+            conn.close()
+
+
+async def _watch_flow():
+    """Sample execution WIP and revision-close completed shifts."""
+    await asyncio.sleep(3)
+    while True:
+        try:
+            await asyncio.to_thread(_run_flow_worker)
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("flow intelligence automation failed")
+            await asyncio.sleep(30)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1019,6 +1057,28 @@ def get_production_losses(date: Optional[str] = None,
         )
     except KeyError as error:
         raise HTTPException(404, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/flow-intelligence")
+def get_flow_intelligence(days: int = Query(30, ge=1, le=365)):
+    return flow_intelligence_module.build(_get_conn(), days=days)
+
+
+@app.post("/flow-intelligence/sync")
+def post_flow_intelligence_sync(payload: FlowSyncRequest):
+    try:
+        sample = flow_intelligence_module.capture_sample(_get_conn())
+        if payload.local_date:
+            archived = [flow_intelligence_module.archive_shift(
+                _get_conn(), payload.local_date, actor=payload.actor
+            )]
+        else:
+            archived = flow_intelligence_module.archive_due_shifts(
+                _get_conn(), actor=payload.actor
+            )
+        return {"sample": sample, "archived": archived}
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
 

@@ -9,6 +9,11 @@ class RequestModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class FlowSyncRequest(RequestModel):
+    local_date: Optional[str] = None
+    actor: str = Field(default="operator", min_length=1)
+
+
 class DowntimeCreate(RequestModel):
     machine_key: str = Field(min_length=1)
     reason_code: Optional[str] = None

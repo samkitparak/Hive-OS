@@ -12,6 +12,7 @@ import data_quality
 import forecasting
 import procurement
 import production_loss
+import flow_intelligence
 import recovery
 
 
@@ -87,6 +88,7 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
     forecast = forecasting.snapshot(conn)
     recovery_state = recovery.snapshot(conn, now)
     loss_accounting = production_loss.build(conn, now=now)
+    flow = flow_intelligence.build(conn, days=90, now=now)
     recommendations = []
 
     low_reporting = [
@@ -185,6 +187,52 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
             "target_type": "machine", "target_key": current.machine_key,
             "cause_code": current.primary_cause,
             "metric_hint": "throughput_per_hour", "target_direction": "increase",
+        })
+
+    recurring_flow = next((
+        item for item in flow["history"]["recurring_constraints"] if item["recurring"]
+    ), None)
+    if recurring_flow and (not current or recurring_flow["machine_key"] != current.machine_key):
+        recommendations.append({
+            "priority": len(recommendations) + 1,
+            "category": "recurring_flow_constraint",
+            "title": f"Investigate recurring flow pressure at {recurring_flow['machine_name']}",
+            "action": (
+                "Compare its queue-age, WIP, loss waterfall, staffing, tooling, and upstream release "
+                "pattern across the archived shifts before changing capacity."
+            ),
+            "confidence": "high",
+            "estimated_gain": None,
+            "evidence": [
+                f"Highest flow pressure in {recurring_flow['shift_count']} decision-ready shifts",
+                f"{round(recurring_flow['share_of_ready_shifts'] * 100)}% of trusted shift closes",
+                f"Average pressure score {recurring_flow['average_pressure_score']}",
+            ],
+            "target_type": "machine", "target_key": recurring_flow["machine_key"],
+            "cause_code": "recurring_flow_pressure",
+            "metric_hint": "operation_flow_time_p90", "target_direction": "decrease",
+        })
+
+    held = sorted(
+        (item for item in flow["current"]["machines"] if item["held_wip_qty"] > 0),
+        key=lambda item: (-item["held_wip_qty"], -(item["ready_age_max_s"] or 0)),
+    )
+    if held:
+        target = held[0]
+        recommendations.append({
+            "priority": len(recommendations) + 1,
+            "category": "held_wip",
+            "title": f"Resolve held WIP at {target['machine_name']}",
+            "action": "Confirm the hold reason, owner, disposition, and next physical movement before releasing more work.",
+            "confidence": target["confidence"],
+            "estimated_gain": None,
+            "evidence": [
+                f"{target['held_wip_qty']} held units",
+                f"{target['physically_observed_qty']} physically observed units at this station",
+            ],
+            "target_type": "machine", "target_key": target["machine_key"],
+            "cause_code": "held_wip",
+            "metric_hint": "held_wip_qty", "target_direction": "decrease",
         })
 
     latest_recovery = recovery_state.get("latest")
@@ -358,6 +406,20 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
             "shift": loss_accounting["shift"],
             "summary": loss_accounting["summary"],
             "recommendation": loss_accounting["recommendation"],
+        },
+        "flow_intelligence": {
+            "method_version": flow["method_version"],
+            "sampling": flow["sampling"],
+            "current": {
+                "status": flow["current"]["status"],
+                "summary": flow["current"]["summary"],
+                "top_flow_pressure": flow["current"]["top_flow_pressure"],
+            },
+            "history": {
+                "archived_shifts": flow["history"]["archived_shifts"],
+                "decision_ready_shifts": flow["history"]["decision_ready_shifts"],
+                "recurring_constraints": flow["history"]["recurring_constraints"],
+            },
         },
         "recommendations": _finalize(recommendations, start, end, now.isoformat()),
         "guardrail": (

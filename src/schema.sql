@@ -2147,6 +2147,62 @@ CREATE TABLE IF NOT EXISTS constraint_runtime_events (
     ts                  TEXT NOT NULL
 );
 
+-- Flow intelligence keeps sampled execution state separate from immutable raw
+-- station events. Samples support time-weighted WIP estimates; revisioned
+-- shift closes preserve the evidence used for each historical conclusion.
+CREATE TABLE IF NOT EXISTS flow_samples (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    sample_bucket       TEXT NOT NULL UNIQUE,
+    sampled_at          TEXT NOT NULL,
+    method_version      TEXT NOT NULL,
+    evidence_sha256     TEXT NOT NULL,
+    summary_json        TEXT NOT NULL,
+    created_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS flow_machine_samples (
+    sample_id               INTEGER NOT NULL REFERENCES flow_samples(id) ON DELETE CASCADE,
+    machine_id              INTEGER NOT NULL REFERENCES machines(id),
+    released_queue_qty      INTEGER NOT NULL,
+    ready_wip_qty           INTEGER NOT NULL,
+    in_process_qty          INTEGER NOT NULL,
+    held_wip_qty            INTEGER NOT NULL,
+    blocked_demand_qty      INTEGER NOT NULL,
+    physically_observed_qty INTEGER NOT NULL,
+    ready_age_p50_s         REAL,
+    ready_age_p90_s         REAL,
+    ready_age_max_s         REAL,
+    buffer_qty              INTEGER,
+    buffer_capacity_qty     INTEGER,
+    buffer_verified         INTEGER NOT NULL DEFAULT 0,
+    pressure_score          REAL NOT NULL,
+    evidence_json           TEXT NOT NULL,
+    PRIMARY KEY(sample_id, machine_id)
+);
+
+CREATE TABLE IF NOT EXISTS flow_shift_snapshots (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    shift_key           TEXT NOT NULL,
+    revision            INTEGER NOT NULL,
+    is_current          INTEGER NOT NULL DEFAULT 1,
+    local_date          TEXT NOT NULL,
+    window_start        TEXT NOT NULL,
+    window_end          TEXT NOT NULL,
+    timezone            TEXT NOT NULL,
+    calendar_verified   INTEGER NOT NULL,
+    method_version      TEXT NOT NULL,
+    evidence_sha256     TEXT NOT NULL,
+    result_json         TEXT NOT NULL,
+    sample_count        INTEGER NOT NULL,
+    sample_coverage     REAL NOT NULL,
+    decision_ready      INTEGER NOT NULL,
+    supersedes_id       INTEGER REFERENCES flow_shift_snapshots(id),
+    finalized_at        TEXT NOT NULL,
+    actor               TEXT NOT NULL,
+    UNIQUE(shift_key, revision),
+    UNIQUE(shift_key, evidence_sha256)
+);
+
 -- Machine passports hold site-observed identity and connection facts. Research
 -- candidates remain in code and are never copied here as confirmed evidence.
 CREATE TABLE IF NOT EXISTS machine_passports (
@@ -2274,6 +2330,9 @@ CREATE INDEX IF NOT EXISTS idx_constraint_machine_snapshots_machine ON constrain
 CREATE INDEX IF NOT EXISTS idx_constraint_episodes_status_machine ON constraint_episodes(status, machine_id, last_seen_at DESC);
 CREATE INDEX IF NOT EXISTS idx_constraint_contexts_shift ON constraint_snapshot_contexts(shift_key, snapshot_id DESC);
 CREATE INDEX IF NOT EXISTS idx_constraint_runtime_events_ts ON constraint_runtime_events(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_flow_samples_time ON flow_samples(sampled_at DESC);
+CREATE INDEX IF NOT EXISTS idx_flow_machine_samples_machine ON flow_machine_samples(machine_id, sample_id DESC);
+CREATE INDEX IF NOT EXISTS idx_flow_shift_current_date ON flow_shift_snapshots(is_current, local_date DESC);
 CREATE INDEX IF NOT EXISTS idx_event_ingestion_machine_received ON event_ingestion_log(machine_id, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_event_ingestion_status_received ON event_ingestion_log(status, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cycle_observations_machine_valid ON cycle_observations(machine_id, validity, ended_at DESC);

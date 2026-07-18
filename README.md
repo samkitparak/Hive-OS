@@ -16,6 +16,7 @@ operations are limited to the HIVE database and site configuration.
 - **Job progress** — pulls cut lists from Cabinet Vision exports, tracks parts completed per job via Maestro cycle events. Shows done/total, progress bar, ETA, on-time status.
 - **Evidence-gated OEE** — verified shift calendar, state coverage, active cycle model, complete quality disposition, and exact waterfall reconciliation before a value is decision-ready.
 - **Production-loss waterfall** — partitions every scheduled machine second, separates availability from equivalent speed/quality loss, and ranks factory machine-minute exposure without double counting.
+- **WIP and flow intelligence** — samples released demand, downstream WIP, queue age, throughput, and held work; revision-closes shifts and gates recurring constraints and Little's Law on physical evidence and stability.
 - **Daily score + streak** — combines trusted OEE and on-time job completion only after both inputs exist; incomplete shifts remain pending.
 - **Explainable optimization engine** — ranks dynamic constraints using active periods, queue depth, inferred downstream starvation, alarms, and a separate telemetry-confidence gate.
 - **Closed-loop improvement learning** — turns priorities into owned experiments with frozen baselines, minimum sample gates, confidence intervals, guardrails, immutable outcomes, and conservative advisory promotion.
@@ -103,6 +104,7 @@ hive-os/
 │   ├── mqtt_bridge.py        # MQTT subscriber → DB + event broadcast
 │   ├── oee.py                # OEE calculator
 │   ├── production_loss.py    # shift loss ledger, Pareto, and trusted OEE gate
+│   ├── flow_intelligence.py  # sampled WIP, flow-time, and revisioned shift history
 │   ├── progress.py           # job progress tracker
 │   ├── score.py              # daily score + streak
 │   ├── bottleneck.py         # current factory constraint detector
@@ -290,6 +292,8 @@ unprefixed routes remain available for compatibility and local tooling.
 | GET | `/data-quality` | Telemetry confidence, cycle integrity, part links, and clock drift |
 | GET | `/optimization` | Confidence-gated factory priorities and constraint persistence |
 | GET | `/production-losses` | Verified-shift loss waterfall, Pareto, reconciliation, and trusted OEE |
+| GET | `/flow-intelligence` | Current WIP/queue evidence, shift history, recurrence, baselines, and sampling health |
+| POST | `/flow-intelligence/sync` | Capture an idempotent flow sample and close or revision completed shifts |
 | GET | `/improvements` | Recommendation lifecycle, experiments, outcomes, and learned advisories |
 | POST | `/improvements/sync` | Materialize current optimization priorities without GET-side writes |
 | GET | `/improvements/recommendations/{id}` | One recommendation's experiment and immutable event history |
@@ -458,6 +462,8 @@ See [OPTIMIZATION_MODEL.md](OPTIMIZATION_MODEL.md) for the evidence model,
 research basis, assumptions, confidence gate, and learning stages.
 See [PRODUCTION_LOSS_INTELLIGENCE.md](PRODUCTION_LOSS_INTELLIGENCE.md) for the
 shift boundary, loss taxonomy, OEE evidence gates, reconciliation, and site validation.
+See [FLOW_INTELLIGENCE.md](FLOW_INTELLIGENCE.md) for WIP semantics, sampled flow,
+queue-time formulas, revisioned shift close, historical gates, and commissioning.
 See [VIRTUAL_FACTORY_COMMISSIONING.md](VIRTUAL_FACTORY_COMMISSIONING.md) for the
 offsite reference model, isolation contract, sensitivity logic, and site measurements.
 See [COMMISSIONING_EVIDENCE.md](COMMISSIONING_EVIDENCE.md) for the offline field
@@ -488,6 +494,7 @@ bootstrap, SSH fingerprint approval, central installation, and recovery flow.
 Once weeks of real OEE data exist:
 - Promote automatically learned cycle models into real Performance OEE
 - Validate bottleneck scoring weights against real queues and operator observations
+- Validate flow-pressure weights, physical WIP reconciliation, and queue-time stability across product mixes
 - Validate P80 completion coverage and late-risk calibration across product mixes
 - Validate recovery thresholds and schedule-stability penalties against planner decisions
 - Validate tool-life limits and conservative local estimates against inspection and quality outcomes
