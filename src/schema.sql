@@ -1854,6 +1854,20 @@ CREATE TABLE IF NOT EXISTS schedule_recovery_assessments (
     notes               TEXT
 );
 
+-- Assumption-only commissioning analyses are isolated from operational truth.
+-- A lab run may only append its immutable result here; it has no foreign keys
+-- into production models, routes, schedules, forecasts, or machine events.
+CREATE TABLE IF NOT EXISTS virtual_factory_runs (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    assumptions_sha256  TEXT NOT NULL,
+    assumptions_version TEXT NOT NULL,
+    sample_count        INTEGER NOT NULL,
+    seed                INTEGER NOT NULL,
+    actor               TEXT NOT NULL,
+    result_json         TEXT NOT NULL,
+    created_at          TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS auth_events (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     event_type          TEXT NOT NULL,
@@ -1969,6 +1983,7 @@ CREATE INDEX IF NOT EXISTS idx_production_forecasts_generated ON production_fore
 CREATE INDEX IF NOT EXISTS idx_production_forecasts_signature ON production_forecasts(input_signature, policy, sample_count);
 CREATE INDEX IF NOT EXISTS idx_schedule_recovery_created ON schedule_recovery_assessments(created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_schedule_recovery_trigger ON schedule_recovery_assessments(trigger_signature, input_signature);
+CREATE INDEX IF NOT EXISTS idx_virtual_factory_runs_created ON virtual_factory_runs(created_at DESC, id DESC);
 
 -- Seed the 14 in-scope HAEEV machines (aluminium pair excluded, compressors/dust collectors as utility)
 INSERT OR IGNORE INTO machines (name, machine_key, type, brand, model, has_maestro, has_opcua, active) VALUES

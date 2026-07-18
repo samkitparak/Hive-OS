@@ -280,6 +280,9 @@ export const postJson = (path, payload) =>
 export const analyzeCommissioningLog = (payload) =>
   postJson("/commissioning/log/analyze", payload);
 
+export const fetchCommissioningLab = () => request("/commissioning-lab");
+export const runCommissioningLab = payload => postJson("/commissioning-lab/run", payload);
+
 export const fetchConnectorSnapshot = () => request("/connectors/snapshot");
 export const analyzeConnector = (key, payload) =>
   postJson(`/connectors/${encodeURIComponent(key)}/analyze`, payload);

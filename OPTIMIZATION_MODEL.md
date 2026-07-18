@@ -90,6 +90,20 @@ evidence, but HIVE will not recommend a schedule change from it.
 PLC writes and autonomous machine control are outside the present safety
 boundary. HIVE observes, reconciles, and recommends first.
 
+## Pre-Evidence Virtual Commissioning
+
+Before site telemetry exists, `commissioning_lab.py` exercises the expected
+factory flow with explicit broad triangular priors. It reports constraint
+frequency, output bands, local cycle-time sensitivity, measurement priority,
+and conditional intervention uplift. These results are a commissioning aid,
+not an earlier maturity stage of the production optimizer.
+
+The lab has its own config fingerprint and append-only table. It cannot create
+or activate a cycle model, route, resource value, forecast, schedule, execution
+job, or machine event. Production optimization continues to show commissioning
+status until its existing real-evidence gates pass. See
+`VIRTUAL_FACTORY_COMMISSIONING.md`.
+
 ## Predictive Constraint And Delivery Risk
 
 Once the digital-twin readiness gates pass, HIVE repeats the selected policy

@@ -64,7 +64,7 @@ def test_get_machines_returns_list(client):
 def test_api_prefix_routes_to_backend(client):
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "service": "hive-os", "version": "0.22.0"}
+    assert response.json() == {"status": "ok", "service": "hive-os", "version": "0.23.0"}
     assert client.get("/api/machines").status_code == 200
 
 
@@ -78,6 +78,20 @@ def test_learning_and_twin_endpoints(client):
     assert "active_models" in learning.json()
     assert "edges" in routes.json()
     assert "model_coverage" in readiness.json()
+
+
+def test_assumption_only_commissioning_lab_endpoints(client, mem_conn):
+    snapshot = client.get("/api/commissioning-lab")
+    assert snapshot.status_code == 200
+    assert snapshot.json()["assumptions"]["production_eligible"] is False
+    run = client.post("/api/commissioning-lab/run", json={
+        "samples": 10, "seed": 19, "actor": "api-test",
+    })
+    assert run.status_code == 200
+    assert run.json()["status"] == "assumption_only"
+    assert client.get("/api/commissioning-lab/history?limit=1").json()[0]["id"] == run.json()["run_id"]
+    assert client.post("/api/commissioning-lab/run", json={"samples": 9}).status_code == 422
+    assert mem_conn.execute("SELECT COUNT(*) FROM virtual_factory_runs").fetchone()[0] >= 1
 
 
 def test_twin_rejects_unknown_policy(client):

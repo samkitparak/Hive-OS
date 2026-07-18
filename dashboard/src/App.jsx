@@ -848,6 +848,7 @@ export default function App({ auth }) {
           .intelligence-grid { grid-template-columns: 1fr 1fr !important; }
           .forecast-grid { grid-template-columns: 1fr 1fr !important; }
           .commission-controls { grid-template-columns: 1fr !important; }
+          .lab-metrics, .lab-interventions, .lab-columns { grid-template-columns: 1fr !important; }
           .connector-layout { grid-template-columns: 1fr !important; }
           .connector-layout > div:first-child { border-right: 0 !important; border-bottom: 1px solid #1f2937; padding-right: 0 !important; padding-bottom: 10px; display: grid; grid-template-columns: 1fr 1fr; }
           .sql-config, .mapping-grid { grid-template-columns: 1fr !important; }

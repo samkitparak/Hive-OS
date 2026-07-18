@@ -43,6 +43,23 @@ See `REMOTE_COMMISSIONING.md` for the exact secure workflow.
 
 See `ACCESS_CONTROL.md` for the complete role and transport contract.
 
+## Virtual Factory Prior Replacement (Day 1-3)
+
+Dashboard -> **Commission** -> **Virtual lab**
+
+- [ ] Run and retain the shipped reference model before changing any assumptions
+- [ ] Work down **Measure first on site** in displayed priority order
+- [ ] Record at least 20 representative cycles for each high-priority machine, split by product/program family
+- [ ] Measure load, queue, operation, unload, setup/changeover, blocked, starved, and first-good-piece time separately
+- [ ] Confirm actual product-family shares and every route, including loops, rework, manual fallback, and outsourced steps
+- [ ] Confirm parallel capacity and staffing for the hot press and boxing cells
+- [ ] Update only `config/virtual_factory.yaml`, preserving `status: assumption_only`, then rerun and retain the new SHA-256 fingerprint
+- [ ] Treat intervention uplift as a trial-screening result; do not use it as a production forecast or schedule approval
+- [ ] Continue real cycle-model, route, resource, and forecast commissioning independently
+
+See `VIRTUAL_FACTORY_COMMISSIONING.md` for each prior, exact measurement, and
+the boundary between this lab and production truth.
+
 ---
 
 ## Energy Meters — Compressors + Dust Collectors

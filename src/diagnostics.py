@@ -18,6 +18,7 @@ import forecasting
 import recovery
 import tooling
 import remote_setup
+import commissioning_lab
 
 PLACEHOLDER_HOSTS = {
     *(f"192.168.1.{number}" for number in range(51, 55)),
@@ -192,6 +193,8 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
     tooling_summary = tooling_state["summary"]
     remote_state = remote_setup.snapshot(conn, cfg_path)
     remote_summary = remote_state["summary"]
+    lab_state = commissioning_lab.snapshot(conn)
+    latest_lab = lab_state["latest"]
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -246,10 +249,19 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "recovery_status": recovery_state["status"],
             "recovery_triggers": len(recovery_state["current"]["triggers"]),
             "recovery_action_required": recovery_state["action_required"],
+            "virtual_lab_runs": len(lab_state["history"]),
+            "virtual_lab_stale": lab_state["stale"],
         },
         "services": [
             {"key": "database", "name": "Database", "status": "online",
              "detail": "SQLite connection active"},
+            {"key": "virtual_factory_lab", "name": "Virtual factory commissioning",
+             "status": "learning" if latest_lab and not lab_state["stale"] else "needs_site_value",
+             "detail": (
+                 f"{len(lab_state['history'])} assumption-only runs; "
+                 f"{'current' if latest_lab and not lab_state['stale'] else 'missing or stale'} prior fingerprint; "
+                 "never eligible for production control"
+             )},
             {"key": "mqtt", "name": "MQTT broker bridge",
              "status": "online" if mqtt_connected else "offline",
              "detail": (

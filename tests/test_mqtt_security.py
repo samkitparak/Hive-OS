@@ -47,7 +47,7 @@ def _agent_payload(root: Path) -> Path:
         })
     manifest = {
         "format": "hive-offline-agent-payload", "format_version": 1,
-        "version": "0.22.0", "target": "windows-x64",
+        "version": "0.23.0", "target": "windows-x64",
         "python_version": "3.12-64", "files": entries,
     }
     encoded = json.dumps(manifest, indent=2).encode()

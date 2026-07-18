@@ -90,6 +90,13 @@ def test_role_and_api_key_lifecycle(conn):
     assert access_control.authenticate(conn, bearer_token=created["token"], now=NOW) is None
 
 
+def test_virtual_lab_requires_commission_or_optimize_permission():
+    assert access_control.required_permissions("GET", "/commissioning-lab") == ("view",)
+    assert access_control.required_permissions("POST", "/commissioning-lab/run") == (
+        "commission", "optimize",
+    )
+
+
 def test_http_setup_session_csrf_roles_actor_binding_and_service_scope(conn, monkeypatch):
     monkeypatch.setenv("HIVE_AUTH_MODE", "required")
     monkeypatch.setenv("HIVE_BOOTSTRAP_TOKEN", "installer-bootstrap-token-with-entropy")

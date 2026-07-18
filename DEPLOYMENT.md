@@ -109,7 +109,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\install-machine-agent.ps1
 ```
 
-An enrollment issued by an installed 0.22 offline release contains the machine
+An enrollment issued by an installed 0.23 offline release contains the machine
 identity, central broker address, trusted CA, agent code, installer, Python
 runtime, dependency wheels, and a hash manifest. The installer verifies every
 runtime file before changing `C:\HIVE-Agent`, auto-detects the Maestro log folder,

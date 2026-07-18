@@ -378,6 +378,12 @@ class CommissioningLogRequest(RequestModel):
     site_timezone: str = Field(default="Asia/Kolkata", min_length=1, max_length=64)
 
 
+class VirtualLabRunRequest(RequestModel):
+    samples: int = Field(default=20, ge=10, le=100)
+    seed: int = Field(default=1, ge=0, le=2_147_483_647)
+    actor: str = Field(default="commissioning-lab", min_length=1, max_length=120)
+
+
 class DigitalTwinRequest(RequestModel):
     job_names: Optional[list[str]] = None
     policies: Optional[list[str]] = None

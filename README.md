@@ -22,6 +22,7 @@ operations are limited to the HIVE database and site configuration.
 - **Industrial alert management** — rationalized actionable conditions, evidence-token deduplication, acknowledgment/snooze/resolve history, response escalation, and commissioned CloudEvents webhooks with HMAC signing.
 - **Local identity and access control** — named operators, least-privilege roles, Argon2id passwords, expiring browser sessions, CSRF protection, immutable request attribution, and integration-only machine credentials.
 - **Connector commissioning** — browse for real Cabinet Vision, Ottimo, or Maestro evidence; map and validate it; explicitly approve a version; then enable repeat-safe imports.
+- **Virtual factory commissioning** — runs assumption-isolated Monte Carlo flow models, ranks uncertain constraints and on-site measurements, and screens improvements without creating production truth.
 - **Data trust layer** — normalizes India-local timestamps, suppresses duplicate MQTT delivery, isolates heartbeats, audits rejected events, and scores each machine's evidence quality.
 - **Automatic cycle learning** — pairs validated part cycles, robustly fits versioned nonnegative models, and protects active models from weak candidates.
 - **Production digital twin** — compares dispatch policies with finite machine, labor, tooling, calendar, maintenance, material, and WIP capacity.
@@ -81,7 +82,8 @@ FastAPI backend (src/main.py)
 hive-os/
 ├── config/
 │   ├── machines.yaml        # machine IPs, MQTT broker, Maestro log paths
-│   └── cycle_times.yaml     # ideal cycle time per machine (fill in on-site)
+│   ├── cycle_times.yaml     # ideal cycle time per machine (fill in on-site)
+│   └── virtual_factory.yaml # broad, versioned, non-production engineering priors
 ├── src/
 │   ├── schema.sql            # SQLite schema + machine seed data
 │   ├── db.py                 # DB connection helpers
@@ -101,6 +103,7 @@ hive-os/
 │   ├── event_pipeline.py     # validation, timestamps, deduplication, audit
 │   ├── data_quality.py       # per-machine telemetry confidence
 │   ├── commissioning.py      # offline Maestro evidence analysis + replay
+│   ├── commissioning_lab.py  # assumption-only flow, sensitivity, and intervention lab
 │   ├── optimization.py       # explainable, confidence-gated priorities
 │   ├── improvement.py        # recommendation lifecycle, experiments, outcome learning
 │   ├── root_cause.py         # incident evidence, hypotheses, confirmation learning
@@ -146,6 +149,7 @@ hive-os/
 ├── SCHEDULE_RECOVERY.md       # trigger, freeze-horizon, stability, and approval contract
 ├── REMOTE_COMMISSIONING.md    # Windows SSH trust, bootstrap, install, and recovery
 ├── RESILIENCE.md              # offline install, backup, restore, upgrade, and rollback
+├── VIRTUAL_FACTORY_COMMISSIONING.md # offsite model, limits, and measurement workflow
 ├── ACCESS_CONTROL.md          # local identity, role, session, and transport security
 └── INDIA_CHECKLIST.md        # on-site configuration checklist
 ```
@@ -340,6 +344,9 @@ unprefixed routes remain available for compatibility and local tooling.
 | GET | `/labels/jobs/{id}/print`, `/zpl` | Browser-print or Zebra-native label output |
 | POST | `/labels/jobs/{id}/printed` | Confirm physical label printing |
 | POST | `/commissioning/log/analyze` | Dry-run or import a validated Maestro log sample |
+| GET | `/commissioning-lab` | Current assumption fingerprint, latest run, and staleness |
+| GET | `/commissioning-lab/history` | Immutable assumption-only run history |
+| POST | `/commissioning-lab/run` | Run a seeded 10–100 sample reference-factory ensemble |
 | GET | `/connectors/snapshot` | Connector profiles, mappings, evidence, and status |
 | PUT | `/connectors/{key}` | Configure or enable a connector without storing secrets |
 | POST | `/connectors/{key}/analyze` | Analyze a sample and suggest/validate its mapping |
@@ -415,6 +422,8 @@ unprefixed routes remain available for compatibility and local tooling.
 
 See [OPTIMIZATION_MODEL.md](OPTIMIZATION_MODEL.md) for the evidence model,
 research basis, assumptions, confidence gate, and learning stages.
+See [VIRTUAL_FACTORY_COMMISSIONING.md](VIRTUAL_FACTORY_COMMISSIONING.md) for the
+offsite reference model, isolation contract, sensitivity logic, and site measurements.
 See [IMPROVEMENT_LEARNING.md](IMPROVEMENT_LEARNING.md) for experiment metrics,
 outcome rules, guardrails, and the operator workflow.
 See [PRODUCTION_CONTROL.md](PRODUCTION_CONTROL.md) for order lifecycle, route

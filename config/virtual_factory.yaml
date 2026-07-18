@@ -1,0 +1,145 @@
+format: hive-virtual-factory-priors
+format_version: 1
+version: 2026-07-17
+status: assumption_only
+site: HAEEV reference flow
+shift_hours: 9
+reference_units_per_shift: 180
+
+# Broad engineering priors used only to exercise the software before factory evidence.
+sources:
+  - {label: SCM Gabbiani PT technical data, url: "https://www.scmgroup.com/en/scmwood/products/beam-saws.c907/automatic-single-blade-beam-saws.912/gabbiani-pt.699"}
+  - {label: SCM Morbidelli CX100 technical data, url: "https://www.scmgroup.com/en/scmwood/products/boring-machines.c880/boring-solutions.883/morbidelli-cx100.547"}
+  - {label: SCM Morbidelli N100 technical data, url: "https://www.scmgroup.com/products/docs/morbidelli%20n100_apr18_Ing.pdf"}
+  - {label: SCM Stefani KD technical data, url: "https://www.scmgroup.com/en/superfici/products/edge-banders-squaring-edge-banders.c863/single-sided-automatic-edge-banders.865/stefani-kd.42159"}
+  - {label: SCM DMC SD 60 technical data, url: "https://www.scmgroup.com/en/scmwood/products/wide-belt-sanders.c869/automatic-sanding-and-calibrating-machines.870/dmc-sd-60.702"}
+  - {label: SCM DMC SD 90 technical data, url: "https://www.scmgroup.com/en_CA/scmwood/products/wide-belt-sanders.c869/automatic-wide-belt-sanders.870/dmc-sd-90.816"}
+  - {label: NIST digital-twin credibility and uncertainty quantification, url: "https://www.nist.gov/publications/credibility-consideration-digital-twins-manufacturing"}
+
+machines:
+  gabbiani_pt80:
+    label: Gabbiani PT 80 Beam Saw
+    capacity: 1
+    cycle_s: {min: 40, mode: 90, max: 180}
+    availability: {min: 0.72, mode: 0.84, max: 0.93}
+    basis: Vendor envelope is up to 120 m/min saw-carriage and 80 m/min pusher speed; handling, cut count, stack height, and optimization are unknown.
+    measure: Export cut-list cycle, stack height, cut count, material changeover, and load/unload timestamps.
+  nova_si400:
+    label: Nova SI 400 Panel Saw
+    capacity: 1
+    cycle_s: {min: 60, mode: 180, max: 480}
+    availability: {min: 0.65, mode: 0.80, max: 0.92}
+    basis: Manual panel-saw fallback; operator handling and cut pattern dominate this engineering prior.
+    measure: Time representative manual cuts including staging, positioning, and unload.
+  morbidelli_cx100:
+    label: Morbidelli CX100 CNC Driller
+    capacity: 1
+    cycle_s: {min: 45, mode: 120, max: 300}
+    availability: {min: 0.70, mode: 0.84, max: 0.94}
+    basis: Vendor X-Y axes speed is 40 m/min with 12 vertical and 6 horizontal spindles; hole count, grooves, routing, and handling are unknown.
+    measure: Capture program identity, holes by face, grooves, routing distance, load, clamp, cycle, flip, and unload.
+  morbidelli_n100:
+    label: Morbidelli N100 Flat Bed Router
+    capacity: 1
+    cycle_s: {min: 90, mode: 240, max: 720}
+    availability: {min: 0.65, mode: 0.80, max: 0.92}
+    basis: Vendor vectorial X-Y speed is 35 m/min; nesting density, tool changes, routing length, drilling, and unload are unknown.
+    measure: Capture sheet/program, nested part count, routing length, tool changes, vacuum setup, cycle, and unload.
+  stefani_kd:
+    label: Stefani KD Edge Bander
+    capacity: 1
+    cycle_s: {min: 60, mode: 150, max: 360}
+    availability: {min: 0.70, mode: 0.85, max: 0.95}
+    basis: Vendor feed range is 10-20 m/min; edge count, panel return, glue/color setup, gap, and manual handling are unknown.
+    measure: Record edge count and length, feed setting, panel gap, return time, glue/color change, first-good-piece, and cycle timestamps.
+  sergiani_gs120:
+    label: Sergiani GS 120 Hot Press
+    capacity: 6
+    cycle_s: {min: 600, mode: 1200, max: 2400}
+    availability: {min: 0.70, mode: 0.86, max: 0.96}
+    basis: Batch-position and cure-time prior only; actual platen capacity, recipe, loading pattern, temperature, and glue system are unknown.
+    measure: Confirm usable batch positions and record recipe, load, close, pressure, temperature, cure, open, and unload timestamps.
+  varie_osama:
+    label: Varie Osama Glueing Line
+    capacity: 1
+    cycle_s: {min: 120, mode: 300, max: 900}
+    availability: {min: 0.65, mode: 0.80, max: 0.93}
+    basis: Process and handling prior only; glue type, spread rate, assembly content, and cure buffer are unknown.
+    measure: Record product family, glue recipe, application, assembly, queue, and transfer timestamps.
+  dmc60_rcs135:
+    label: DMC60 RCS 135 Calibration Sander
+    capacity: 1
+    cycle_s: {min: 25, mode: 60, max: 120}
+    availability: {min: 0.72, mode: 0.86, max: 0.95}
+    basis: Comparable SCM DMC SD 60 feed range is 4.5-9 m/min at 1350 mm width; passes, grit, removal, spacing, and handling are unknown.
+    measure: Record panel length, feed setting, pass count, grit sequence, spacing, belt condition, load, and unload.
+  dmc90_xrt135:
+    label: DMC90 XRT 135 Finishing Sander
+    capacity: 1
+    cycle_s: {min: 30, mode: 75, max: 180}
+    availability: {min: 0.70, mode: 0.84, max: 0.94}
+    basis: Comparable SCM DMC SD 90 feed range is 4.5-9 m/min at 1350 mm width; finish recipe, passes, and handling are unknown.
+    measure: Record panel length, finish recipe, feed setting, pass count, grit, belt condition, load, and unload.
+  superfici:
+    label: Superfici Paint Line
+    capacity: 1
+    cycle_s: {min: 180, mode: 600, max: 1800}
+    availability: {min: 0.60, mode: 0.78, max: 0.92}
+    basis: High-uncertainty occupancy prior; coating recipe, flash/cure time, conveyor pitch, recoat loops, and color changes are unknown.
+    measure: Record recipe, color, panel pitch, spray start/end, flash, cure, recoat, cleaning, and first-good-piece timestamps.
+  action_e:
+    label: Action E Boxing
+    capacity: 2
+    cycle_s: {min: 90, mode: 240, max: 600}
+    availability: {min: 0.65, mode: 0.82, max: 0.94}
+    basis: Manual packing-cell prior; kit content, scan discipline, staffing, packaging design, and material replenishment are unknown.
+    measure: Record kit size, operators, scan, box build, hardware pick, pack, QC, close, label, and dispatch timestamps.
+
+families:
+  standard_carcass:
+    label: Standard carcass panel
+    share: 0.50
+    route: [{machine: gabbiani_pt80}, {machine: morbidelli_cx100}, {machine: stefani_kd}, {machine: action_e}]
+  routed_panel:
+    label: Routed or nested panel
+    share: 0.20
+    route:
+      - {machine: gabbiani_pt80, duration_scale: 0.8}
+      - {machine: morbidelli_n100}
+      - {machine: stefani_kd, duration_scale: 0.8}
+      - {machine: action_e, duration_scale: 1.1}
+  painted_panel:
+    label: Painted or lacquered panel
+    share: 0.15
+    route:
+      - {machine: gabbiani_pt80, duration_scale: 0.8}
+      - {machine: morbidelli_n100, duration_scale: 0.7}
+      - {machine: dmc60_rcs135}
+      - {machine: dmc90_xrt135}
+      - {machine: superfici}
+      - {machine: action_e, duration_scale: 1.2}
+  pressed_panel:
+    label: Glued and pressed panel
+    share: 0.10
+    route:
+      - {machine: gabbiani_pt80}
+      - {machine: varie_osama}
+      - {machine: sergiani_gs120}
+      - {machine: dmc60_rcs135, duration_scale: 0.8}
+      - {machine: action_e, duration_scale: 1.1}
+  manual_or_rework_panel:
+    label: Manual cut or rework panel
+    share: 0.05
+    route:
+      - {machine: nova_si400}
+      - {machine: morbidelli_cx100, duration_scale: 0.7}
+      - {machine: stefani_kd, duration_scale: 0.7}
+      - {machine: action_e}
+
+interventions:
+  - {key: beam_saw_cutlist_batching, label: Batch compatible beam-saw cut lists, machine: gabbiani_pt80, duration_scale: 0.90}
+  - {key: cx100_program_grouping, label: Group compatible CX100 programs and tooling, machine: morbidelli_cx100, duration_scale: 0.90}
+  - {key: n100_setup_reduction, label: Reduce N100 vacuum and tool setup, machine: morbidelli_n100, duration_scale: 0.90}
+  - {key: edge_return_standard_work, label: Reduce edge-bander return and handling loss, machine: stefani_kd, duration_scale: 0.85}
+  - {key: paint_release_pitch, label: Stabilize paint-line release pitch and color batching, machine: superfici, duration_scale: 0.90}
+  - {key: boxing_standard_work, label: Standardize boxing kits and replenishment, machine: action_e, duration_scale: 0.85}

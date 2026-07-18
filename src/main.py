@@ -53,6 +53,7 @@ import recovery as recovery_module
 import learning as learning_module
 import routing as routing_module
 import commissioning as commissioning_module
+import commissioning_lab as commissioning_lab_module
 import event_pipeline
 import optimization as optimization_module
 import improvement as improvement_module
@@ -83,6 +84,7 @@ from api_models import (
     BarcodeEventCreate,
     CloseRequest,
     CommissioningLogRequest,
+    VirtualLabRunRequest,
     ConnectorAnalyzeRequest,
     ConnectorApprovalRequest,
     ConnectorImportRequest,
@@ -177,7 +179,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.22.0"
+APP_VERSION = "0.23.0"
 
 
 class ApiPrefixMiddleware:
@@ -1739,6 +1741,26 @@ def post_commissioning_log_analysis(payload: CommissioningLogRequest, request: R
         return commissioning_module.replay_log(
             conn, payload.machine_key, payload.log_text,
             persist=payload.persist, site_timezone=payload.site_timezone,
+        )
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/commissioning-lab")
+def get_commissioning_lab():
+    return commissioning_lab_module.snapshot(_get_conn())
+
+
+@app.get("/commissioning-lab/history")
+def get_commissioning_lab_history(limit: int = Query(20, ge=1, le=100)):
+    return commissioning_lab_module.history(_get_conn(), limit)
+
+
+@app.post("/commissioning-lab/run")
+def post_commissioning_lab_run(payload: VirtualLabRunRequest):
+    try:
+        return commissioning_lab_module.run(
+            _get_conn(), samples=payload.samples, seed=payload.seed, actor=payload.actor,
         )
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
