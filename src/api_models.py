@@ -297,6 +297,20 @@ class RemoteMachineRequest(RequestModel):
     execute: bool = False
 
 
+class RemoteCommissionRequest(RequestModel):
+    machine_key: str = Field(min_length=1, pattern=r"^[a-z0-9_]+$")
+    host: Optional[str] = None
+    log_folder: Optional[str] = None
+    cnc_folder: Optional[str] = None
+    username: Optional[str] = None
+    port: int = Field(default=22, ge=1, le=65535)
+    selected_log_folder: Optional[str] = None
+    selected_cnc_folder: Optional[str] = None
+    resume_run_id: Optional[int] = Field(default=None, ge=1)
+    force_reinstall: bool = False
+    execute: bool = False
+
+
 class RemoteTrustRequest(RequestModel):
     machine_key: str = Field(min_length=1, pattern=r"^[a-z0-9_]+$")
     host: Optional[str] = None

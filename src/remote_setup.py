@@ -20,6 +20,7 @@ from typing import Optional
 
 import yaml
 
+import config_editor
 import mqtt_security
 
 
@@ -38,6 +39,7 @@ COMMON_CNC_FOLDERS = [
 HOST_KEY_TYPES = {"ssh-ed25519", "ecdsa-sha2-nistp256", "ssh-rsa"}
 USERNAME = re.compile(r"^[^\s\x00-\x1f]{1,120}$")
 OUTPUT_LIMIT = 20_000
+HEARTBEAT_FRESH_SECONDS = 300
 
 
 def _now() -> str:
@@ -467,12 +469,18 @@ def plan(conn: sqlite3.Connection, cfg_path: Path, machine_key: str) -> dict:
     profile = host_profile(conn, machine_key)
     identity = identity_status()
     agent_payload = mqtt_security.agent_payload_status()
+    latest = conn.execute(
+        """SELECT rcr.id FROM remote_commissioning_runs rcr
+           JOIN machines m ON m.id=rcr.machine_id WHERE m.machine_key=?
+           ORDER BY rcr.id DESC LIMIT 1""", (machine_key,),
+    ).fetchone()
     return {
         "generated_at": _now(), "machine_key": machine_key,
         "label": machine.get("label") or machine_key, "host": machine.get("host"),
         "transport": "ssh", "ssh_port": profile["port"] if profile else 22,
         "mode": "commissioning", "credentials_stored": False,
         "identity": identity, "host_trust": profile, "agent_payload": agent_payload,
+        "latest_commissioning": _commissioning_result(conn, latest["id"]) if latest else None,
         "ready_for_live_execution": bool(
             identity["status"] == "ready" and profile and profile["status"] == "trusted"
             and agent_payload["ready"]
@@ -508,12 +516,27 @@ def snapshot(conn: sqlite3.Connection, cfg_path: Path) -> dict:
     latest_by_machine = {}
     for run in runs:
         latest_by_machine.setdefault(run["machine_key"], run)
+    commissioning_ids = [row["id"] for row in conn.execute(
+        "SELECT id FROM remote_commissioning_runs ORDER BY id DESC LIMIT 100"
+    )]
+    commissioning_runs = [_commissioning_result(conn, run_id) for run_id in commissioning_ids]
+    latest_commissioning = {}
+    for run in commissioning_runs:
+        latest_commissioning.setdefault(run["machine_key"], run)
     return {
         "generated_at": _now(), "identity": identity_status(),
         "agent_payload": mqtt_security.agent_payload_status(), "hosts": hosts, "runs": runs,
+        "commissioning_runs": commissioning_runs,
         "summary": {"configured_machines": len(machine_keys), "trusted_hosts": trusted,
                     "installed_hosts": installed,
-                    "failed_runs": sum(run["status"] == "failed" for run in latest_by_machine.values())},
+                    "failed_runs": sum(run["status"] == "failed" for run in latest_by_machine.values()),
+                    "commissioned_hosts": sum(
+                        run["status"] == "succeeded" for run in latest_commissioning.values()
+                    ),
+                    "commissioning_attention": sum(
+                        run["status"] in {"failed", "needs_input", "awaiting_signal"}
+                        for run in latest_commissioning.values()
+                    )},
     }
 
 
@@ -540,7 +563,10 @@ def authenticate(conn: sqlite3.Connection, cfg_path: Path, payload: dict, actor:
     script = rf"""
 $isAdmin = (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 $task = Get-ScheduledTask -TaskName '{task}' -ErrorAction SilentlyContinue
-[ordered]@{{status=if($isAdmin){{'ready'}}else{{'insufficient_privileges'}};computer_name=$env:COMPUTERNAME;username=$env:USERNAME;is_admin=$isAdmin;powershell=$PSVersionTable.PSVersion.ToString();agent_installed=[bool](Test-Path -LiteralPath 'C:\HIVE-Agent');task_state=if($task){{$task.State.ToString()}}else{{$null}}}} | ConvertTo-Json -Compress
+$agentConfig='C:\HIVE-Agent\config\machines.yaml'
+$configuredLog=$null
+if(Test-Path -LiteralPath $agentConfig){{$match=Select-String -LiteralPath $agentConfig -Pattern '^\s*log_folder:\s*["'']?(.*?)["'']?\s*$' | Select-Object -First 1;if($match){{$configuredLog=$match.Matches[0].Groups[1].Value.Trim()}}}}
+[ordered]@{{status=if($isAdmin){{'ready'}}else{{'insufficient_privileges'}};computer_name=$env:COMPUTERNAME;username=$env:USERNAME;is_admin=$isAdmin;powershell=$PSVersionTable.PSVersion.ToString();agent_installed=[bool](Test-Path -LiteralPath 'C:\HIVE-Agent');task_state=if($task){{$task.State.ToString()}}else{{$null}};configured_log_folder=$configuredLog}} | ConvertTo-Json -Compress
 """
     return _run_json(conn, target, "authenticate", actor, "Verify SSH key and administrator context", script)
 
@@ -673,3 +699,341 @@ def fetch_log(conn: sqlite3.Connection, cfg_path: Path, payload: dict, actor: st
 $path='C:\HIVE-Agent\logs\agent.log'; $exists=Test-Path -LiteralPath $path; $lines=if($exists){@(Get-Content -LiteralPath $path -Tail 200 -ErrorAction Stop)}else{@()}; [ordered]@{status=if($exists){'completed'}else{'not_found'};remote_path=$path;lines=$lines} | ConvertTo-Json -Depth 3 -Compress
 """
     return _run_json(conn, target, "fetch_log", actor, "Fetch the last 200 HIVE agent log lines", script)
+
+
+def _json_text(value: object) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+    if len(encoded) <= OUTPUT_LIMIT:
+        return encoded
+    return json.dumps({
+        "truncated": True,
+        "original_length": len(encoded),
+        "sha256": hashlib.sha256(encoded.encode("utf-8")).hexdigest(),
+    }, sort_keys=True, separators=(",", ":"))
+
+
+def _commissioning_step(conn: sqlite3.Connection, run_id: int, step_key: str,
+                        status: str, detail: Optional[dict] = None) -> None:
+    now = _now()
+    completed_at = None if status == "running" else now
+    conn.execute(
+        """INSERT INTO remote_commissioning_steps
+           (commissioning_run_id,step_key,status,detail_json,started_at,completed_at)
+           VALUES (?,?,?,?,?,?)
+           ON CONFLICT(commissioning_run_id,step_key) DO UPDATE SET
+             status=excluded.status,detail_json=excluded.detail_json,
+             completed_at=excluded.completed_at""",
+        (run_id, step_key, status, _json_text(detail or {}), now, completed_at),
+    )
+    conn.execute(
+        "UPDATE remote_commissioning_runs SET stage=?,updated_at=? WHERE id=?",
+        (step_key, now, run_id),
+    )
+    conn.commit()
+
+
+def _commissioning_result(conn: sqlite3.Connection, run_id: int) -> dict:
+    row = conn.execute(
+        """SELECT rcr.*,m.machine_key,m.name machine_name
+           FROM remote_commissioning_runs rcr JOIN machines m ON m.id=rcr.machine_id
+           WHERE rcr.id=?""", (run_id,),
+    ).fetchone()
+    if not row:
+        raise KeyError(f"Unknown commissioning run '{run_id}'")
+    result = dict(row)
+    result["force_reinstall"] = bool(result["force_reinstall"])
+    try:
+        result["result"] = json.loads(result.pop("result_json"))
+    except json.JSONDecodeError:
+        result["result"] = {}
+        result.pop("result_json", None)
+    result["steps"] = []
+    for step in conn.execute(
+        """SELECT step_key,status,detail_json,started_at,completed_at
+           FROM remote_commissioning_steps WHERE commissioning_run_id=? ORDER BY id""",
+        (run_id,),
+    ):
+        item = dict(step)
+        try:
+            item["detail"] = json.loads(item.pop("detail_json"))
+        except json.JSONDecodeError:
+            item["detail"] = {}
+            item.pop("detail_json", None)
+        result["steps"].append(item)
+    return result
+
+
+def _finish_commissioning(conn: sqlite3.Connection, run_id: int, status: str,
+                          result: Optional[dict] = None, error: Optional[str] = None) -> dict:
+    now = _now()
+    completed = now if status in {"succeeded", "failed"} else None
+    conn.execute(
+        """UPDATE remote_commissioning_runs SET status=?,updated_at=?,completed_at=?,
+           last_error=?,result_json=? WHERE id=?""",
+        (status, now, completed, _tail(error), _json_text(result or {}), run_id),
+    )
+    conn.commit()
+    return _commissioning_result(conn, run_id)
+
+
+def _passport_gate(conn: sqlite3.Connection, machine_key: str) -> dict:
+    row = conn.execute(
+        """SELECT mp.status,mp.telemetry_strategy,mp.controller_host
+           FROM machine_passports mp JOIN machines m ON m.id=mp.machine_id
+           WHERE m.machine_key=?""", (machine_key,),
+    ).fetchone()
+    if not row or row["status"] != "confirmed":
+        raise ValueError("Confirm the machine passport before live agent commissioning")
+    if row["telemetry_strategy"] != "maestro_agent":
+        raise ValueError("The confirmed passport must select the Maestro agent telemetry strategy")
+    return dict(row)
+
+
+def _select_discovered(candidates: list[dict], selected: Optional[str], label: str,
+                       required: bool) -> tuple[Optional[str], list[str]]:
+    existing = [str(item.get("path")) for item in candidates if item.get("exists")]
+    by_key = {path.casefold(): path for path in existing}
+    if selected:
+        match = by_key.get(str(selected).strip().casefold())
+        if not match:
+            raise ValueError(f"The selected {label} folder was not found on the machine PC")
+        return match, existing
+    if len(existing) == 1:
+        return existing[0], existing
+    if required:
+        return None, existing
+    return None, existing
+
+
+def _save_machine_config(cfg_path: Path, target: dict, log_folder: str,
+                         cnc_folder: Optional[str]) -> dict:
+    site = config_editor.load(cfg_path)
+    agents = site.get("maestro_agents", [])
+    found = False
+    updated = []
+    for agent in agents:
+        if agent.get("machine_key") != target["machine_key"]:
+            updated.append(agent)
+            continue
+        found = True
+        item = {**agent, "host": target["host"], "log_folder": log_folder}
+        if cnc_folder:
+            item["cnc_folder"] = cnc_folder
+        updated.append(item)
+    if not found:
+        raise ValueError(f"Unknown Maestro machine '{target['machine_key']}'")
+    saved = config_editor.save(cfg_path, {"maestro_agents": updated})
+    return {"backup_path": saved["backup_path"], "saved_at": saved["saved_at"],
+            "host": target["host"], "log_folder": log_folder,
+            "cnc_folder": cnc_folder}
+
+
+def _remote_agent_verification(conn: sqlite3.Connection, cfg_path: Path,
+                               payload: dict, actor: str) -> dict:
+    target = _trusted_target(conn, cfg_path, payload)
+    task = f"HIVE Agent - {target['machine_key']}"
+    script = rf"""
+$task=Get-ScheduledTask -TaskName {_ps_quote(task)} -ErrorAction SilentlyContinue
+$config='C:\HIVE-Agent\config\machines.yaml'; $log='C:\HIVE-Agent\logs\agent.log'
+$configuredLog=$null
+if(Test-Path -LiteralPath $config){{$match=Select-String -LiteralPath $config -Pattern '^\s*log_folder:\s*["'']?(.*?)["'']?\s*$' | Select-Object -First 1;if($match){{$configuredLog=$match.Matches[0].Groups[1].Value.Trim()}}}}
+[ordered]@{{status='completed';agent_installed=[bool](Test-Path -LiteralPath 'C:\HIVE-Agent');task_exists=[bool]$task;task_state=if($task){{$task.State.ToString()}}else{{$null}};config_exists=[bool](Test-Path -LiteralPath $config);configured_log_folder=$configuredLog;log_exists=[bool](Test-Path -LiteralPath $log);log_lines=if(Test-Path -LiteralPath $log){{@(Get-Content -LiteralPath $log -Tail 20 -ErrorAction SilentlyContinue).Count}}else{{0}}}} | ConvertTo-Json -Compress
+"""
+    return _run_json(conn, target, "verify_agent", actor,
+                     "Verify installed agent, scheduled task, configuration, and log", script)
+
+
+def _central_signal(conn: sqlite3.Connection, machine_key: str) -> dict:
+    row = conn.execute(
+        """SELECT a.source,a.last_heartbeat_at,a.last_event_at,a.last_received_at
+           FROM agent_status a JOIN machines m ON m.id=a.machine_id
+           WHERE m.machine_key=?""", (machine_key,),
+    ).fetchone()
+    if not row:
+        return {"status": "awaiting_signal", "fresh": False,
+                "detail": "No heartbeat or event has reached the central PC yet"}
+    data = dict(row)
+    latest = data.get("last_heartbeat_at") or data.get("last_event_at") or data.get("last_received_at")
+    try:
+        parsed = datetime.fromisoformat(str(latest).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        age_s = max(0, (datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds())
+    except (TypeError, ValueError):
+        age_s = None
+    fresh = age_s is not None and age_s <= HEARTBEAT_FRESH_SECONDS
+    return {**data, "status": "received" if fresh else "awaiting_signal",
+            "fresh": fresh, "latest_signal_at": latest, "age_s": age_s}
+
+
+def _start_commissioning(conn: sqlite3.Connection, target: dict, payload: dict,
+                         actor: str) -> int:
+    resume_id = payload.get("resume_run_id")
+    if resume_id:
+        row = conn.execute(
+            """SELECT rcr.*,m.machine_key FROM remote_commissioning_runs rcr
+               JOIN machines m ON m.id=rcr.machine_id WHERE rcr.id=?""", (resume_id,),
+        ).fetchone()
+        if not row or row["machine_key"] != target["machine_key"]:
+            raise ValueError("The commissioning run does not belong to this machine")
+        if row["status"] not in {"needs_input", "awaiting_signal"}:
+            raise ValueError("Only a paused commissioning run can be resumed")
+        if row["host"] != target["host"] or int(row["port"]) != target["port"]:
+            raise ValueError("The commissioning endpoint changed; start a new trusted run")
+        conn.execute(
+            """UPDATE remote_commissioning_runs SET status='running',updated_at=?,
+               completed_at=NULL,last_error=NULL WHERE id=?""", (_now(), resume_id),
+        )
+        conn.commit()
+        return int(resume_id)
+    machine = _machine_row(conn, target["machine_key"])
+    now = _now()
+    cursor = conn.execute(
+        """INSERT INTO remote_commissioning_runs
+           (machine_id,mode,status,stage,host,port,username,force_reinstall,actor,
+            started_at,updated_at)
+           VALUES (?,'live','running','authenticate',?,?,?,?,?,?,?)""",
+        (machine["id"], target["host"], target["port"], target["username"],
+         int(bool(payload.get("force_reinstall"))), actor, now, now),
+    )
+    conn.commit()
+    return cursor.lastrowid
+
+
+def _paths_equal(left: Optional[str], right: Optional[str]) -> bool:
+    return bool(left and right and left.strip().casefold() == right.strip().casefold())
+
+
+def _verification_outcome(conn: sqlite3.Connection, cfg_path: Path, run_id: int,
+                          target: dict, actor: str) -> dict:
+    _commissioning_step(conn, run_id, "verify_remote", "running")
+    remote = _remote_agent_verification(conn, cfg_path, target, actor)
+    expected = conn.execute(
+        "SELECT selected_log_folder FROM remote_commissioning_runs WHERE id=?", (run_id,),
+    ).fetchone()["selected_log_folder"]
+    remote_ok = bool(
+        remote.get("agent_installed") and remote.get("task_exists")
+        and remote.get("task_state") in {"Running", "Ready"}
+        and remote.get("config_exists") and _paths_equal(remote.get("configured_log_folder"), expected)
+    )
+    _commissioning_step(conn, run_id, "verify_remote",
+                        "succeeded" if remote_ok else "failed", remote)
+    if not remote_ok:
+        return _finish_commissioning(
+            conn, run_id, "failed", {"remote": remote},
+            "Remote agent verification did not match the selected machine configuration",
+        )
+    signal = _central_signal(conn, target["machine_key"])
+    signal_status = "succeeded" if signal["fresh"] else "awaiting_signal"
+    _commissioning_step(conn, run_id, "verify_signal", signal_status, signal)
+    return _finish_commissioning(
+        conn, run_id, "succeeded" if signal["fresh"] else "awaiting_signal",
+        {"remote": remote, "signal": signal},
+    )
+
+
+def commission_agent(conn: sqlite3.Connection, cfg_path: Path, payload: dict,
+                     actor: str) -> dict:
+    target = _target(cfg_path, payload)
+    if not payload.get("execute"):
+        return {
+            "generated_at": _now(), "machine_key": target["machine_key"],
+            "mode": "dry_run", "status": "preview_ready", "will_execute": False,
+            "steps": ["authenticate", "discover_folders", "save_config", "install_agent",
+                      "verify_remote", "verify_signal"],
+            "guardrail": "Live commissioning requires a confirmed Maestro passport, trusted SSH fingerprint, and administrator access.",
+        }
+    target = _trusted_target(conn, cfg_path, payload)
+    passport = _passport_gate(conn, target["machine_key"])
+    passport_host = str(passport.get("controller_host") or "").strip()
+    if passport_host and passport_host.casefold() != target["host"].casefold():
+        raise ValueError("The trusted SSH endpoint does not match the confirmed passport host")
+    run_id = _start_commissioning(conn, target, payload, actor)
+    try:
+        if payload.get("resume_run_id") and _commissioning_result(conn, run_id)["status"] == "running":
+            previous = conn.execute(
+                "SELECT status FROM remote_commissioning_steps WHERE commissioning_run_id=? AND step_key='verify_remote'",
+                (run_id,),
+            ).fetchone()
+            if previous and previous["status"] == "succeeded" and not payload.get("selected_log_folder"):
+                return _verification_outcome(conn, cfg_path, run_id, target, actor)
+
+        _commissioning_step(conn, run_id, "authenticate", "running")
+        authentication = authenticate(conn, cfg_path, {**target, "execute": True}, actor)
+        if not authentication.get("is_admin"):
+            raise ValueError("The trusted SSH account does not have Windows administrator access")
+        _commissioning_step(conn, run_id, "authenticate", "succeeded", authentication)
+
+        _commissioning_step(conn, run_id, "discover_folders", "running")
+        discovery_payload = {**target, "execute": True}
+        if payload.get("selected_log_folder"):
+            discovery_payload["log_folder"] = payload["selected_log_folder"]
+        if payload.get("selected_cnc_folder"):
+            discovery_payload["cnc_folder"] = payload["selected_cnc_folder"]
+        discovery = detect_folders(conn, cfg_path, discovery_payload, actor)
+        selected_log, available_logs = _select_discovered(
+            discovery.get("log_candidates", []), payload.get("selected_log_folder"),
+            "Maestro log", True,
+        )
+        selected_cnc, available_cnc = _select_discovered(
+            discovery.get("cnc_candidates", []), payload.get("selected_cnc_folder"),
+            "CNC", False,
+        )
+        detail = {"log_candidates": discovery.get("log_candidates", []),
+                  "cnc_candidates": discovery.get("cnc_candidates", [])}
+        if not selected_log:
+            detail["input_required"] = "selected_log_folder"
+            detail["available_log_folders"] = available_logs
+            detail["available_cnc_folders"] = available_cnc
+            _commissioning_step(conn, run_id, "discover_folders", "needs_input", detail)
+            return _finish_commissioning(conn, run_id, "needs_input", detail)
+        detail.update({"selected_log_folder": selected_log,
+                       "selected_cnc_folder": selected_cnc})
+        _commissioning_step(conn, run_id, "discover_folders", "succeeded", detail)
+        conn.execute(
+            """UPDATE remote_commissioning_runs SET selected_log_folder=?,selected_cnc_folder=?,
+               updated_at=? WHERE id=?""", (selected_log, selected_cnc, _now(), run_id),
+        )
+        conn.commit()
+
+        _commissioning_step(conn, run_id, "save_config", "running")
+        saved = _save_machine_config(cfg_path, target, selected_log, selected_cnc)
+        _commissioning_step(conn, run_id, "save_config", "succeeded", saved)
+
+        installed_and_current = bool(
+            authentication.get("agent_installed")
+            and authentication.get("task_state") in {"Running", "Ready"}
+            and _paths_equal(authentication.get("configured_log_folder"), selected_log)
+            and not payload.get("force_reinstall")
+        )
+        if installed_and_current:
+            _commissioning_step(conn, run_id, "install_agent", "skipped", {
+                "reason": "A healthy agent already uses the selected log folder",
+                "task_state": authentication.get("task_state"),
+            })
+        else:
+            _commissioning_step(conn, run_id, "install_agent", "running")
+            installed = install_agent(conn, cfg_path, {
+                **target, "log_folder": selected_log, "cnc_folder": selected_cnc,
+                "execute": True,
+            }, actor)
+            _commissioning_step(conn, run_id, "install_agent", "succeeded", installed)
+        return _verification_outcome(conn, cfg_path, run_id, target, actor)
+    except ValueError as error:
+        stage = conn.execute(
+            "SELECT stage FROM remote_commissioning_runs WHERE id=?", (run_id,),
+        ).fetchone()["stage"]
+        _commissioning_step(conn, run_id, stage, "failed", {"detail": str(error)})
+        return _finish_commissioning(conn, run_id, "failed", error=str(error))
+
+
+def verify_commissioning(conn: sqlite3.Connection, cfg_path: Path, run_id: int,
+                         actor: str) -> dict:
+    run = _commissioning_result(conn, run_id)
+    if run["mode"] != "live" or run["status"] != "awaiting_signal":
+        raise ValueError("Only a live commissioning run awaiting a central signal can be verified")
+    target = _trusted_target(conn, cfg_path, {
+        "machine_key": run["machine_key"], "host": run["host"],
+        "port": run["port"], "username": run["username"],
+    })
+    return _verification_outcome(conn, cfg_path, run_id, target, actor)

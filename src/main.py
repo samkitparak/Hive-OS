@@ -169,6 +169,7 @@ from api_models import (
     DowntimeCreate,
     OttimoPlaceholder,
     QualityCheckCreate,
+    RemoteCommissionRequest,
     RemoteConnectionRequest,
     RemoteMachineRequest,
     RemoteTrustRequest,
@@ -198,7 +199,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.29.0"
+APP_VERSION = "0.30.0"
 
 
 class ApiPrefixMiddleware:
@@ -2457,6 +2458,41 @@ def post_remote_agent_live_install(payload: RemoteMachineRequest, request: Reque
         data["execute"] = True
         return remote_setup_module.install_agent(
             _get_conn(), CONFIG_PATH, data, _principal_name(request),
+        )
+    except (KeyError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/remote-setup/commission-agent")
+def post_remote_agent_commission_preview(payload: RemoteCommissionRequest, request: Request):
+    try:
+        if payload.execute:
+            raise ValueError("Use the administrator-only live commissioning endpoint")
+        return remote_setup_module.commission_agent(
+            _get_conn(), CONFIG_PATH, payload.model_dump(exclude_none=True),
+            _principal_name(request),
+        )
+    except (KeyError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/remote-setup/commission-agent/live")
+def post_remote_agent_commission_live(payload: RemoteCommissionRequest, request: Request):
+    try:
+        data = payload.model_dump(exclude_none=True)
+        data["execute"] = True
+        return remote_setup_module.commission_agent(
+            _get_conn(), CONFIG_PATH, data, _principal_name(request),
+        )
+    except (KeyError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/remote-setup/commission-agent/{run_id}/verify")
+def post_remote_agent_commission_verify(run_id: int, request: Request):
+    try:
+        return remote_setup_module.verify_commissioning(
+            _get_conn(), CONFIG_PATH, run_id, _principal_name(request),
         )
     except (KeyError, ValueError) as error:
         raise HTTPException(400, str(error)) from error

@@ -1,8 +1,10 @@
 """Secure remote machine setup, trust, execution, and audit behavior."""
 
 import base64
+import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -50,6 +52,49 @@ def _trust(conn):
         "machine_key": "morbidelli_cx100", "host": "10.0.0.104",
         "port": 22, "username": "hiveadmin", "fingerprint": FINGERPRINT,
     }, "Admin")
+
+
+def _commissioning_site(conn, ssh_site, tmp_path):
+    cfg = tmp_path / "machines.yaml"
+    shutil.copy2(CFG, cfg)
+    remote_setup.trust_host(conn, cfg, {
+        "machine_key": "morbidelli_cx100", "host": "10.0.0.104",
+        "port": 22, "username": "hiveadmin", "fingerprint": FINGERPRINT,
+    }, "Admin")
+    machine_id = conn.execute(
+        "SELECT id FROM machines WHERE machine_key='morbidelli_cx100'"
+    ).fetchone()["id"]
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """INSERT OR REPLACE INTO machine_passports
+           (machine_id,status,physical_location,controller_model,controller_host,
+            telemetry_strategy,created_at,updated_at)
+           VALUES (?,'confirmed','CNC cell','Morbidelli CX100','10.0.0.104',
+                   'maestro_agent',?,?)""", (machine_id, now, now),
+    )
+    conn.commit()
+    return cfg, machine_id
+
+
+def _mock_commissioning(monkeypatch, *, log_paths, installed=False):
+    monkeypatch.setattr(remote_setup, "authenticate", lambda *args, **kwargs: {
+        "status": "ready", "is_admin": True, "agent_installed": installed,
+        "task_state": "Running" if installed else None,
+        "configured_log_folder": log_paths[0] if installed else None,
+    })
+    monkeypatch.setattr(remote_setup, "detect_folders", lambda *args, **kwargs: {
+        "status": "completed",
+        "log_candidates": [{"path": path, "exists": True} for path in log_paths],
+        "cnc_candidates": [{"path": r"C:\SCM\Maestro\CncPrograms", "exists": True}],
+    })
+    monkeypatch.setattr(remote_setup, "install_agent", lambda *args, **kwargs: {
+        "status": "installed", "agent_installed": True, "task_state": "Running",
+    })
+    monkeypatch.setattr(remote_setup, "_remote_agent_verification", lambda *args, **kwargs: {
+        "status": "completed", "agent_installed": True, "task_exists": True,
+        "task_state": "Running", "config_exists": True,
+        "configured_log_folder": log_paths[0], "log_exists": True, "log_lines": 3,
+    })
 
 
 def test_plan_exposes_real_commissioning_gate(conn, ssh_site):
@@ -236,6 +281,129 @@ def test_remote_setup_endpoints_keep_execution_opt_in(conn, monkeypatch):
         assert response.status_code == 200
         assert response.json()["will_execute"] is False
 
+        response = client.post("/remote-setup/commission-agent", json={
+            "machine_key": "stefani_kd",
+            "host": "192.168.1.101",
+            "log_folder": r"C:\SCM\Maestro\Logs",
+            "cnc_folder": None,
+            "username": "",
+            "port": 22,
+            "execute": False,
+        })
+        assert response.status_code == 200
+        assert response.json()["status"] == "preview_ready"
+
         response = client.get("/remote-setup/snapshot")
         assert response.status_code == 200
         assert response.json()["summary"]["trusted_hosts"] == 0
+
+
+def test_commissioning_preview_is_side_effect_free(conn):
+    result = remote_setup.commission_agent(conn, CFG, {
+        "machine_key": "morbidelli_cx100", "host": "10.0.0.104",
+    }, "Admin")
+    assert result["status"] == "preview_ready"
+    assert result["will_execute"] is False
+    assert result["steps"][-1] == "verify_signal"
+    assert conn.execute("SELECT COUNT(*) FROM remote_commissioning_runs").fetchone()[0] == 0
+
+
+def test_live_commissioning_installs_saves_and_verifies_fresh_signal(
+        conn, ssh_site, tmp_path, monkeypatch):
+    cfg, machine_id = _commissioning_site(conn, ssh_site, tmp_path)
+    log_path = r"C:\SCM\Maestro\Logs"
+    _mock_commissioning(monkeypatch, log_paths=[log_path])
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """INSERT INTO agent_status
+           (machine_id,source,last_heartbeat_at,last_received_at)
+           VALUES (?,?,?,?)""", (machine_id, "mqtt", now, now),
+    )
+    conn.commit()
+
+    result = remote_setup.commission_agent(conn, cfg, {
+        "machine_key": "morbidelli_cx100", "host": "10.0.0.104", "execute": True,
+    }, "Admin")
+
+    assert result["status"] == "succeeded"
+    assert result["selected_log_folder"] == log_path
+    assert [step["status"] for step in result["steps"]] == [
+        "succeeded", "succeeded", "succeeded", "succeeded", "succeeded", "succeeded",
+    ]
+    saved = remote_setup._machine(cfg, "morbidelli_cx100")
+    assert saved["host"] == "10.0.0.104"
+    assert saved["log_folder"] == log_path
+    assert list((tmp_path / "backups").glob("machines.*.yaml"))
+
+
+def test_commissioning_pauses_for_ambiguous_logs_then_resumes(
+        conn, ssh_site, tmp_path, monkeypatch):
+    cfg, _ = _commissioning_site(conn, ssh_site, tmp_path)
+    paths = [r"C:\SCM\Maestro\Logs", r"D:\SCM\Maestro\Logs"]
+    _mock_commissioning(monkeypatch, log_paths=paths)
+
+    paused = remote_setup.commission_agent(conn, cfg, {
+        "machine_key": "morbidelli_cx100", "host": "10.0.0.104", "execute": True,
+    }, "Admin")
+    assert paused["status"] == "needs_input"
+    assert paused["result"]["available_log_folders"] == paths
+    assert all(step["step_key"] != "install_agent" for step in paused["steps"])
+
+    selected = paths[1]
+    monkeypatch.setattr(remote_setup, "_remote_agent_verification", lambda *args, **kwargs: {
+        "status": "completed", "agent_installed": True, "task_exists": True,
+        "task_state": "Running", "config_exists": True,
+        "configured_log_folder": selected, "log_exists": False, "log_lines": 0,
+    })
+    resumed = remote_setup.commission_agent(conn, cfg, {
+        "machine_key": "morbidelli_cx100", "host": "10.0.0.104", "execute": True,
+        "resume_run_id": paused["id"], "selected_log_folder": selected,
+    }, "Admin")
+    assert resumed["id"] == paused["id"]
+    assert resumed["status"] == "awaiting_signal"
+    assert resumed["selected_log_folder"] == selected
+    assert remote_setup._machine(cfg, "morbidelli_cx100")["log_folder"] == selected
+
+
+def test_commissioning_signal_can_be_verified_without_reinstall(
+        conn, ssh_site, tmp_path, monkeypatch):
+    cfg, machine_id = _commissioning_site(conn, ssh_site, tmp_path)
+    log_path = r"C:\SCM\Maestro\Logs"
+    _mock_commissioning(monkeypatch, log_paths=[log_path])
+    result = remote_setup.commission_agent(conn, cfg, {
+        "machine_key": "morbidelli_cx100", "host": "10.0.0.104", "execute": True,
+    }, "Admin")
+    assert result["status"] == "awaiting_signal"
+
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """INSERT INTO agent_status
+           (machine_id,source,last_heartbeat_at,last_received_at)
+           VALUES (?,?,?,?)""", (machine_id, "mqtt", now, now),
+    )
+    conn.commit()
+    verified = remote_setup.verify_commissioning(conn, cfg, result["id"], "Admin")
+    assert verified["status"] == "succeeded"
+    assert verified["result"]["signal"]["fresh"] is True
+
+
+def test_commissioning_skips_healthy_matching_agent(
+        conn, ssh_site, tmp_path, monkeypatch):
+    cfg, machine_id = _commissioning_site(conn, ssh_site, tmp_path)
+    log_path = r"C:\SCM\Maestro\Logs"
+    _mock_commissioning(monkeypatch, log_paths=[log_path], installed=True)
+    monkeypatch.setattr(remote_setup, "install_agent", lambda *args, **kwargs: pytest.fail(
+        "healthy matching agent must not be reinstalled"
+    ))
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """INSERT INTO agent_status
+           (machine_id,source,last_heartbeat_at,last_received_at)
+           VALUES (?,?,?,?)""", (machine_id, "mqtt", now, now),
+    )
+    conn.commit()
+    result = remote_setup.commission_agent(conn, cfg, {
+        "machine_key": "morbidelli_cx100", "host": "10.0.0.104", "execute": True,
+    }, "Admin")
+    install_step = next(step for step in result["steps"] if step["step_key"] == "install_agent")
+    assert install_step["status"] == "skipped"

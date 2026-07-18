@@ -59,6 +59,8 @@ def test_diagnostics_reports_services_and_machines(conn):
     remote_service = next(item for item in result["services"]
                           if item["key"] == "remote_commissioning")
     assert remote_service["status"] == "needs_site_value"
+    assert result["summary"]["machines_agent_commissioned"] == 0
+    assert result["summary"]["agent_commissioning_attention"] == 0
     connector_service = next(item for item in result["services"]
                              if item["key"] == "connectors")
     assert connector_service["status"] == "needs_site_value"

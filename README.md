@@ -37,7 +37,7 @@ operations are limited to the HIVE database and site configuration.
 - **Serialized unit identity** — one auditable identity per physical part, alias-safe scanner resolution, duplicate suppression, browser labels, and native Zebra ZPL.
 - **Preventive maintenance control** — commissioned calendar/usage/condition plans, machine-specific inspections, named LOTO evidence, maintenance-aware schedules, and audited spare reservations.
 - **Tool lifecycle control** — serialized blades, cutters, and drills; exact CNC-program usage attribution; rated and locally learned life; quality-linked service triggers; reconditioning history; and planning capacity gates.
-- **Remote machine commissioning** — Windows OpenSSH bootstrap, explicit host-fingerprint trust, key-only folder discovery, automatic MQTT enrollment, agent install/restart/log retrieval, and immutable run evidence.
+- **Remote machine commissioning** — Windows OpenSSH bootstrap, explicit host-fingerprint trust, and a resumable one-click transaction for folder discovery, backed-up configuration, MQTT enrollment, install, task verification, and central heartbeat proof.
 - **Offline recovery lifecycle** — hash-verified no-network install bundles, consistent live backups, protected trust-state recovery, staged upgrades, health checks, and automatic rollback.
 - **Factory integration boundary** — versioned mappings, read-only SQL discovery, credential references, sample fingerprints, issue audits, and idempotent import batches.
 - **Industrial telemetry gateway** — commissioned Modbus TCP, OPC-UA, and MQTT signals; read-only probes; immutable contracts; debounced machine state; raw/latest/hourly telemetry; and offsite simulation.
@@ -416,6 +416,8 @@ unprefixed routes remain available for compatibility and local tooling.
 | GET | `/remote-setup/plan/{machine_key}`, `/remote-setup/snapshot` | SSH readiness, trust, and immutable run history |
 | POST | `/remote-setup/identity` | Generate the protected central deployment identity |
 | POST | `/remote-setup/test-connection` | Probe an SSH TCP port without authentication |
+| POST | `/remote-setup/commission-agent`, `/commission-agent/live` | Preview or administrator-run the resumable end-to-end Maestro agent transaction |
+| POST | `/remote-setup/commission-agent/{run_id}/verify` | Recheck remote health and the first central heartbeat |
 | POST | `/remote-setup/scan-host-key`, `/trust-host` | Scan then explicitly approve a verified host fingerprint |
 | DELETE | `/remote-setup/trust-host/{machine_key}` | Revoke host trust and remove it from strict known-hosts |
 | POST | `/remote-setup/authenticate` | Verify key authentication and administrator context |

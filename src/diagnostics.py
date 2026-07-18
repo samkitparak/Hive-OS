@@ -277,6 +277,8 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "commissioning_missions_active": factory_summary["missions_active"],
             "commissioning_missions_completed": factory_summary["missions_completed"],
             "machines_offsite_ready": factory_summary["offsite_ready"],
+            "machines_agent_commissioned": remote_summary["commissioned_hosts"],
+            "agent_commissioning_attention": remote_summary["commissioning_attention"],
             "verified_changeover_standards": changeover_summary["verified_standards"],
             "learned_changeover_models": changeover_summary["active_models"],
             "changeover_observations": changeover_summary["accepted_observations"],
@@ -344,6 +346,8 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
                  f"SSH identity {remote_state['identity']['status']}; "
                  f"{remote_summary['trusted_hosts']}/{remote_summary['configured_machines']} hosts trusted; "
                  f"{remote_summary['installed_hosts']} successful installs; "
+                 f"{remote_summary['commissioned_hosts']} end-to-end verified; "
+                 f"{remote_summary['commissioning_attention']} awaiting input or signal; "
                  f"{remote_summary['failed_runs']} failed runs; "
                  f"offline payload {remote_state['agent_payload']['status']}"
              )},

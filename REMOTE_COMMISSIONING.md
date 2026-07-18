@@ -71,11 +71,38 @@ Administrator username, then:
 2. Scan the host fingerprint.
 3. Compare one SHA-256 fingerprint with the machine screen.
 4. Confirm the match and trust the host.
-5. Authenticate and verify `is_admin: true`.
-6. Enable live SSH and detect folders.
-7. Save the detected log/CNC paths to site setup.
-8. Install the agent.
-9. Fetch the log and confirm the MQTT heartbeat in Diagnostics.
+5. Enable live SSH and select **Commission agent**.
+6. If HIVE finds more than one valid Maestro log folder, select the real folder
+   and resume the same run.
+7. If the agent is waiting for its first MQTT signal, select **Verify heartbeat**
+   after the scheduled task has had a few seconds to connect.
+
+The commissioning transaction authenticates the administrator context,
+discovers folders, saves the selected host and paths with a configuration
+backup, installs the agent, verifies its task/configuration/log, and checks for
+a fresh central heartbeat. Every stage is persisted. A browser refresh or an
+ambiguous folder does not lose the run, and a healthy agent already using the
+selected log folder is not reinstalled. The individual folder, install,
+restart, and log actions remain under **Advanced actions** for repair work.
+
+Commissioning requires a confirmed machine passport whose telemetry strategy
+is `maestro_agent`. A successful SSH command is not treated as a successful
+installation: the run remains `awaiting_signal` until HIVE receives fresh
+machine evidence. Microsoft documents the scheduled-task state queried by this
+verification in [Get-ScheduledTask](https://learn.microsoft.com/en-us/powershell/module/scheduledtasks/get-scheduledtask).
+
+The physical host-fingerprint comparison remains deliberately manual. This is
+the one step a central one-click workflow cannot safely infer.
+
+## Transaction states
+
+| State | Meaning | Next action |
+|---|---|---|
+| `running` | A bounded commissioning stage is executing | Wait for the request |
+| `needs_input` | More than one or no standard log folder was proven | Select a discovered folder or verify a custom path |
+| `awaiting_signal` | Remote install is healthy but no fresh central signal exists | Verify heartbeat after the agent connects |
+| `succeeded` | Remote state and fresh central evidence both passed | Continue the factory-readiness mission |
+| `failed` | A stage failed closed and retained its evidence | Correct the reported cause and start a new run |
 
 ## Live installation transaction
 
@@ -92,6 +119,14 @@ orphaned enrollment and records the failed run. A successful install verifies a
 staging installation, checks mutual-TLS MQTT, atomically replaces
 `C:\HIVE-Agent`, and starts the `HIVE Agent - <machine>` SYSTEM scheduled task.
 If activation fails, the previous agent directory and task are restored.
+
+The orchestration endpoints are:
+
+- `POST /remote-setup/commission-agent` for a side-effect-free preview.
+- `POST /remote-setup/commission-agent/live` for an administrator-only live run
+  or `needs_input` resume.
+- `POST /remote-setup/commission-agent/{run_id}/verify` to recheck a run waiting
+  for its first central signal.
 
 ## Recovery and host-key changes
 

@@ -372,6 +372,13 @@ export default function App({ auth }) {
 
   const runRemoteSetupAction = async (kind, payload) => {
     if (kind === "plan") return fetchRemoteSetupPlan(payload.machine_key);
+    if (kind === "verifyCommission") {
+      const result = await postJson(`/remote-setup/commission-agent/${payload.run_id}/verify`, {});
+      ["diagnostics", "factoryReadiness"].forEach(key => {
+        qc.invalidateQueries({ queryKey: [key] });
+      });
+      return result;
+    }
     if (kind === "forget") {
       const result = await forgetRemoteHost(payload.machine_key);
       qc.invalidateQueries({ queryKey: ["diagnostics"] });
@@ -385,12 +392,33 @@ export default function App({ auth }) {
       auth: "/remote-setup/authenticate",
       folders: "/remote-setup/detect-folders",
       install: payload.execute ? "/remote-setup/install-agent/live" : "/remote-setup/install-agent",
+      commission: payload.execute ? "/remote-setup/commission-agent/live" : "/remote-setup/commission-agent",
       restart: "/remote-setup/restart-agent",
       log: "/remote-setup/fetch-log",
     };
     const result = await postJson(paths[kind], payload);
     if (["identity", "trust", "forget", "install"].includes(kind)) {
-      ["diagnostics", "deployment"].forEach(key => qc.invalidateQueries({ queryKey: [key] }));
+      ["diagnostics", "deployment"].forEach(key => {
+        qc.invalidateQueries({ queryKey: [key] });
+      });
+    }
+    if (kind === "commission" && payload.execute) {
+      if (result.selected_log_folder) {
+        qc.setQueryData(["siteConfig"], current => current ? ({
+          ...current,
+          maestro_agents: (current.maestro_agents ?? []).map(agent =>
+            agent.machine_key === result.machine_key ? {
+              ...agent,
+              host: result.host ?? agent.host,
+              log_folder: result.selected_log_folder,
+              cnc_folder: result.selected_cnc_folder ?? agent.cnc_folder,
+            } : agent
+          ),
+        }) : current);
+      }
+      ["diagnostics", "deployment", "factoryReadiness"].forEach(key => {
+        qc.invalidateQueries({ queryKey: [key] });
+      });
     }
     return result;
   };

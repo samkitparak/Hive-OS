@@ -769,6 +769,42 @@ CREATE TABLE IF NOT EXISTS remote_setup_runs (
     completed_at        TEXT
 );
 
+-- A commissioning run composes the individual audited SSH actions into one
+-- resumable transaction. Ambiguous folder discovery pauses for operator input;
+-- it never guesses a production path.
+CREATE TABLE IF NOT EXISTS remote_commissioning_runs (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    machine_id          INTEGER NOT NULL REFERENCES machines(id),
+    mode                TEXT NOT NULL CHECK(mode IN ('dry_run','live')),
+    status              TEXT NOT NULL CHECK(status IN
+                        ('running','needs_input','awaiting_signal','succeeded','failed')),
+    stage               TEXT NOT NULL,
+    host                TEXT NOT NULL,
+    port                INTEGER NOT NULL CHECK(port BETWEEN 1 AND 65535),
+    username            TEXT,
+    selected_log_folder TEXT,
+    selected_cnc_folder TEXT,
+    force_reinstall     INTEGER NOT NULL DEFAULT 0,
+    actor               TEXT NOT NULL,
+    started_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    completed_at        TEXT,
+    last_error          TEXT,
+    result_json         TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS remote_commissioning_steps (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    commissioning_run_id INTEGER NOT NULL REFERENCES remote_commissioning_runs(id),
+    step_key            TEXT NOT NULL,
+    status              TEXT NOT NULL CHECK(status IN
+                        ('running','succeeded','skipped','needs_input','awaiting_signal','failed')),
+    detail_json         TEXT NOT NULL DEFAULT '{}',
+    started_at          TEXT NOT NULL,
+    completed_at        TEXT,
+    UNIQUE(commissioning_run_id, step_key)
+);
+
 CREATE TABLE IF NOT EXISTS machine_resource_profiles (
     machine_id          INTEGER PRIMARY KEY REFERENCES machines(id),
     labor_role_id       INTEGER REFERENCES labor_roles(id),
@@ -2281,6 +2317,8 @@ CREATE INDEX IF NOT EXISTS idx_tool_program_machine_file ON tool_program_mapping
 CREATE INDEX IF NOT EXISTS idx_tool_service_tool_time ON tool_service_records(tool_id, performed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_remote_setup_runs_machine_time ON remote_setup_runs(machine_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_remote_setup_runs_status_time ON remote_setup_runs(status, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_remote_commissioning_machine_time ON remote_commissioning_runs(machine_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_remote_commissioning_status_time ON remote_commissioning_runs(status, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_resource_unavailability_window ON resource_unavailability(resource_type, resource_key, starts_at, ends_at);
 CREATE INDEX IF NOT EXISTS idx_resource_change_events_key_ts ON resource_change_events(resource_type, resource_key, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_execution_jobs_machine_state_sequence ON execution_jobs(machine_id, state, dispatch_sequence);

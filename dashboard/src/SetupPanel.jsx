@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Download, FileSearch, Fingerprint, FolderSearch, KeyRound, PlugZap, RefreshCw, RotateCw, ShieldCheck, ShieldX, Terminal } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Circle, Download, FileSearch, Fingerprint, FolderSearch, KeyRound, PlugZap, RefreshCw, Rocket, RotateCw, ShieldCheck, ShieldX, Terminal } from "lucide-react";
 
 function cloneConfig(config) {
   return JSON.parse(JSON.stringify(config ?? {}));
@@ -56,6 +56,7 @@ export function SetupPanel({ config, onClose, onSave, onRemoteAction }) {
   const [fingerprint, setFingerprint] = useState("");
   const [fingerprintConfirmed, setFingerprintConfirmed] = useState(false);
   const [liveMode, setLiveMode] = useState(false);
+  const [selectedCommissionLog, setSelectedCommissionLog] = useState("");
 
   const setMqtt = (key, value) => {
     setDraft(prev => ({ ...prev, mqtt: { ...(prev.mqtt ?? {}), [key]: value } }));
@@ -97,7 +98,7 @@ export function SetupPanel({ config, onClose, onSave, onRemoteAction }) {
     agent => agent.machine_key === remoteMachineKey
   );
 
-  const runRemote = async kind => {
+  const runRemote = async (kind, extra = {}) => {
     if (!remoteMachineKey) return;
     setRemoteBusy(true);
     setRemoteResult(null);
@@ -110,7 +111,9 @@ export function SetupPanel({ config, onClose, onSave, onRemoteAction }) {
         username: remoteUser,
         port: sshPort,
         execute: ["folders", "install", "restart", "log"].includes(kind) && liveMode,
+        ...extra,
       };
+      if (kind === "commission") payload.execute = liveMode;
       if (kind === "trust") {
         payload.fingerprint = fingerprint;
         payload.expected_version = remotePlan?.host_trust?.version;
@@ -137,7 +140,27 @@ export function SetupPanel({ config, onClose, onSave, onRemoteAction }) {
           setMessage("Detected machine folders added to the setup draft.");
         }
       }
-      if (["identity", "trust", "forget", "install"].includes(kind)) {
+      if (["commission", "verifyCommission"].includes(kind) && result.selected_log_folder) {
+        const index = (draft.maestro_agents ?? []).findIndex(agent => agent.machine_key === remoteMachineKey);
+        if (index >= 0) {
+          setDraft(current => ({
+            ...current,
+            maestro_agents: (current.maestro_agents ?? []).map((agent, agentIndex) =>
+              agentIndex === index ? {
+                ...agent,
+                host: result.host ?? agent.host,
+                log_folder: result.selected_log_folder,
+                cnc_folder: result.selected_cnc_folder ?? agent.cnc_folder,
+              } : agent
+            ),
+          }));
+          setMessage(result.status === "succeeded"
+            ? "Commissioning complete. Agent and central signal verified."
+            : "Commissioning saved the detected machine paths.");
+        }
+      }
+      if (result.status !== "needs_input") setSelectedCommissionLog("");
+      if (["identity", "trust", "forget", "install", "commission", "verifyCommission"].includes(kind)) {
         const refreshed = await onRemoteAction("plan", payload);
         setRemotePlan(refreshed);
         if (kind === "forget") setLiveMode(false);
@@ -253,6 +276,7 @@ export function SetupPanel({ config, onClose, onSave, onRemoteAction }) {
                     setFingerprint("");
                     setFingerprintConfirmed(false);
                     setLiveMode(false);
+                    setSelectedCommissionLog("");
                   }} style={inputStyle}>
                     {(draft.maestro_agents ?? []).map(agent => (
                       <option key={agent.machine_key} value={agent.machine_key}>{agent.label}</option>
@@ -312,7 +336,17 @@ export function SetupPanel({ config, onClose, onSave, onRemoteAction }) {
                          onChange={event => setLiveMode(event.target.checked)} />
                   Execute approved SSH actions
                 </label>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 9 }}>
+                <button type="button" disabled={remoteBusy || (liveMode && !remotePlan?.ready_for_live_execution)}
+                        onClick={() => runRemote("commission")}
+                        style={{ ...actionButtonStyle, width: "100%", marginTop: 9,
+                                 background: liveMode ? "#166534" : "#172554",
+                                 borderColor: liveMode ? "#22c55e" : "#3b82f6",
+                                 minHeight: 38, opacity: remoteBusy ? .55 : 1 }}>
+                  <Rocket size={15} /> {liveMode ? "Commission agent" : "Preview commissioning"}
+                </button>
+                <details style={{ marginTop: 10 }}>
+                  <summary style={{ color: "#9ca3af", fontSize: 10, cursor: "pointer" }}>Advanced actions</summary>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 9 }}>
                   <button type="button" disabled={remoteBusy} onClick={() => runRemote("folders")} style={actionButtonStyle}>
                     <FolderSearch size={13} /> {liveMode ? "Detect folders" : "Preview folders"}
                   </button>
@@ -327,9 +361,57 @@ export function SetupPanel({ config, onClose, onSave, onRemoteAction }) {
                   </button>
                   {remotePlan?.host_trust?.status === "trusted" && <button type="button" disabled={remoteBusy || liveMode} onClick={() => runRemote("forget")}
                     style={{ ...actionButtonStyle, color: "#fca5a5" }}><ShieldX size={13} /> Revoke trust</button>}
-                </div>
+                  </div>
+                </details>
               </div>
               {remoteBusy && <div style={{ color: "#60a5fa", fontSize: 11, marginTop: 10 }}>Working...</div>}
+              {remoteResult?.steps?.length > 0 && (
+                <div style={{ display: "grid", gap: 5, marginTop: 10 }}>
+                  {remoteResult.steps.map(step => {
+                    const stepKey = typeof step === "string" ? step : step.step_key;
+                    const stepStatus = typeof step === "string" ? "planned" : step.status;
+                    const complete = ["succeeded", "skipped"].includes(stepStatus);
+                    const attention = ["failed", "needs_input", "awaiting_signal"].includes(stepStatus);
+                    const StepIcon = complete ? CheckCircle2 : attention ? AlertTriangle : Circle;
+                    return <div key={stepKey} style={{ display: "flex", alignItems: "center", gap: 7,
+                      color: complete ? "#86efac" : attention ? "#fbbf24" : "#93c5fd", fontSize: 10 }}>
+                      <StepIcon size={13} />
+                      <span style={{ color: "#d1d5db" }}>{stepKey.replaceAll("_", " ")}</span>
+                      <span style={{ marginLeft: "auto", textTransform: "uppercase", fontSize: 8, fontWeight: 800 }}>{stepStatus}</span>
+                    </div>;
+                  })}
+                </div>
+              )}
+              {remoteResult?.status === "needs_input" && (
+                <div style={{ borderTop: "1px solid #1f2937", marginTop: 10, paddingTop: 10 }}>
+                  <div style={labelStyle}>Select Maestro log folder</div>
+                  <div style={{ display: "grid", gap: 6, marginTop: 7 }}>
+                    {(remoteResult.result?.available_log_folders ?? []).map(path => (
+                      <label key={path} style={{ display: "flex", gap: 7, alignItems: "center", color: "#d1d5db", fontSize: 10 }}>
+                        <input type="radio" name="commission-log-folder" checked={selectedCommissionLog === path}
+                               onChange={() => setSelectedCommissionLog(path)} />
+                        <code style={{ overflowWrap: "anywhere" }}>{path}</code>
+                      </label>
+                    ))}
+                    <TextInput value={selectedCommissionLog} onChange={setSelectedCommissionLog}
+                               placeholder="C:\\path\\to\\Maestro\\Logs" />
+                  </div>
+                  <button type="button" disabled={remoteBusy || !selectedCommissionLog}
+                          onClick={() => runRemote("commission", {
+                            resume_run_id: remoteResult.id,
+                            selected_log_folder: selectedCommissionLog,
+                          })} style={{ ...actionButtonStyle, marginTop: 8, background: "#166534" }}>
+                    <Rocket size={13} /> Resume commissioning
+                  </button>
+                </div>
+              )}
+              {remoteResult?.status === "awaiting_signal" && (
+                <button type="button" disabled={remoteBusy}
+                        onClick={() => runRemote("verifyCommission", { run_id: remoteResult.id })}
+                        style={{ ...actionButtonStyle, marginTop: 10 }}>
+                  <RefreshCw size={13} /> Verify heartbeat
+                </button>
+              )}
               {remoteResult && (
                 <pre style={{ background: "#111827", border: "1px solid #1f2937", borderRadius: 6,
                               padding: 10, color: remoteResult.status === "error" ? "#ef4444" : "#d1d5db",
