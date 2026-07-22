@@ -14,6 +14,39 @@ class FlowSyncRequest(RequestModel):
     actor: str = Field(default="operator", min_length=1)
 
 
+class ReleaseControlSyncRequest(RequestModel):
+    actor: str = Field(default="operator", min_length=1)
+
+
+class ReleaseControlSettingsUpdate(RequestModel):
+    expected_version: Optional[int] = Field(default=None, ge=1)
+    auto_review: Optional[bool] = None
+    interval_seconds: Optional[int] = Field(default=None, ge=60, le=86400)
+    overload_threshold_ratio: Optional[float] = Field(default=None, gt=0, le=2)
+    work_ahead_hours: Optional[float] = Field(default=None, ge=0)
+    queue_allowance_hours: Optional[float] = Field(default=None, ge=0)
+    expedite_after_hours: Optional[float] = Field(default=None, ge=0)
+    max_releases_per_review: Optional[int] = Field(default=None, ge=1, le=20)
+    allow_starvation_override: Optional[bool] = None
+    verified: Optional[bool] = None
+    actor: str = Field(default="operator", min_length=1)
+
+
+class ReleaseControlNormUpdate(RequestModel):
+    expected_version: Optional[int] = Field(default=None, ge=1)
+    workload_norm_minutes: float = Field(gt=0)
+    standard_operation_seconds: Optional[float] = Field(default=None, gt=0)
+    verified: bool = False
+    actor: str = Field(default="operator", min_length=1)
+
+
+class ReleaseControlAction(RequestModel):
+    action: Literal["approve", "dismiss"]
+    actor: str = Field(default="operator", min_length=1)
+    notes: Optional[str] = None
+    confirm_override: bool = False
+
+
 class DowntimeCreate(RequestModel):
     machine_key: str = Field(min_length=1)
     reason_code: Optional[str] = None

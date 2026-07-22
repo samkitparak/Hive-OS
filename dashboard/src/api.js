@@ -118,6 +118,17 @@ export const fetchOptimization = () => request("/optimization");
 export const fetchProductionLosses = () => request("/production-losses");
 export const fetchFlowIntelligence = () => request("/flow-intelligence?days=90");
 export const syncFlowIntelligence = (payload = {}) => postJson("/flow-intelligence/sync", payload);
+export const fetchReleaseControl = () => request("/release-control");
+export const syncReleaseControl = (payload = {}) => postJson("/release-control/sync", payload);
+export const updateReleaseControlSettings = payload => request("/release-control/settings", {
+  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+});
+export const updateReleaseControlNorm = (machineKey, payload) => request(
+  `/release-control/norms/${encodeURIComponent(machineKey)}`,
+  { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+);
+export const actOnReleaseRecommendation = (id, payload) =>
+  postJson(`/release-control/recommendations/${id}/action`, payload);
 export const fetchImprovements = () => request("/improvements");
 export const syncImprovements = (payload = {}) => postJson("/improvements/sync", payload);
 export const actOnImprovement = (id, payload) =>

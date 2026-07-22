@@ -350,6 +350,8 @@ def required_permissions(method: str, path: str) -> tuple[str, ...]:
         return ("commission",)
     if path.startswith("/procurement"):
         return ("procure",)
+    if path.startswith("/release-control"):
+        return ("plan", "optimize", "supervise")
     if path.startswith(("/planning", "/production", "/resources", "/inventory", "/recovery")):
         return ("plan",)
     if path.startswith("/changeovers"):

@@ -1,7 +1,11 @@
 import { lazy, Suspense, useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, UserRound } from "lucide-react";
-import { fetchFlowIntelligence, syncFlowIntelligence } from "./api";
+import {
+  actOnReleaseRecommendation, fetchFlowIntelligence, fetchReleaseControl,
+  syncFlowIntelligence, syncReleaseControl, updateReleaseControlNorm,
+  updateReleaseControlSettings,
+} from "./api";
 import { fetchMachines, fetchJobs, fetchActiveJobs, fetchDailyScore, fetchSequence, fetchBottlenecks, syncConstraints, fetchConstraintTimeline, updateConstraintSettings, fetchDataQuality, fetchOptimization, fetchProductionLosses, fetchLearningStatus, fetchRoutingGraph, fetchTwinReadiness, fetchForecast, refreshForecast, fetchProductionOrders, fetchProductionReadiness, updateProductionOrder, fetchProductionRoutes, replacePartRoute, fetchRouteExceptions, resolveRouteException, fetchPlanningScenarios, createPlanningScenario, decidePlanningScenario, fetchActiveSchedule, fetchRecovery, analyzeRecovery, decideRecovery, fetchExecutionSnapshot, syncExecution, updateExecutionJob, resolveExecutionException, fetchIdentitySnapshot, createLabelJob, markLabelJobPrinted, fetchResourceSnapshot, updateChangeoverStandard, recordChangeoverObservation, excludeChangeoverObservation, syncChangeovers, fetchProcurementSnapshot, updateProcurementSupplier, updateProcurementMapping, createPurchaseOrder, draftProcurementRecommendations, actOnPurchaseOrder, createGoodsReceipt, importProcurementCsv, updateMaterialStock, updateInventoryItem, updateInventoryLot, updateInventoryRequirement, createInventoryRemnant, updateInventoryRemnant, updateLaborRole, updateToolPool, createToolAsset, updateToolAsset, recordToolUsage, recordToolAction, recordToolService, updateToolProgramMapping, syncTooling, updateMachineResource, updateFactoryCalendar, updateWipBuffer, createResourceUnavailability, deleteResourceUnavailability, fetchDiagnostics, fetchDeployment, fetchResilience, createSystemBackup, verifySystemBackup, fetchConfig, saveConfig, fetchRemoteSetupPlan, forgetRemoteHost, fetchOperationsSummary, fetchDowntime, fetchWorkOrders, fetchMaintenanceSnapshot, syncMaintenance, updateMaintenancePlan, fetchMaintenanceWorkOrder, updateMaintenanceWorkOrder, completeMaintenanceWorkOrder, createSparePart, updateSpareStock, fetchRework, fetchBarcodeEvents, analyzeCommissioningLog, fetchConnectorSnapshot, analyzeConnector, approveConnector, importConnectorRecords, updateConnectorProfile, discoverCabinetVisionSql, syncCabinetVisionSql, fetchIndustrialSnapshot, updateIndustrialProfile, simulateIndustrialProfile, probeIndustrialProfile, probeIndustrialMqtt, approveIndustrialProfile, pollIndustrialProfile, browseIndustrialOpcua, fetchFactoryReadiness, updateMachinePassport, importFactoryInventory, probeFactoryConnection, startFactoryMission, actOnFactoryMission, downloadFactoryReadinessPack, fetchImprovements, syncImprovements, actOnImprovement, fetchRootCauses, syncRootCauses, decideRootCause, fetchAlerts, syncAlerts, actOnAlert, updateAlertDestination, testAlertDestination, dispatchAlerts, updateAlertSettings, postJson, simulateEvent } from "./api";
 import { MachineCard } from "./MachineCard";
 import { MachineDetail } from "./MachineDetail";
@@ -15,6 +19,7 @@ import { SetupPanel } from "./SetupPanel";
 import { IntelligencePanel } from "./IntelligencePanel";
 import { ProductionLossPanel } from "./ProductionLossPanel";
 import { FlowIntelligencePanel } from "./FlowIntelligencePanel";
+import { ReleaseControlPanel } from "./ReleaseControlPanel";
 import { ImprovementPanel } from "./ImprovementPanel";
 import { RootCausePanel } from "./RootCausePanel";
 import { AlertCenter } from "./AlertCenter";
@@ -68,6 +73,7 @@ export default function App({ auth }) {
   const [showConstraintHistory, setShowConstraintHistory] = useState(false);
   const [constraintSyncing, setConstraintSyncing] = useState(false);
   const [flowSyncing, setFlowSyncing] = useState(false);
+  const [releaseSyncing, setReleaseSyncing] = useState(false);
   const demoRef = useRef(null);
 
   const { data: machines = [] } = useQuery({
@@ -102,6 +108,9 @@ export default function App({ auth }) {
   });
   const { data: flowIntelligence = null } = useQuery({
     queryKey: ["flowIntelligence"], queryFn: fetchFlowIntelligence, refetchInterval: 30000,
+  });
+  const { data: releaseControl = null } = useQuery({
+    queryKey: ["releaseControl"], queryFn: fetchReleaseControl, refetchInterval: 30000,
   });
   const { data: improvements = null } = useQuery({
     queryKey: ["improvements"], queryFn: fetchImprovements, refetchInterval: 30000,
@@ -209,6 +218,7 @@ export default function App({ auth }) {
       qc.invalidateQueries({ queryKey: ["optimization"] });
       qc.invalidateQueries({ queryKey: ["productionLosses"] });
       qc.invalidateQueries({ queryKey: ["flowIntelligence"] });
+      qc.invalidateQueries({ queryKey: ["releaseControl"] });
       qc.invalidateQueries({ queryKey: ["learning"] });
       qc.invalidateQueries({ queryKey: ["routing"] });
       qc.invalidateQueries({ queryKey: ["twin"] });
@@ -284,7 +294,7 @@ export default function App({ auth }) {
   };
 
   const refreshOperations = () => {
-    ["operationsSummary", "downtime", "workOrders", "maintenance", "rework", "barcodeEvents", "executionSnapshot", "identitySnapshot", "productionOrders", "resourceSnapshot", "jobs", "productionLosses", "flowIntelligence", "dailyScore", "optimization", "diagnostics"].forEach(key => {
+    ["operationsSummary", "downtime", "workOrders", "maintenance", "rework", "barcodeEvents", "executionSnapshot", "identitySnapshot", "productionOrders", "resourceSnapshot", "jobs", "productionLosses", "flowIntelligence", "releaseControl", "dailyScore", "optimization", "diagnostics"].forEach(key => {
       qc.invalidateQueries({ queryKey: [key] });
     });
   };
@@ -441,7 +451,7 @@ export default function App({ auth }) {
   const runCommissioningAnalysis = async payload => {
     const result = await analyzeCommissioningLog(payload);
     if (payload.persist) {
-      ["machines", "productionLosses", "flowIntelligence", "bottlenecks", "dataQuality", "optimization", "diagnostics"].forEach(key => {
+      ["machines", "productionLosses", "flowIntelligence", "releaseControl", "bottlenecks", "dataQuality", "optimization", "diagnostics"].forEach(key => {
         qc.invalidateQueries({ queryKey: [key] });
       });
     }
@@ -476,12 +486,51 @@ export default function App({ auth }) {
       await syncFlowIntelligence({ actor: auth.user.username || "operator" });
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["flowIntelligence"] }),
+        qc.invalidateQueries({ queryKey: ["releaseControl"] }),
         qc.invalidateQueries({ queryKey: ["optimization"] }),
         qc.invalidateQueries({ queryKey: ["diagnostics"] }),
       ]);
     } finally {
       setFlowSyncing(false);
     }
+  };
+
+  const refreshReleaseControl = () => {
+    ["releaseControl", "productionOrders", "executionSnapshot", "flowIntelligence", "optimization", "diagnostics"].forEach(key => {
+      qc.invalidateQueries({ queryKey: [key] });
+    });
+  };
+
+  const runReleaseSync = async () => {
+    setReleaseSyncing(true);
+    try {
+      await syncReleaseControl({ actor: auth.user.username || "operator" });
+      refreshReleaseControl();
+    } finally { setReleaseSyncing(false); }
+  };
+
+  const runReleaseSettings = async payload => {
+    const result = await updateReleaseControlSettings({
+      ...payload, actor: auth.user.username || "operator",
+    });
+    refreshReleaseControl();
+    return result;
+  };
+
+  const runReleaseNorm = async (machineKey, payload) => {
+    const result = await updateReleaseControlNorm(machineKey, {
+      ...payload, actor: auth.user.username || "operator",
+    });
+    refreshReleaseControl();
+    return result;
+  };
+
+  const runReleaseAction = async (id, payload) => {
+    const result = await actOnReleaseRecommendation(id, {
+      ...payload, actor: auth.user.username || "operator",
+    });
+    refreshReleaseControl();
+    return result;
   };
 
   const runConnectorAction = async (kind, connectorKey, payload = {}) => {
@@ -763,6 +812,14 @@ export default function App({ auth }) {
       <FlowIntelligencePanel data={flowIntelligence}
         onSync={can("optimize", "supervise") ? runFlowSync : null}
         syncing={flowSyncing} />
+
+      <ReleaseControlPanel data={releaseControl}
+        canManage={can("plan", "optimize", "supervise")}
+        syncing={releaseSyncing}
+        onSync={runReleaseSync}
+        onSettings={runReleaseSettings}
+        onNorm={runReleaseNorm}
+        onAction={runReleaseAction} />
 
       <Suspense fallback={<section style={{ borderTop: "1px solid #1f2937", borderBottom: "1px solid #1f2937",
         padding: "14px 0", marginBottom: 20, color: "#6b7280", fontSize: 11 }}>Loading production forecast…</section>}>

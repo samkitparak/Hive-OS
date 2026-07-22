@@ -25,6 +25,7 @@ import factory_readiness
 import changeovers
 import production_loss
 import flow_intelligence
+import release_control
 
 PLACEHOLDER_HOSTS = {
     *(f"192.168.1.{number}" for number in range(51, 55)),
@@ -216,6 +217,12 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
     flow_summary = flow_state["current"]["summary"]
     flow_history = flow_state["history"]
     flow_sampling = flow_state["sampling"]
+    release_state = release_control.snapshot(conn)
+    release_runtime = release_state["runtime"]
+    release_current = release_state["current"]
+    release_summary = release_current["summary"] if release_current else {
+        "pre_shop_orders": 0, "actionable": 0, "release": 0, "expedite": 0, "hold": 0,
+    }
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -261,6 +268,10 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
                 flow_summary["ready_wip_qty"] + flow_summary["in_process_qty"]
                 + flow_summary["held_wip_qty"]
             ),
+            "release_control_status": release_current["status"] if release_current else "starting",
+            "release_control_runtime_status": release_runtime["status"],
+            "release_control_pool_orders": release_summary["pre_shop_orders"],
+            "release_control_actionable": release_summary["actionable"],
             "open_diagnostic_cases": root_cause_summary["open"],
             "confirmed_root_causes": root_cause_summary["confirmed"],
             "diagnostic_models_learning": learned_incident_types,
@@ -465,6 +476,20 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
                  f"{flow_history['archived_shifts']} shifts archived; "
                  f"{flow_history['decision_ready_shifts']} decision-ready; "
                  f"{flow_summary['physically_observed_qty']} physically observed WIP units"
+             )},
+            {"key": "release_control", "name": "Adaptive order release control",
+             "status": (
+                 "ready" if release_runtime["status"] == "healthy"
+                 and release_current and release_current["status"] in {"actionable", "stable"}
+                 and release_state["settings"]["verified"] else
+                 "learning" if release_runtime["status"] in {"healthy", "starting"} else
+                 "offline"
+             ),
+             "detail": (
+                 f"worker {release_runtime['status']}; "
+                 f"{release_summary['pre_shop_orders']} pre-shop orders; "
+                 f"{release_summary['actionable']} actionable; "
+                 f"policy {'verified' if release_state['settings']['verified'] else 'awaiting site verification'}"
              )},
             {"key": "root_cause_diagnostics", "name": "Root-cause diagnostics",
              "status": "ready" if root_cause_summary["confirmed"] else (

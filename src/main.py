@@ -60,6 +60,7 @@ import event_pipeline
 import optimization as optimization_module
 import production_loss as production_loss_module
 import flow_intelligence as flow_intelligence_module
+import release_control as release_control_module
 import improvement as improvement_module
 import root_cause as root_cause_module
 import alerting as alerting_module
@@ -116,6 +117,10 @@ from api_models import (
     ImprovementAction,
     ImprovementSyncRequest,
     FlowSyncRequest,
+    ReleaseControlAction,
+    ReleaseControlNormUpdate,
+    ReleaseControlSettingsUpdate,
+    ReleaseControlSyncRequest,
     ConstraintSyncRequest,
     ConstraintSettingsUpdate,
     RootCauseDecision,
@@ -202,7 +207,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.32.0"
+APP_VERSION = "0.33.0"
 
 
 class ApiPrefixMiddleware:
@@ -364,13 +369,14 @@ _industrial_watch_task = None
 _alert_watch_task = None
 _constraint_watch_task = None
 _flow_watch_task = None
+_release_watch_task = None
 _route_conn_override = None
 _route_connections = threading.local()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _mqtt_client, _conn, _cv_observer, _event_watch_task, _learning_watch_task, _industrial_watch_task, _alert_watch_task, _constraint_watch_task, _flow_watch_task
+    global _mqtt_client, _conn, _cv_observer, _event_watch_task, _learning_watch_task, _industrial_watch_task, _alert_watch_task, _constraint_watch_task, _flow_watch_task, _release_watch_task
     _conn = init_db(DB_PATH, check_same_thread=False)
     if access_control_module.auth_required():
         token_path = access_control_module.ensure_bootstrap_token(_conn)
@@ -385,6 +391,7 @@ async def lifespan(app: FastAPI):
     tooling_module.sync(_conn)
     connectors_module.sync_defaults(_conn)
     industrial_gateway_module.sync_defaults(_conn)
+    release_control_module.sync_defaults(_conn)
     try:
         _mqtt_client = mqtt_bridge.start(_conn, CONFIG_PATH)
         log.info("MQTT bridge started")
@@ -397,7 +404,14 @@ async def lifespan(app: FastAPI):
     _alert_watch_task = asyncio.create_task(_watch_alerts())
     _constraint_watch_task = asyncio.create_task(_watch_constraints())
     _flow_watch_task = asyncio.create_task(_watch_flow())
+    _release_watch_task = asyncio.create_task(_watch_release_control())
     yield
+    if _release_watch_task:
+        _release_watch_task.cancel()
+        try:
+            await _release_watch_task
+        except asyncio.CancelledError:
+            pass
     if _flow_watch_task:
         _flow_watch_task.cancel()
         try:
@@ -621,6 +635,34 @@ async def _watch_flow():
             raise
         except Exception:
             log.exception("flow intelligence automation failed")
+            await asyncio.sleep(30)
+
+
+def _run_release_worker() -> dict:
+    owned = _route_conn_override is None
+    conn = (db_module.get_connection(DB_PATH, check_same_thread=False)
+            if owned else _route_conn_override)
+    try:
+        return release_control_module.automatic_refresh(conn)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        if owned:
+            conn.close()
+
+
+async def _watch_release_control():
+    """Periodically review the pre-shop pool without applying decisions."""
+    await asyncio.sleep(4)
+    while True:
+        try:
+            await asyncio.to_thread(_run_release_worker)
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("release control automation failed")
             await asyncio.sleep(30)
 
 
@@ -1079,6 +1121,59 @@ def post_flow_intelligence_sync(payload: FlowSyncRequest):
                 _get_conn(), actor=payload.actor
             )
         return {"sample": sample, "archived": archived}
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/release-control")
+def get_release_control():
+    return release_control_module.snapshot(_get_conn())
+
+
+@app.post("/release-control/sync")
+def post_release_control_sync(payload: ReleaseControlSyncRequest):
+    try:
+        return release_control_module.create_review(_get_conn(), actor=payload.actor)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.put("/release-control/settings")
+def put_release_control_settings(payload: ReleaseControlSettingsUpdate):
+    try:
+        return release_control_module.update_settings(_get_conn(), payload.model_dump())
+    except release_control_module.VersionConflict as error:
+        raise HTTPException(409, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.put("/release-control/norms/{machine_key}")
+def put_release_control_norm(machine_key: str, payload: ReleaseControlNormUpdate):
+    try:
+        return release_control_module.update_norm(
+            _get_conn(), machine_key, payload.model_dump()
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except release_control_module.VersionConflict as error:
+        raise HTTPException(409, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.post("/release-control/recommendations/{recommendation_id}/action")
+def post_release_control_action(recommendation_id: int,
+                                payload: ReleaseControlAction):
+    try:
+        return release_control_module.act(
+            _get_conn(), recommendation_id, payload.model_dump()
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except (release_control_module.VersionConflict,
+            production_control_module.VersionConflict) as error:
+        raise HTTPException(409, str(error)) from error
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
 

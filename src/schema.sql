@@ -2203,6 +2203,85 @@ CREATE TABLE IF NOT EXISTS flow_shift_snapshots (
     UNIQUE(shift_key, evidence_sha256)
 );
 
+-- Workload-control order release keeps unreleased orders in a pre-shop pool.
+-- Reviews are immutable decision evidence; only a named, authorized approval
+-- may move a production order from ready to released.
+CREATE TABLE IF NOT EXISTS release_control_settings (
+    id                          INTEGER PRIMARY KEY CHECK(id=1),
+    auto_review                 INTEGER NOT NULL DEFAULT 1,
+    interval_seconds            INTEGER NOT NULL DEFAULT 300 CHECK(interval_seconds BETWEEN 60 AND 86400),
+    overload_threshold_ratio    REAL NOT NULL DEFAULT 0.85 CHECK(overload_threshold_ratio > 0 AND overload_threshold_ratio <= 2),
+    work_ahead_hours            REAL NOT NULL DEFAULT 72 CHECK(work_ahead_hours >= 0),
+    queue_allowance_hours       REAL NOT NULL DEFAULT 4 CHECK(queue_allowance_hours >= 0),
+    expedite_after_hours        REAL NOT NULL DEFAULT 8 CHECK(expedite_after_hours >= 0),
+    max_releases_per_review     INTEGER NOT NULL DEFAULT 1 CHECK(max_releases_per_review BETWEEN 1 AND 20),
+    allow_starvation_override   INTEGER NOT NULL DEFAULT 0,
+    verified                    INTEGER NOT NULL DEFAULT 0,
+    source                      TEXT NOT NULL DEFAULT 'engineering_assumption',
+    version                     INTEGER NOT NULL DEFAULT 1,
+    last_review_at              TEXT,
+    consecutive_failures        INTEGER NOT NULL DEFAULT 0,
+    last_error                  TEXT,
+    updated_by                  TEXT NOT NULL,
+    updated_at                  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS release_control_norms (
+    machine_id                  INTEGER PRIMARY KEY REFERENCES machines(id),
+    workload_norm_minutes       REAL NOT NULL DEFAULT 240 CHECK(workload_norm_minutes > 0),
+    standard_operation_seconds  REAL CHECK(standard_operation_seconds IS NULL OR standard_operation_seconds > 0),
+    source                      TEXT NOT NULL DEFAULT 'engineering_assumption',
+    verified                    INTEGER NOT NULL DEFAULT 0,
+    version                     INTEGER NOT NULL DEFAULT 1,
+    updated_by                  TEXT NOT NULL,
+    updated_at                  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS release_control_reviews (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    review_bucket       TEXT NOT NULL,
+    input_signature     TEXT NOT NULL,
+    method_version      TEXT NOT NULL,
+    planning_scenario_id INTEGER REFERENCES planning_scenarios(id),
+    status              TEXT NOT NULL,
+    result_json         TEXT NOT NULL,
+    created_by          TEXT NOT NULL,
+    created_at          TEXT NOT NULL,
+    UNIQUE(review_bucket, input_signature)
+);
+
+CREATE TABLE IF NOT EXISTS release_control_recommendations (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    review_id           INTEGER NOT NULL REFERENCES release_control_reviews(id),
+    production_order_id INTEGER NOT NULL REFERENCES production_orders(id),
+    order_version       INTEGER NOT NULL,
+    rank                INTEGER NOT NULL,
+    recommendation      TEXT NOT NULL CHECK(recommendation IN ('release','expedite','hold')),
+    reason_code         TEXT NOT NULL,
+    evidence_ready      INTEGER NOT NULL DEFAULT 0,
+    requires_override   INTEGER NOT NULL DEFAULT 0,
+    planned_release_at  TEXT,
+    urgency_seconds     REAL,
+    score               REAL NOT NULL,
+    workload_json       TEXT NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'open'
+                        CHECK(status IN ('open','applied','dismissed','stale')),
+    created_at          TEXT NOT NULL,
+    UNIQUE(review_id, production_order_id)
+);
+
+CREATE TABLE IF NOT EXISTS release_control_actions (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    recommendation_id   INTEGER NOT NULL REFERENCES release_control_recommendations(id),
+    action              TEXT NOT NULL CHECK(action IN ('approve','dismiss')),
+    actor               TEXT NOT NULL,
+    notes               TEXT,
+    override_confirmed  INTEGER NOT NULL DEFAULT 0,
+    result_json         TEXT NOT NULL DEFAULT '{}',
+    ts                  TEXT NOT NULL,
+    UNIQUE(recommendation_id)
+);
+
 -- Machine passports hold site-observed identity and connection facts. Research
 -- candidates remain in code and are never copied here as confirmed evidence.
 CREATE TABLE IF NOT EXISTS machine_passports (
@@ -2317,6 +2396,13 @@ INSERT OR IGNORE INTO constraint_runtime_settings
     (id,auto_sync,interval_seconds,window_hours,retention_days,updated_by,updated_at)
 VALUES (1,1,300,8,90,'schema','1970-01-01T00:00:00+00:00');
 
+INSERT OR IGNORE INTO release_control_settings
+    (id,auto_review,interval_seconds,overload_threshold_ratio,work_ahead_hours,
+     queue_allowance_hours,expedite_after_hours,max_releases_per_review,
+     allow_starvation_override,verified,source,updated_by,updated_at)
+VALUES (1,1,300,0.85,72,4,8,1,0,0,'engineering_assumption','schema',
+        '1970-01-01T00:00:00+00:00');
+
 CREATE INDEX IF NOT EXISTS idx_parts_job ON parts(job_id);
 CREATE INDEX IF NOT EXISTS idx_production_orders_status_due ON production_orders(status, due_at, priority DESC);
 CREATE INDEX IF NOT EXISTS idx_production_order_events_order_ts ON production_order_events(production_order_id, ts DESC);
@@ -2333,6 +2419,9 @@ CREATE INDEX IF NOT EXISTS idx_constraint_runtime_events_ts ON constraint_runtim
 CREATE INDEX IF NOT EXISTS idx_flow_samples_time ON flow_samples(sampled_at DESC);
 CREATE INDEX IF NOT EXISTS idx_flow_machine_samples_machine ON flow_machine_samples(machine_id, sample_id DESC);
 CREATE INDEX IF NOT EXISTS idx_flow_shift_current_date ON flow_shift_snapshots(is_current, local_date DESC);
+CREATE INDEX IF NOT EXISTS idx_release_reviews_created ON release_control_reviews(created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_release_recommendations_status ON release_control_recommendations(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_release_recommendations_order ON release_control_recommendations(production_order_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_event_ingestion_machine_received ON event_ingestion_log(machine_id, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_event_ingestion_status_received ON event_ingestion_log(status, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cycle_observations_machine_valid ON cycle_observations(machine_id, validity, ended_at DESC);

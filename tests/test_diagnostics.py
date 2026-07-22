@@ -26,10 +26,14 @@ def conn():
 
 def test_diagnostics_reports_services_and_machines(conn):
     result = diagnostics.build(conn, CFG, mqtt_connected=False, cv_watcher_running=False)
-    assert len(result["services"]) == 23
+    assert len(result["services"]) == 24
     assert result["summary"]["flow_sampling_status"] == "starting"
     flow = next(item for item in result["services"] if item["key"] == "flow_intelligence")
     assert flow["status"] == "needs_site_value"
+    release = next(item for item in result["services"] if item["key"] == "release_control")
+    assert release["status"] == "learning"
+    assert result["summary"]["release_control_runtime_status"] == "starting"
+    assert result["summary"]["release_control_actionable"] == 0
     changeover_service = next(item for item in result["services"]
                               if item["key"] == "changeover_intelligence")
     assert changeover_service["status"] == "needs_site_value"

@@ -17,6 +17,7 @@ operations are limited to the HIVE database and site configuration.
 - **Evidence-gated OEE** — verified shift calendar, state coverage, active cycle model, complete quality disposition, and exact waterfall reconciliation before a value is decision-ready.
 - **Production-loss waterfall** — partitions every scheduled machine second, separates availability from equivalent speed/quality loss, and ranks factory machine-minute exposure without double counting.
 - **WIP and flow intelligence** — samples released demand, downstream WIP, queue age, throughput, and held work; revision-closes shifts and gates recurring constraints and Little's Law on physical evidence and stability.
+- **Adaptive order release control** — retains ready orders in a pre-shop pool, calculates corrected routed workload, balances urgent demand, applies adaptive work-ahead limits, and requires a named approval before floor release.
 - **Daily score + streak** — combines trusted OEE and on-time job completion only after both inputs exist; incomplete shifts remain pending.
 - **Explainable optimization engine** — ranks dynamic constraints using active periods, queue depth, inferred downstream starvation, alarms, and a separate telemetry-confidence gate.
 - **Closed-loop improvement learning** — turns priorities into owned experiments with frozen baselines, minimum sample gates, confidence intervals, guardrails, immutable outcomes, and conservative advisory promotion.
@@ -105,6 +106,7 @@ hive-os/
 │   ├── oee.py                # OEE calculator
 │   ├── production_loss.py    # shift loss ledger, Pareto, and trusted OEE gate
 │   ├── flow_intelligence.py  # sampled WIP, flow-time, and revisioned shift history
+│   ├── release_control.py    # corrected workload, pre-shop pool, and release decisions
 │   ├── progress.py           # job progress tracker
 │   ├── score.py              # daily score + streak
 │   ├── bottleneck.py         # current factory constraint detector
@@ -294,6 +296,9 @@ unprefixed routes remain available for compatibility and local tooling.
 | GET | `/production-losses` | Verified-shift loss waterfall, Pareto, reconciliation, and trusted OEE |
 | GET | `/flow-intelligence` | Current WIP/queue evidence, shift history, recurrence, baselines, and sampling health |
 | POST | `/flow-intelligence/sync` | Capture an idempotent flow sample and close or revision completed shifts |
+| GET/POST | `/release-control`, `/release-control/sync` | Current pre-shop pool, corrected loads, recommendations, runtime, and explicit review |
+| PUT | `/release-control/settings`, `/release-control/norms/{key}` | Version and verify the release policy and station workload norms |
+| POST | `/release-control/recommendations/{id}/action` | Approve or dismiss one non-stale named release decision |
 | GET | `/improvements` | Recommendation lifecycle, experiments, outcomes, and learned advisories |
 | POST | `/improvements/sync` | Materialize current optimization priorities without GET-side writes |
 | GET | `/improvements/recommendations/{id}` | One recommendation's experiment and immutable event history |
@@ -464,6 +469,8 @@ See [PRODUCTION_LOSS_INTELLIGENCE.md](PRODUCTION_LOSS_INTELLIGENCE.md) for the
 shift boundary, loss taxonomy, OEE evidence gates, reconciliation, and site validation.
 See [FLOW_INTELLIGENCE.md](FLOW_INTELLIGENCE.md) for WIP semantics, sampled flow,
 queue-time formulas, revisioned shift close, historical gates, and commissioning.
+See [RELEASE_CONTROL.md](RELEASE_CONTROL.md) for corrected workload, planned
+release dates, adaptive work-ahead logic, evidence gates, and supervised approval.
 See [VIRTUAL_FACTORY_COMMISSIONING.md](VIRTUAL_FACTORY_COMMISSIONING.md) for the
 offsite reference model, isolation contract, sensitivity logic, and site measurements.
 See [COMMISSIONING_EVIDENCE.md](COMMISSIONING_EVIDENCE.md) for the offline field
@@ -495,6 +502,7 @@ Once weeks of real OEE data exist:
 - Promote automatically learned cycle models into real Performance OEE
 - Validate bottleneck scoring weights against real queues and operator observations
 - Validate flow-pressure weights, physical WIP reconciliation, and queue-time stability across product mixes
+- Tune release workload norms and work-ahead policy through controlled experiments, not undocumented changes
 - Validate P80 completion coverage and late-risk calibration across product mixes
 - Validate recovery thresholds and schedule-stability penalties against planner decisions
 - Validate tool-life limits and conservative local estimates against inspection and quality outcomes

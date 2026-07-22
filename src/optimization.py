@@ -13,6 +13,7 @@ import forecasting
 import procurement
 import production_loss
 import flow_intelligence
+import release_control
 import recovery
 
 
@@ -89,6 +90,7 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
     recovery_state = recovery.snapshot(conn, now)
     loss_accounting = production_loss.build(conn, now=now)
     flow = flow_intelligence.build(conn, days=90, now=now)
+    release_state = release_control.snapshot(conn)
     recommendations = []
 
     low_reporting = [
@@ -233,6 +235,38 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
             "target_type": "machine", "target_key": target["machine_key"],
             "cause_code": "held_wip",
             "metric_hint": "held_wip_qty", "target_direction": "decrease",
+        })
+
+    release_review = release_state.get("current")
+    release_action = next((
+        item for item in (release_review or {}).get("recommendations", [])
+        if item["status"] == "open" and item["evidence_ready"]
+        and item["recommendation"] in {"release", "expedite"}
+    ), None)
+    if release_action:
+        top_station = max(
+            release_action["workload"]["projected_stations"],
+            key=lambda item: item["projected_ratio"], default=None,
+        )
+        recommendations.append({
+            "priority": len(recommendations) + 1,
+            "category": "order_release",
+            "title": f"{release_action['recommendation'].title()} {release_action['job_name']}",
+            "action": (
+                "Review its planned release date and corrected station loads, then approve the "
+                "named release decision before dispatching work to the floor."
+            ),
+            "confidence": "high",
+            "estimated_gain": None,
+            "evidence": [
+                f"Release score {round(release_action['score'])}",
+                f"Planned release {release_action['planned_release_at']}",
+                (f"Highest projected station load {round(top_station['projected_ratio'] * 100)}%"
+                 if top_station else "All routed workload norms checked"),
+            ],
+            "target_type": "production_order",
+            "target_key": str(release_action["production_order_id"]),
+            "cause_code": "controlled_order_release",
         })
 
     latest_recovery = recovery_state.get("latest")
@@ -420,6 +454,12 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
                 "decision_ready_shifts": flow["history"]["decision_ready_shifts"],
                 "recurring_constraints": flow["history"]["recurring_constraints"],
             },
+        },
+        "release_control": {
+            "method_version": release_state["method_version"],
+            "runtime": release_state["runtime"],
+            "status": release_review["status"] if release_review else "starting",
+            "summary": release_review["summary"] if release_review else None,
         },
         "recommendations": _finalize(recommendations, start, end, now.isoformat()),
         "guardrail": (
