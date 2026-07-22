@@ -47,6 +47,41 @@ class ReleaseControlAction(RequestModel):
     confirm_override: bool = False
 
 
+class EconomicsSyncRequest(RequestModel):
+    actor: str = Field(default="operator", min_length=2)
+
+
+class EconomicsSettingsUpdate(RequestModel):
+    expected_version: Optional[int] = Field(default=None, ge=1)
+    auto_review: Optional[bool] = None
+    interval_seconds: Optional[int] = Field(default=None, ge=60, le=86400)
+    window_hours: Optional[int] = Field(default=None, ge=1, le=720)
+    persistence_window_days: Optional[int] = Field(default=None, ge=1, le=365)
+    minimum_persistence_reviews: Optional[int] = Field(default=None, ge=1, le=12)
+    currency: Optional[str] = Field(default=None, min_length=3, max_length=3)
+    verified: Optional[bool] = None
+    actor: str = Field(default="operator", min_length=2)
+
+
+class EconomicsRateUpdate(RequestModel):
+    expected_version: Optional[int] = Field(default=None, ge=0)
+    amount: float = Field(ge=0, le=1_000_000_000)
+    scope_type: Literal["factory", "machine"] = "factory"
+    scope_key: str = Field(default="factory", min_length=1)
+    verified: bool = False
+    actor: str = Field(default="operator", min_length=2)
+
+
+class EconomicsAdjustmentUpdate(RequestModel):
+    expected_version: Optional[int] = Field(default=None, ge=0)
+    window_start: str = Field(min_length=1)
+    window_end: str = Field(min_length=1)
+    adjustment_amount: float = Field(default=0, ge=-1_000_000_000, le=1_000_000_000)
+    reason: str = Field(min_length=3, max_length=500)
+    verified: bool = False
+    actor: str = Field(default="operator", min_length=2)
+
+
 class DowntimeCreate(RequestModel):
     machine_key: str = Field(min_length=1)
     reason_code: Optional[str] = None

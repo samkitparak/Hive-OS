@@ -18,6 +18,7 @@ operations are limited to the HIVE database and site configuration.
 - **Production-loss waterfall** — partitions every scheduled machine second, separates availability from equivalent speed/quality loss, and ranks factory machine-minute exposure without double counting.
 - **WIP and flow intelligence** — samples released demand, downstream WIP, queue age, throughput, and held work; revision-closes shifts and gates recurring constraints and Little's Law on physical evidence and stability.
 - **Adaptive order release control** — retains ready orders in a pre-shop pool, calculates corrected routed workload, balances urgent demand, applies adaptive work-ahead limits, and requires a named approval before floor release.
+- **Production economics and value assurance** — separates direct cash-like loss, constraint-only capacity opportunity, and experimentally measured benefit; verifies persistence through later operating windows and named baseline adjustments.
 - **Daily score + streak** — combines trusted OEE and on-time job completion only after both inputs exist; incomplete shifts remain pending.
 - **Explainable optimization engine** — ranks dynamic constraints using active periods, queue depth, inferred downstream starvation, alarms, and a separate telemetry-confidence gate.
 - **Closed-loop improvement learning** — turns priorities into owned experiments with frozen baselines, minimum sample gates, confidence intervals, guardrails, immutable outcomes, and conservative advisory promotion.
@@ -107,6 +108,7 @@ hive-os/
 │   ├── production_loss.py    # shift loss ledger, Pareto, and trusted OEE gate
 │   ├── flow_intelligence.py  # sampled WIP, flow-time, and revisioned shift history
 │   ├── release_control.py    # corrected workload, pre-shop pool, and release decisions
+│   ├── economics.py          # direct loss, constraint opportunity, and measured value assurance
 │   ├── progress.py           # job progress tracker
 │   ├── score.py              # daily score + streak
 │   ├── bottleneck.py         # current factory constraint detector
@@ -231,6 +233,7 @@ All TODOs are in two files:
 
 See `INDIA_CHECKLIST.md` for the full on-site setup sequence.
 See `DEPLOYMENT.md` for Windows one-click installation and diagnostics.
+See `ECONOMICS.md` for value-claim formulas, evidence gates, and finance commissioning.
 
 The Windows installer binds the dashboard/API to central-PC localhost and opens
 only mutual-TLS MQTT to the local subnet. Machine identities are issued and
@@ -299,6 +302,9 @@ unprefixed routes remain available for compatibility and local tooling.
 | GET/POST | `/release-control`, `/release-control/sync` | Current pre-shop pool, corrected loads, recommendations, runtime, and explicit review |
 | PUT | `/release-control/settings`, `/release-control/norms/{key}` | Version and verify the release policy and station workload norms |
 | POST | `/release-control/recommendations/{id}/action` | Approve or dismiss one non-stale named release decision |
+| GET/POST | `/economics`, `/economics/sync` | Current value ledger, evidence gates, rates, history, runtime, and explicit review |
+| PUT | `/economics/settings`, `/economics/rates/{key}` | Version and verify currency, measurement policy, and scoped finance rates |
+| PUT | `/economics/experiments/{id}/adjustments` | Record a named routine/non-routine persistence-window adjustment, including verified zero |
 | GET | `/improvements` | Recommendation lifecycle, experiments, outcomes, and learned advisories |
 | POST | `/improvements/sync` | Materialize current optimization priorities without GET-side writes |
 | GET | `/improvements/recommendations/{id}` | One recommendation's experiment and immutable event history |

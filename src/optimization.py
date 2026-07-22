@@ -91,6 +91,10 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
     loss_accounting = production_loss.build(conn, now=now)
     flow = flow_intelligence.build(conn, days=90, now=now)
     release_state = release_control.snapshot(conn)
+    # Lazy import avoids a module cycle: economics reads completed improvement
+    # experiments, while improvement materializes these recommendations.
+    import economics as economics_module
+    economics_state = economics_module.snapshot(conn)
     recommendations = []
 
     low_reporting = [
@@ -386,6 +390,42 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
             "metric_hint": "defect_rate", "target_direction": "decrease",
         })
 
+    value_review = economics_state.get("current")
+    value_summary = value_review.get("summary", {}) if value_review else {}
+    if (not economics_state["settings"]["verified"]
+            or not value_summary.get("verified_rates")):
+        recommendations.append({
+            "priority": len(recommendations) + 1,
+            "category": "value_assurance",
+            "title": "Commission production economics",
+            "action": (
+                "Have finance and operations verify reporting currency, throughput contribution, "
+                "constraint-minute, internal-failure, and rework rates before using monetary claims."
+            ),
+            "confidence": "high", "estimated_gain": None,
+            "evidence": [
+                f"Policy {'verified' if economics_state['settings']['verified'] else 'unverified'}",
+                f"{value_summary.get('verified_rates', 0)} verified value rates",
+            ],
+            "cause_code": "uncommissioned_economics",
+        })
+    elif value_summary.get("blocked_claims"):
+        recommendations.append({
+            "priority": len(recommendations) + 1,
+            "category": "value_assurance",
+            "title": "Close value-claim evidence gaps",
+            "action": (
+                "Resolve physical identity, attribution, constraint, rate, or persistence-adjustment "
+                "gaps before presenting the affected savings externally."
+            ),
+            "confidence": "high", "estimated_gain": None,
+            "evidence": [
+                f"{value_summary['blocked_claims']} claims awaiting evidence",
+                *(value_review.get("evidence_gaps", [])[:2] if value_review else []),
+            ],
+            "cause_code": "blocked_value_claims",
+        })
+
     history = []
     for offset in range(0, min(24, window_hours * 4), window_hours):
         point_now = now - timedelta(hours=offset)
@@ -460,6 +500,12 @@ def build(conn: sqlite3.Connection, window_hours: int = 8,
             "runtime": release_state["runtime"],
             "status": release_review["status"] if release_review else "starting",
             "summary": release_review["summary"] if release_review else None,
+        },
+        "economics": {
+            "method_version": economics_state["method_version"],
+            "runtime": economics_state["runtime"],
+            "status": value_review["status"] if value_review else "starting",
+            "summary": value_summary or None,
         },
         "recommendations": _finalize(recommendations, start, end, now.isoformat()),
         "guardrail": (

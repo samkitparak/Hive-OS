@@ -90,7 +90,7 @@ application version on macOS, Linux, or Windows:
 
 ```bash
 PYTHONPATH=src python src/offline_release.py \
-  release/HIVE-OS-0.33.0-offline.zip --version 0.33.0
+  release/HIVE-OS-0.34.0-offline.zip --version 0.34.0
 ```
 
 Static verification does not prove Windows service startup, firewall behavior,

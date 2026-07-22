@@ -131,6 +131,13 @@ def test_virtual_lab_requires_commission_or_optimize_permission():
     assert access_control.required_permissions(
         "POST", "/release-control/recommendations/3/action"
     ) == ("plan", "optimize", "supervise")
+    assert access_control.required_permissions("GET", "/economics") == ("view",)
+    assert access_control.required_permissions("POST", "/economics/sync") == (
+        "optimize", "supervise",
+    )
+    assert access_control.required_permissions(
+        "PUT", "/economics/rates/constraint_minute_value"
+    ) == ("optimize", "supervise")
     assert access_control.required_permissions("GET", "/changeovers") == ("view",)
     assert access_control.required_permissions(
         "PUT", "/changeovers/machines/gabbiani_pt80/standard"

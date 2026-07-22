@@ -3,6 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, UserRound } from "lucide-react";
 import {
   actOnReleaseRecommendation, fetchFlowIntelligence, fetchReleaseControl,
+  fetchEconomics, syncEconomics, updateEconomicsAdjustment, updateEconomicsRate,
+  updateEconomicsSettings,
   syncFlowIntelligence, syncReleaseControl, updateReleaseControlNorm,
   updateReleaseControlSettings,
 } from "./api";
@@ -20,6 +22,7 @@ import { IntelligencePanel } from "./IntelligencePanel";
 import { ProductionLossPanel } from "./ProductionLossPanel";
 import { FlowIntelligencePanel } from "./FlowIntelligencePanel";
 import { ReleaseControlPanel } from "./ReleaseControlPanel";
+import { EconomicsPanel } from "./EconomicsPanel";
 import { ImprovementPanel } from "./ImprovementPanel";
 import { RootCausePanel } from "./RootCausePanel";
 import { AlertCenter } from "./AlertCenter";
@@ -74,6 +77,7 @@ export default function App({ auth }) {
   const [constraintSyncing, setConstraintSyncing] = useState(false);
   const [flowSyncing, setFlowSyncing] = useState(false);
   const [releaseSyncing, setReleaseSyncing] = useState(false);
+  const [economicsSyncing, setEconomicsSyncing] = useState(false);
   const demoRef = useRef(null);
 
   const { data: machines = [] } = useQuery({
@@ -111,6 +115,9 @@ export default function App({ auth }) {
   });
   const { data: releaseControl = null } = useQuery({
     queryKey: ["releaseControl"], queryFn: fetchReleaseControl, refetchInterval: 30000,
+  });
+  const { data: economics = null } = useQuery({
+    queryKey: ["economics"], queryFn: fetchEconomics, refetchInterval: 30000,
   });
   const { data: improvements = null } = useQuery({
     queryKey: ["improvements"], queryFn: fetchImprovements, refetchInterval: 30000,
@@ -219,6 +226,7 @@ export default function App({ auth }) {
       qc.invalidateQueries({ queryKey: ["productionLosses"] });
       qc.invalidateQueries({ queryKey: ["flowIntelligence"] });
       qc.invalidateQueries({ queryKey: ["releaseControl"] });
+      qc.invalidateQueries({ queryKey: ["economics"] });
       qc.invalidateQueries({ queryKey: ["learning"] });
       qc.invalidateQueries({ queryKey: ["routing"] });
       qc.invalidateQueries({ queryKey: ["twin"] });
@@ -294,7 +302,7 @@ export default function App({ auth }) {
   };
 
   const refreshOperations = () => {
-    ["operationsSummary", "downtime", "workOrders", "maintenance", "rework", "barcodeEvents", "executionSnapshot", "identitySnapshot", "productionOrders", "resourceSnapshot", "jobs", "productionLosses", "flowIntelligence", "releaseControl", "dailyScore", "optimization", "diagnostics"].forEach(key => {
+    ["operationsSummary", "downtime", "workOrders", "maintenance", "rework", "barcodeEvents", "executionSnapshot", "identitySnapshot", "productionOrders", "resourceSnapshot", "jobs", "productionLosses", "flowIntelligence", "releaseControl", "economics", "dailyScore", "optimization", "diagnostics"].forEach(key => {
       qc.invalidateQueries({ queryKey: [key] });
     });
   };
@@ -466,6 +474,7 @@ export default function App({ auth }) {
         qc.invalidateQueries({ queryKey: ["bottlenecks"] }),
         qc.invalidateQueries({ queryKey: ["optimization"] }),
         qc.invalidateQueries({ queryKey: ["constraintTimeline"] }),
+        qc.invalidateQueries({ queryKey: ["economics"] }),
       ]);
     } finally {
       setConstraintSyncing(false);
@@ -474,7 +483,7 @@ export default function App({ auth }) {
 
   const runConstraintSettings = async payload => {
     const result = await updateConstraintSettings(payload);
-    ["constraintTimeline", "bottlenecks", "optimization", "diagnostics"].forEach(key => {
+    ["constraintTimeline", "bottlenecks", "optimization", "diagnostics", "economics"].forEach(key => {
       qc.invalidateQueries({ queryKey: [key] });
     });
     return result;
@@ -533,6 +542,45 @@ export default function App({ auth }) {
     return result;
   };
 
+  const refreshEconomics = () => {
+    ["economics", "optimization", "diagnostics"].forEach(key => {
+      qc.invalidateQueries({ queryKey: [key] });
+    });
+  };
+
+  const runEconomicsSync = async () => {
+    setEconomicsSyncing(true);
+    try {
+      await syncEconomics({ actor: auth.user.username || "operator" });
+      refreshEconomics();
+    } finally { setEconomicsSyncing(false); }
+  };
+
+  const runEconomicsSettings = async payload => {
+    const result = await updateEconomicsSettings({
+      ...payload, actor: auth.user.username || "operator",
+    });
+    refreshEconomics();
+    return result;
+  };
+
+  const runEconomicsRate = async (rateKey, payload) => {
+    const result = await updateEconomicsRate(rateKey, {
+      ...payload, actor: auth.user.username || "operator",
+    });
+    refreshEconomics();
+    return result;
+  };
+
+  const runEconomicsAdjustment = async (experimentId, payload) => {
+    const result = await updateEconomicsAdjustment(experimentId, {
+      ...payload, actor: auth.user.username || "operator",
+    });
+    await syncEconomics({ actor: auth.user.username || "operator" });
+    refreshEconomics();
+    return result;
+  };
+
   const runConnectorAction = async (kind, connectorKey, payload = {}) => {
     let result;
     if (kind === "analyze") result = await analyzeConnector(connectorKey, payload);
@@ -559,6 +607,7 @@ export default function App({ auth }) {
     if (["poll", "approve"].includes(kind)) {
       qc.invalidateQueries({ queryKey: ["machines"] });
       qc.invalidateQueries({ queryKey: ["diagnostics"] });
+      qc.invalidateQueries({ queryKey: ["economics"] });
     }
     return result;
   };
@@ -580,13 +629,13 @@ export default function App({ auth }) {
 
   const runImprovementSync = async () => {
     const result = await syncImprovements({ actor: "improvement-console", window_hours: 8 });
-    ["improvements", "diagnostics"].forEach(key => qc.invalidateQueries({ queryKey: [key] }));
+    ["improvements", "diagnostics", "economics", "optimization"].forEach(key => qc.invalidateQueries({ queryKey: [key] }));
     return result;
   };
 
   const runImprovementAction = async (id, payload) => {
     const result = await actOnImprovement(id, payload);
-    ["improvements", "diagnostics"].forEach(key => qc.invalidateQueries({ queryKey: [key] }));
+    ["improvements", "diagnostics", "economics", "optimization"].forEach(key => qc.invalidateQueries({ queryKey: [key] }));
     return result;
   };
 
@@ -820,6 +869,14 @@ export default function App({ auth }) {
         onSettings={runReleaseSettings}
         onNorm={runReleaseNorm}
         onAction={runReleaseAction} />
+
+      <EconomicsPanel data={economics}
+        canManage={can("optimize", "supervise")}
+        syncing={economicsSyncing}
+        onSync={runEconomicsSync}
+        onSettings={runEconomicsSettings}
+        onRate={runEconomicsRate}
+        onAdjustment={runEconomicsAdjustment} />
 
       <Suspense fallback={<section style={{ borderTop: "1px solid #1f2937", borderBottom: "1px solid #1f2937",
         padding: "14px 0", marginBottom: 20, color: "#6b7280", fontSize: 11 }}>Loading production forecast…</section>}>

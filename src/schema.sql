@@ -2282,6 +2282,110 @@ CREATE TABLE IF NOT EXISTS release_control_actions (
     UNIQUE(recommendation_id)
 );
 
+-- Production economics never converts every machine-minute into revenue. It
+-- keeps direct cost exposure, constraint capacity opportunity, and measured
+-- improvement benefit separate, with versioned finance inputs and immutable
+-- review evidence.
+CREATE TABLE IF NOT EXISTS economics_settings (
+    id                          INTEGER PRIMARY KEY CHECK(id=1),
+    auto_review                 INTEGER NOT NULL DEFAULT 1,
+    interval_seconds            INTEGER NOT NULL DEFAULT 300,
+    window_hours                INTEGER NOT NULL DEFAULT 24,
+    persistence_window_days     INTEGER NOT NULL DEFAULT 30,
+    minimum_persistence_reviews INTEGER NOT NULL DEFAULT 2,
+    currency                    TEXT NOT NULL DEFAULT 'INR',
+    verified                    INTEGER NOT NULL DEFAULT 0,
+    source                      TEXT NOT NULL DEFAULT 'engineering_assumption',
+    version                     INTEGER NOT NULL DEFAULT 1,
+    last_review_at              TEXT,
+    consecutive_failures        INTEGER NOT NULL DEFAULT 0,
+    last_error                  TEXT,
+    updated_by                  TEXT NOT NULL,
+    updated_at                  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS economics_rates (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    rate_key        TEXT NOT NULL,
+    scope_type      TEXT NOT NULL CHECK(scope_type IN ('factory','machine')),
+    scope_key       TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    amount          REAL NOT NULL CHECK(amount >= 0),
+    unit            TEXT NOT NULL,
+    currency        TEXT NOT NULL,
+    source          TEXT NOT NULL DEFAULT 'manual',
+    verified        INTEGER NOT NULL DEFAULT 0,
+    active          INTEGER NOT NULL DEFAULT 1,
+    version         INTEGER NOT NULL DEFAULT 1,
+    approved_by     TEXT,
+    approved_at     TEXT,
+    created_at      TEXT NOT NULL,
+    UNIQUE(rate_key,scope_type,scope_key,version)
+);
+
+CREATE TABLE IF NOT EXISTS economics_rate_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    rate_id         INTEGER NOT NULL REFERENCES economics_rates(id),
+    event_type      TEXT NOT NULL,
+    actor           TEXT NOT NULL,
+    details_json    TEXT NOT NULL DEFAULT '{}',
+    ts              TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS economics_reviews (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    review_bucket   TEXT NOT NULL,
+    input_signature TEXT NOT NULL,
+    method_version  TEXT NOT NULL,
+    status          TEXT NOT NULL,
+    window_start    TEXT NOT NULL,
+    window_end      TEXT NOT NULL,
+    result_json     TEXT NOT NULL,
+    created_by      TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    UNIQUE(review_bucket,input_signature)
+);
+
+CREATE TABLE IF NOT EXISTS economics_claims (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    review_id       INTEGER NOT NULL REFERENCES economics_reviews(id),
+    claim_key       TEXT NOT NULL,
+    claim_type      TEXT NOT NULL,
+    category        TEXT NOT NULL,
+    target_type     TEXT NOT NULL,
+    target_key      TEXT NOT NULL,
+    source_type     TEXT NOT NULL,
+    source_key      TEXT NOT NULL,
+    quantity        REAL,
+    quantity_unit   TEXT,
+    rate_id         INTEGER REFERENCES economics_rates(id),
+    amount          REAL,
+    currency        TEXT NOT NULL,
+    status          TEXT NOT NULL,
+    confidence      TEXT NOT NULL,
+    evidence_json   TEXT NOT NULL DEFAULT '[]',
+    blocked_by_json TEXT NOT NULL DEFAULT '[]',
+    created_at      TEXT NOT NULL,
+    UNIQUE(review_id,claim_key)
+);
+
+-- A zero-value row is still meaningful: a named reviewer confirmed that the
+-- persistence window needs no routine or non-routine baseline adjustment.
+CREATE TABLE IF NOT EXISTS economics_adjustments (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    experiment_id       INTEGER NOT NULL REFERENCES improvement_experiments(id),
+    window_start        TEXT NOT NULL,
+    window_end          TEXT NOT NULL,
+    adjustment_amount   REAL NOT NULL DEFAULT 0,
+    reason              TEXT NOT NULL,
+    actor               TEXT NOT NULL,
+    verified            INTEGER NOT NULL DEFAULT 0,
+    active              INTEGER NOT NULL DEFAULT 1,
+    version             INTEGER NOT NULL DEFAULT 1,
+    created_at          TEXT NOT NULL,
+    UNIQUE(experiment_id,window_start,window_end,version)
+);
+
 -- Machine passports hold site-observed identity and connection facts. Research
 -- candidates remain in code and are never copied here as confirmed evidence.
 CREATE TABLE IF NOT EXISTS machine_passports (
@@ -2403,6 +2507,12 @@ INSERT OR IGNORE INTO release_control_settings
 VALUES (1,1,300,0.85,72,4,8,1,0,0,'engineering_assumption','schema',
         '1970-01-01T00:00:00+00:00');
 
+INSERT OR IGNORE INTO economics_settings
+    (id,auto_review,interval_seconds,window_hours,persistence_window_days,
+     minimum_persistence_reviews,currency,verified,source,updated_by,updated_at)
+VALUES (1,1,300,24,30,2,'INR',0,'engineering_assumption','schema',
+        '1970-01-01T00:00:00+00:00');
+
 CREATE INDEX IF NOT EXISTS idx_parts_job ON parts(job_id);
 CREATE INDEX IF NOT EXISTS idx_production_orders_status_due ON production_orders(status, due_at, priority DESC);
 CREATE INDEX IF NOT EXISTS idx_production_order_events_order_ts ON production_order_events(production_order_id, ts DESC);
@@ -2422,6 +2532,11 @@ CREATE INDEX IF NOT EXISTS idx_flow_shift_current_date ON flow_shift_snapshots(i
 CREATE INDEX IF NOT EXISTS idx_release_reviews_created ON release_control_reviews(created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_release_recommendations_status ON release_control_recommendations(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_release_recommendations_order ON release_control_recommendations(production_order_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_economics_rates_scope ON economics_rates(rate_key, scope_type, scope_key, active, version DESC);
+CREATE INDEX IF NOT EXISTS idx_economics_rate_events_rate ON economics_rate_events(rate_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_economics_reviews_created ON economics_reviews(created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_economics_claims_review ON economics_claims(review_id, claim_type, status);
+CREATE INDEX IF NOT EXISTS idx_economics_adjustments_experiment ON economics_adjustments(experiment_id, window_start, active);
 CREATE INDEX IF NOT EXISTS idx_event_ingestion_machine_received ON event_ingestion_log(machine_id, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_event_ingestion_status_received ON event_ingestion_log(status, received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cycle_observations_machine_valid ON cycle_observations(machine_id, validity, ended_at DESC);

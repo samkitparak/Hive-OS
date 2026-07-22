@@ -26,6 +26,7 @@ import changeovers
 import production_loss
 import flow_intelligence
 import release_control
+import economics
 
 PLACEHOLDER_HOSTS = {
     *(f"192.168.1.{number}" for number in range(51, 55)),
@@ -223,6 +224,15 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
     release_summary = release_current["summary"] if release_current else {
         "pre_shop_orders": 0, "actionable": 0, "release": 0, "expedite": 0, "hold": 0,
     }
+    economics_state = economics.snapshot(conn)
+    economics_runtime = economics_state["runtime"]
+    economics_current = economics_state["current"]
+    economics_summary = economics_current["summary"] if economics_current else {
+        "direct_cost_exposure": 0, "constraint_capacity_opportunity": 0,
+        "measured_improvement_benefit": 0, "sustained_improvement_benefit": 0,
+        "decision_ready_claims": 0, "measured_claims": 0, "sustained_claims": 0,
+        "blocked_claims": 0, "verified_rates": 0,
+    }
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -272,6 +282,12 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
             "release_control_runtime_status": release_runtime["status"],
             "release_control_pool_orders": release_summary["pre_shop_orders"],
             "release_control_actionable": release_summary["actionable"],
+            "economics_status": economics_current["status"] if economics_current else "starting",
+            "economics_runtime_status": economics_runtime["status"],
+            "economics_verified_rates": economics_summary["verified_rates"],
+            "economics_measured_claims": economics_summary["measured_claims"],
+            "economics_sustained_claims": economics_summary["sustained_claims"],
+            "economics_blocked_claims": economics_summary["blocked_claims"],
             "open_diagnostic_cases": root_cause_summary["open"],
             "confirmed_root_causes": root_cause_summary["confirmed"],
             "diagnostic_models_learning": learned_incident_types,
@@ -437,6 +453,20 @@ def build(conn: sqlite3.Connection, cfg_path: Path,
                  f"{improvement_summary['evaluable']} ready to evaluate; "
                  f"{improvement_summary['validated']} validated; "
                  f"{promoted_patterns} reusable patterns"
+             )},
+            {"key": "production_economics", "name": "Production economics and value assurance",
+             "status": (
+                 "ready" if economics_runtime["status"] == "healthy"
+                 and economics_current and economics_current["status"] == "verified_value" else
+                 "learning" if economics_runtime["status"] in {"healthy", "starting"} else
+                 "offline"
+             ),
+             "detail": (
+                 f"worker {economics_runtime['status']}; "
+                 f"{economics_summary['verified_rates']} verified rates; "
+                 f"{economics_summary['measured_claims']} measured claims; "
+                 f"{economics_summary['sustained_claims']} sustained; "
+                 f"{economics_summary['blocked_claims']} awaiting evidence"
              )},
             {"key": "constraint_intelligence", "name": "Constraint intelligence automation",
              "status": (

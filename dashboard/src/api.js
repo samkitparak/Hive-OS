@@ -129,6 +129,19 @@ export const updateReleaseControlNorm = (machineKey, payload) => request(
 );
 export const actOnReleaseRecommendation = (id, payload) =>
   postJson(`/release-control/recommendations/${id}/action`, payload);
+export const fetchEconomics = () => request("/economics");
+export const syncEconomics = (payload = {}) => postJson("/economics/sync", payload);
+export const updateEconomicsSettings = payload => request("/economics/settings", {
+  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+});
+export const updateEconomicsRate = (rateKey, payload) => request(
+  `/economics/rates/${encodeURIComponent(rateKey)}`,
+  { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+);
+export const updateEconomicsAdjustment = (experimentId, payload) => request(
+  `/economics/experiments/${experimentId}/adjustments`,
+  { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+);
 export const fetchImprovements = () => request("/improvements");
 export const syncImprovements = (payload = {}) => postJson("/improvements/sync", payload);
 export const actOnImprovement = (id, payload) =>

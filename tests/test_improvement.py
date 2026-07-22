@@ -53,10 +53,13 @@ def test_sync_is_explicit_and_preserves_stable_recommendation_identity(conn):
     assert improvement.snapshot(conn, now)["summary"]["total"] == 0
     first = improvement.sync(conn, actor="test", now=now)
     second = improvement.sync(conn, actor="test", now=now + timedelta(minutes=5))
-    assert first["sync"] == {"created": 1, "refreshed": 0, "source_count": 1}
-    assert second["sync"] == {"created": 0, "refreshed": 1, "source_count": 1}
-    assert second["summary"]["total"] == 1
-    assert len(second["recommendations"][0]["events"]) == 1
+    assert first["sync"] == {"created": 2, "refreshed": 0, "source_count": 2}
+    assert second["sync"] == {"created": 0, "refreshed": 2, "source_count": 2}
+    assert second["summary"]["total"] == 2
+    assert {item["recommendation_key"] for item in first["recommendations"]} == {
+        item["recommendation_key"] for item in second["recommendations"]
+    }
+    assert all(len(item["events"]) == 1 for item in second["recommendations"])
 
 
 def test_non_measurable_action_can_be_owned_and_completed(conn):

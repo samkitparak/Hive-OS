@@ -61,6 +61,7 @@ import optimization as optimization_module
 import production_loss as production_loss_module
 import flow_intelligence as flow_intelligence_module
 import release_control as release_control_module
+import economics as economics_module
 import improvement as improvement_module
 import root_cause as root_cause_module
 import alerting as alerting_module
@@ -121,6 +122,10 @@ from api_models import (
     ReleaseControlNormUpdate,
     ReleaseControlSettingsUpdate,
     ReleaseControlSyncRequest,
+    EconomicsAdjustmentUpdate,
+    EconomicsRateUpdate,
+    EconomicsSettingsUpdate,
+    EconomicsSyncRequest,
     ConstraintSyncRequest,
     ConstraintSettingsUpdate,
     RootCauseDecision,
@@ -207,7 +212,7 @@ logging.basicConfig(level=logging.INFO,
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "machines.yaml"
 DASHBOARD_DIST = Path(__file__).parent.parent / "dashboard" / "dist"
-APP_VERSION = "0.33.0"
+APP_VERSION = "0.34.0"
 
 
 class ApiPrefixMiddleware:
@@ -370,13 +375,14 @@ _alert_watch_task = None
 _constraint_watch_task = None
 _flow_watch_task = None
 _release_watch_task = None
+_economics_watch_task = None
 _route_conn_override = None
 _route_connections = threading.local()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _mqtt_client, _conn, _cv_observer, _event_watch_task, _learning_watch_task, _industrial_watch_task, _alert_watch_task, _constraint_watch_task, _flow_watch_task, _release_watch_task
+    global _mqtt_client, _conn, _cv_observer, _event_watch_task, _learning_watch_task, _industrial_watch_task, _alert_watch_task, _constraint_watch_task, _flow_watch_task, _release_watch_task, _economics_watch_task
     _conn = init_db(DB_PATH, check_same_thread=False)
     if access_control_module.auth_required():
         token_path = access_control_module.ensure_bootstrap_token(_conn)
@@ -405,7 +411,14 @@ async def lifespan(app: FastAPI):
     _constraint_watch_task = asyncio.create_task(_watch_constraints())
     _flow_watch_task = asyncio.create_task(_watch_flow())
     _release_watch_task = asyncio.create_task(_watch_release_control())
+    _economics_watch_task = asyncio.create_task(_watch_economics())
     yield
+    if _economics_watch_task:
+        _economics_watch_task.cancel()
+        try:
+            await _economics_watch_task
+        except asyncio.CancelledError:
+            pass
     if _release_watch_task:
         _release_watch_task.cancel()
         try:
@@ -663,6 +676,34 @@ async def _watch_release_control():
             raise
         except Exception:
             log.exception("release control automation failed")
+            await asyncio.sleep(30)
+
+
+def _run_economics_worker() -> dict:
+    owned = _route_conn_override is None
+    conn = (db_module.get_connection(DB_PATH, check_same_thread=False)
+            if owned else _route_conn_override)
+    try:
+        return economics_module.automatic_refresh(conn)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        if owned:
+            conn.close()
+
+
+async def _watch_economics():
+    """Refresh value assurance without turning previews into finance truth."""
+    await asyncio.sleep(5)
+    while True:
+        try:
+            await asyncio.to_thread(_run_economics_worker)
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("production economics automation failed")
             await asyncio.sleep(30)
 
 
@@ -1173,6 +1214,56 @@ def post_release_control_action(recommendation_id: int,
         raise HTTPException(404, str(error)) from error
     except (release_control_module.VersionConflict,
             production_control_module.VersionConflict) as error:
+        raise HTTPException(409, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/economics")
+def get_economics():
+    return economics_module.snapshot(_get_conn())
+
+
+@app.post("/economics/sync")
+def post_economics_sync(payload: EconomicsSyncRequest):
+    try:
+        return economics_module.create_review(_get_conn(), actor=payload.actor)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.put("/economics/settings")
+def put_economics_settings(payload: EconomicsSettingsUpdate):
+    try:
+        return economics_module.update_settings(_get_conn(), payload.model_dump())
+    except economics_module.VersionConflict as error:
+        raise HTTPException(409, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.put("/economics/rates/{rate_key}")
+def put_economics_rate(rate_key: str, payload: EconomicsRateUpdate):
+    try:
+        return economics_module.update_rate(_get_conn(), rate_key, payload.model_dump())
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except economics_module.VersionConflict as error:
+        raise HTTPException(409, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.put("/economics/experiments/{experiment_id}/adjustments")
+def put_economics_adjustment(experiment_id: int,
+                             payload: EconomicsAdjustmentUpdate):
+    try:
+        return economics_module.record_adjustment(
+            _get_conn(), experiment_id, payload.model_dump()
+        )
+    except KeyError as error:
+        raise HTTPException(404, str(error)) from error
+    except economics_module.VersionConflict as error:
         raise HTTPException(409, str(error)) from error
     except ValueError as error:
         raise HTTPException(400, str(error)) from error

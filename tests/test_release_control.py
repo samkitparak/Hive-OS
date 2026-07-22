@@ -223,4 +223,4 @@ def test_release_control_endpoints():
         snapshot = client.get("/release-control")
         assert snapshot.status_code == 200
         assert snapshot.json()["current"]["status"] == "waiting_for_schedule"
-        assert main.APP_VERSION == "0.33.0"
+        assert main.APP_VERSION == "0.34.0"
